@@ -1,21 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
-import ProjectsClient from "./ProjectsClient";
+import ContactsClient from "./ContactsClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectsPage() {
+export default async function ContactsPage() {
   const supabase = await createClient();
-  const { data: projects } = await supabase
-    .from("projects")
+  const { data: contacts } = await supabase
+    .from("contacts")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("name");
 
   return (
     <>
-      <Header title="Projects" />
+      <Header title="Contacts" />
       <main className="flex-1 p-6 overflow-auto">
-        <ProjectsClient projects={projects ?? []} />
+        <ContactsClient contacts={contacts ?? []} />
       </main>
     </>
   );
