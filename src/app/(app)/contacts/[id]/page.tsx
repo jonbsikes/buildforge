@@ -5,7 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { ArrowLeft, Pencil, Check, X } from "lucide-react";
-import type { Database, ContactType } from "@/types/database";
+import type { Database } from "@/types/database";
+
+type ContactType = "lender" | "owner" | "other";
 
 type Contact = Database["public"]["Tables"]["contacts"]["Row"];
 
