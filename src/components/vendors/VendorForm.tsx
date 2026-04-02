@@ -283,25 +283,23 @@ export default function VendorForm({ costCodes, initialData, prefillName }: Prop
       if (data.error) { setExtractionError(data.error); return; }
 
       // Apply extracted fields — only overwrite blank fields (don't clobber existing data on edit)
+      // Spread prev to preserve ACH fields (manually entered, never AI-extracted)
       setForm((prev) => ({
-        name: prev.name || data.name || prev.name,
-        email: prev.email || data.email || prev.email,
-        phone: prev.phone || data.phone || prev.phone,
-        address: prev.address || data.address || prev.address,
+        ...prev,
+        name: prev.name || data.name || "",
+        email: prev.email || data.email || "",
+        phone: prev.phone || data.phone || "",
+        address: prev.address || data.address || "",
         trades: prev.trades.length > 0 ? prev.trades : (data.trades ?? prev.trades),
-        coi_expiry_date: prev.coi_expiry_date || data.coi_expiry_date || prev.coi_expiry_date,
-        license_expiry_date: prev.license_expiry_date || data.license_expiry_date || prev.license_expiry_date,
-        notes: prev.notes || data.notes || prev.notes,
-        primary_contact_name: prev.primary_contact_name || data.primary_contact_name || prev.primary_contact_name,
-        primary_contact_email: prev.primary_contact_email || data.primary_contact_email || prev.primary_contact_email,
-        primary_contact_phone: prev.primary_contact_phone || data.primary_contact_phone || prev.primary_contact_phone,
-        accounting_contact_name: prev.accounting_contact_name || data.accounting_contact_name || prev.accounting_contact_name,
-        accounting_contact_email: prev.accounting_contact_email || data.accounting_contact_email || prev.accounting_contact_email,
-        accounting_contact_phone: prev.accounting_contact_phone || data.accounting_contact_phone || prev.accounting_contact_phone,
-        ach_bank_name: prev.ach_bank_name || data.ach_bank_name || prev.ach_bank_name,
-        ach_routing_number: prev.ach_routing_number || data.ach_routing_number || prev.ach_routing_number,
-        ach_account_number: prev.ach_account_number || data.ach_account_number || prev.ach_account_number,
-        ach_account_type: prev.ach_account_type || data.ach_account_type || prev.ach_account_type,
+        coi_expiry_date: prev.coi_expiry_date || data.coi_expiry_date || "",
+        license_expiry_date: prev.license_expiry_date || data.license_expiry_date || "",
+        notes: prev.notes || data.notes || "",
+        primary_contact_name: prev.primary_contact_name || data.primary_contact_name || "",
+        primary_contact_email: prev.primary_contact_email || data.primary_contact_email || "",
+        primary_contact_phone: prev.primary_contact_phone || data.primary_contact_phone || "",
+        accounting_contact_name: prev.accounting_contact_name || data.accounting_contact_name || "",
+        accounting_contact_email: prev.accounting_contact_email || data.accounting_contact_email || "",
+        accounting_contact_phone: prev.accounting_contact_phone || data.accounting_contact_phone || "",
       }));
     } catch {
       setExtractionError("Could not reach extraction service");

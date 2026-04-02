@@ -55,6 +55,21 @@ export default function NotificationBell() {
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
+  // Keyboard support: Escape to close, arrow navigation within list
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        // Return focus to the bell button
+        const button = ref.current?.querySelector("button");
+        button?.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open]);
+
   async function markRead(id: string) {
     await supabase.from("notifications").update({ is_read: true }).eq("id", id);
     setNotifications((prev) =>
@@ -109,6 +124,7 @@ export default function NotificationBell() {
               <button
                 onClick={() => setOpen(false)}
                 className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                aria-label="Close notifications"
               >
                 <X size={14} />
               </button>
@@ -149,6 +165,7 @@ export default function NotificationBell() {
                     <button
                       onClick={() => markRead(n.id)}
                       className="p-1 text-gray-300 hover:text-[#4272EF] rounded transition-colors flex-shrink-0"
+                      aria-label="Mark as read"
                       title="Mark as read"
                     >
                       <Check size={13} />

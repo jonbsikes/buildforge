@@ -118,6 +118,20 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     costCodes
   );
 
+  // G&A enforcement: if any line item uses a G&A code (103–120), project must be null
+  const hasGaCostCode = lineItems.some((li) => {
+    const n = parseInt(li.cost_code, 10);
+    return n >= 103 && n <= 120;
+  });
+
+  // Auto-clear project when G&A code is selected
+  useEffect(() => {
+    if (hasGaCostCode && projectId) {
+      setProjectId("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasGaCostCode]);
+
   // Running total from line items
   const lineTotal = lineItems.reduce((sum, li) => {
     const n = parseFloat(li.amount);
@@ -388,9 +402,11 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         <div className="grid grid-cols-2 gap-4">
           <Field label="Project">
             <select
-              value={projectId}
+              value={hasGaCostCode ? "" : projectId}
               onChange={(e) => { markEdited(); setProjectId(e.target.value); }}
-              className={inputClass(false)}
+              disabled={hasGaCostCode}
+              className={inputClass(false) + (hasGaCostCode ? " opacity-50 cursor-not-allowed" : "")}
+              title={hasGaCostCode ? "G&A cost codes (103–120) cannot be assigned to a project" : undefined}
             >
               <option value="">— G&A (no project) —</option>
               {projects.map((p) => (

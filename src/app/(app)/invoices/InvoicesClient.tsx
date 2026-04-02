@@ -151,8 +151,7 @@ function NewInvoiceForm({
         <button
           type="submit"
           disabled={isPending}
-          className="px-4 py-2 text-sm text-white rounded-lg disabled:opacity-50"
-          style={{ backgroundColor: "#4272EF" }}
+          className="px-4 py-2 text-sm text-white bg-[#4272EF] hover:bg-[#3461de] rounded-lg disabled:opacity-50"
         >
           {isPending ? "Saving..." : "Create Invoice"}
         </button>
@@ -194,7 +193,7 @@ function MarkPaidForm({ invoice, onDone }: { invoice: Invoice; onDone: () => voi
           <option key={m} value={m}>{m.replace("_", " ").toUpperCase()}</option>
         ))}
       </select>
-      <button type="submit" disabled={isPending} className="px-3 py-1.5 text-sm text-white rounded-lg" style={{ backgroundColor: "#4272EF" }}>
+      <button type="submit" disabled={isPending} className="px-3 py-1.5 text-sm text-white bg-[#4272EF] hover:bg-[#3461de] rounded-lg">
         {isPending ? "..." : "Confirm"}
       </button>
       <button type="button" onClick={onDone} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
@@ -330,8 +329,7 @@ export default function InvoicesClient({
           </button>
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
-            style={{ backgroundColor: "#4272EF" }}
+            className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-[#4272EF] hover:bg-[#3461de] rounded-lg"
           >
             <Plus size={15} /> New Invoice
           </button>
@@ -351,7 +349,7 @@ export default function InvoicesClient({
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[700px]">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 {selectMode && (
@@ -422,7 +420,7 @@ export default function InvoicesClient({
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <a href={`/projects/${inv.project_id}`} className="text-xs hover:underline" style={{ color: "#4272EF" }}>
+                        <a href={`/projects/${inv.project_id}`} className="text-xs hover:underline text-[#4272EF]">
                           {projectMap[inv.project_id] ?? "—"}
                         </a>
                       </td>
@@ -442,8 +440,7 @@ export default function InvoicesClient({
                           nextAction.next === "paid" ? (
                             <button
                               onClick={() => setMarkingPaidId(markingPaidId === inv.id ? null : inv.id)}
-                              className="text-xs text-white px-2 py-1 rounded-lg"
-                              style={{ backgroundColor: "#4272EF" }}
+                              className="text-xs text-white bg-[#4272EF] hover:bg-[#3461de] px-2 py-1 rounded-lg"
                             >
                               {nextAction.action}
                             </button>
@@ -454,8 +451,7 @@ export default function InvoicesClient({
                                   await updateInvoiceStatus(inv.id, nextAction.next);
                                 })
                               }
-                              className="text-xs text-white px-2 py-1 rounded-lg"
-                              style={{ backgroundColor: "#4272EF" }}
+                              className="text-xs text-white bg-[#4272EF] hover:bg-[#3461de] px-2 py-1 rounded-lg"
                             >
                               {nextAction.action}
                             </button>
@@ -482,6 +478,7 @@ export default function InvoicesClient({
                             })
                           }
                           className="text-gray-300 hover:text-red-500 transition-colors"
+                          aria-label="Delete invoice"
                         >
                           <Trash2 size={14} />
                         </button>

@@ -196,6 +196,10 @@ export async function createDraw(
   const invoiceIds = invRows.map((r) => r.id);
   const total = invRows.reduce((s, r) => s + (r.amount ?? 0), 0);
 
+  if (total <= 0) {
+    return { error: "Draw total must be greater than zero" };
+  }
+
   // Next draw number
   const { data: maxRow } = await supabase
     .from("loan_draws")
@@ -242,6 +246,8 @@ export async function removeInvoiceFromDraw(
   invoiceId: string
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   const { data: draw } = await supabase
     .from("loan_draws")
@@ -287,6 +293,8 @@ export async function removeInvoiceFromDraw(
 
 export async function submitDraw(drawId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   const { data: draw } = await supabase
     .from("loan_draws")
@@ -317,6 +325,8 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
 
 export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   const { data: draw } = await supabase
     .from("loan_draws")
@@ -327,6 +337,37 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   if (!draw) return { error: "Draw not found" };
   if (draw.status !== "submitted") return { error: "Only submitted draws can be marked as funded" };
 
+  // Step 1: Atomically claim the draw via conditional update (prevents race condition).
+  // If another request already moved status away from 'submitted', this returns 0 rows.
+  const { data: updated, error: claimErr } = await supabase
+    .from("loan_draws")
+    .update({ status: "funded" })
+    .eq("id", drawId)
+    .eq("status", "submitted")
+    .select("id");
+
+  if (claimErr) return { error: claimErr.message };
+  if (!updated || updated.length === 0) {
+    return { error: "Draw was already funded or modified by another request" };
+  }
+
+  // Step 2: Lock invoices in this draw (mark pending_draw = false to prevent re-draw)
+  const { data: drawInvoices } = await supabase
+    .from("draw_invoices")
+    .select("invoice_id")
+    .eq("draw_id", drawId);
+
+  const invoiceIds = (drawInvoices ?? []).map((di) => di.invoice_id);
+  if (invoiceIds.length > 0) {
+    const { error: lockErr } = await supabase
+      .from("invoices")
+      .update({ pending_draw: false })
+      .in("id", invoiceIds);
+
+    if (lockErr) return { error: `Failed to lock invoices: ${lockErr.message}` };
+  }
+
+  // Step 3: Post GL entry (debit Cash, credit Construction Loan Payable)
   const lender = draw.contacts as { name: string } | null;
   const lenderName = lender?.name ?? "Unknown Lender";
   const displayName = drawDisplayName(draw.draw_date);
@@ -342,14 +383,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     project_id: null,
   });
 
-  if (glErr) return { error: glErr.message };
-
-  const { error } = await supabase
-    .from("loan_draws")
-    .update({ status: "funded" })
-    .eq("id", drawId);
-
-  if (error) return { error: error.message };
+  if (glErr) return { error: `Draw funded but GL posting failed: ${glErr.message}` };
 
   revalidatePath("/draws");
   revalidatePath(`/draws/${drawId}`);
@@ -363,6 +397,8 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 
 export async function markDrawPaid(drawId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   const { data: draw } = await supabase
     .from("loan_draws")

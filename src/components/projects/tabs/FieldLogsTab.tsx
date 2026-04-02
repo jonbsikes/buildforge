@@ -164,8 +164,9 @@ function TodoRow({ todo, projectId, onChange }: { todo: Todo; projectId: string;
       <button
         onClick={cycle}
         disabled={isPending}
-        className="mt-0.5 flex-shrink-0 disabled:opacity-50"
+        className="mt-0.5 flex-shrink-0 disabled:opacity-50 min-h-[44px] min-w-[44px] flex items-center justify-center"
         title={`Status: ${todo.status} — click to advance`}
+        aria-label={`Status: ${todo.status} — click to advance`}
       >
         {done
           ? <CheckCircle2 size={14} className="text-green-500" />

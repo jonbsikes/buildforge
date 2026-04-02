@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
@@ -55,8 +54,16 @@ export async function createJournalEntry(input: JournalEntryInput) {
     credit: l.credit,
   }));
 
-  const { error: linesError } = await supabase.from("journal_entry_lines").insert(lines);
-  if (linesError) throw new Error(linesError.message);
+  const { data: insertedLines, error: linesError } = await supabase
+    .from("journal_entry_lines")
+    .insert(lines)
+    .select("id");
+
+  if (linesError || !insertedLines || insertedLines.length !== lines.length) {
+    // Rollback: delete the header to prevent an unbalanced entry
+    await supabase.from("journal_entries").delete().eq("id", entry.id);
+    throw new Error(linesError?.message ?? "Failed to insert all journal entry lines — entry rolled back");
+  }
 
   revalidatePath("/financial/journal-entries");
   return { id: entry.id };

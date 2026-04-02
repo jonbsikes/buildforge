@@ -22,12 +22,31 @@ export async function createDraw(formData: FormData) {
 
 export async function updateDrawStatus(id: string, status: string) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
   await supabase.from("loan_draws").update({ status }).eq("id", id);
   revalidatePath("/draws");
 }
 
 export async function deleteDraw(id: string) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  // Only draft draws can be deleted — funded/submitted/paid draws are locked
+  const { data: draw } = await supabase
+    .from("loan_draws")
+    .select("status")
+    .eq("id", id)
+    .single();
+
+  if (!draw) throw new Error("Draw not found");
+  if (draw.status !== "draft") {
+    throw new Error(`Cannot delete a ${draw.status} draw — only draft draws can be deleted`);
+  }
+
+  await supabase.from("draw_invoices").delete().eq("draw_id", id);
   await supabase.from("loan_draws").delete().eq("id", id);
   revalidatePath("/draws");
 }

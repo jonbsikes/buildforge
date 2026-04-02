@@ -19,6 +19,9 @@ export async function createBankAccount(
   input: BankAccountInput
 ): Promise<{ error?: string; id?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { data, error } = await supabase
     .from("bank_accounts")
     .insert({
@@ -40,6 +43,9 @@ export async function updateBankAccount(
   input: BankAccountInput
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { error } = await supabase
     .from("bank_accounts")
     .update({
@@ -57,6 +63,9 @@ export async function updateBankAccount(
 
 export async function deleteBankAccount(id: string): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { error } = await supabase.from("bank_accounts").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/banking/accounts");
@@ -86,17 +95,32 @@ export async function createLoan(
   input: LoanInput
 ): Promise<{ error?: string; id?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const loanAmount = parseFloat(input.loan_amount);
+  if (isNaN(loanAmount) || loanAmount <= 0) return { error: "Loan amount must be a positive number" };
+
+  const interestRate = input.interest_rate ? parseFloat(input.interest_rate) : null;
+  if (interestRate !== null && isNaN(interestRate)) return { error: "Interest rate must be a valid number" };
+
+  const creditLimit = input.loan_type === "line_of_credit" && input.credit_limit ? parseFloat(input.credit_limit) : null;
+  if (creditLimit !== null && isNaN(creditLimit)) return { error: "Credit limit must be a valid number" };
+
+  const currentBalance = input.loan_type === "line_of_credit" && input.current_balance ? parseFloat(input.current_balance) : 0;
+  if (isNaN(currentBalance)) return { error: "Current balance must be a valid number" };
+
   const { data, error } = await supabase
     .from("loans")
     .insert({
       project_id: input.project_id,
       lender_id: input.lender_id,
       loan_number: input.loan_number.trim(),
-      loan_amount: parseFloat(input.loan_amount),
+      loan_amount: loanAmount,
       loan_type: input.loan_type || "term_loan",
-      credit_limit: input.loan_type === "line_of_credit" && input.credit_limit ? parseFloat(input.credit_limit) : null,
-      current_balance: input.loan_type === "line_of_credit" && input.current_balance ? parseFloat(input.current_balance) : 0,
-      interest_rate: input.interest_rate ? parseFloat(input.interest_rate) : null,
+      credit_limit: creditLimit,
+      current_balance: currentBalance,
+      interest_rate: interestRate,
       origination_date: input.origination_date || null,
       maturity_date: input.maturity_date || null,
       status: input.status,
@@ -114,17 +138,32 @@ export async function updateLoan(
   input: LoanInput
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const loanAmount = parseFloat(input.loan_amount);
+  if (isNaN(loanAmount) || loanAmount <= 0) return { error: "Loan amount must be a positive number" };
+
+  const interestRate = input.interest_rate ? parseFloat(input.interest_rate) : null;
+  if (interestRate !== null && isNaN(interestRate)) return { error: "Interest rate must be a valid number" };
+
+  const creditLimit = input.loan_type === "line_of_credit" && input.credit_limit ? parseFloat(input.credit_limit) : null;
+  if (creditLimit !== null && isNaN(creditLimit)) return { error: "Credit limit must be a valid number" };
+
+  const currentBalance = input.loan_type === "line_of_credit" && input.current_balance ? parseFloat(input.current_balance) : 0;
+  if (isNaN(currentBalance)) return { error: "Current balance must be a valid number" };
+
   const { error } = await supabase
     .from("loans")
     .update({
       project_id: input.project_id,
       lender_id: input.lender_id,
       loan_number: input.loan_number.trim(),
-      loan_amount: parseFloat(input.loan_amount),
+      loan_amount: loanAmount,
       loan_type: input.loan_type || "term_loan",
-      credit_limit: input.loan_type === "line_of_credit" && input.credit_limit ? parseFloat(input.credit_limit) : null,
-      current_balance: input.loan_type === "line_of_credit" && input.current_balance ? parseFloat(input.current_balance) : 0,
-      interest_rate: input.interest_rate ? parseFloat(input.interest_rate) : null,
+      credit_limit: creditLimit,
+      current_balance: currentBalance,
+      interest_rate: interestRate,
       origination_date: input.origination_date || null,
       maturity_date: input.maturity_date || null,
       status: input.status,
@@ -138,6 +177,9 @@ export async function updateLoan(
 
 export async function deleteLoan(id: string): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { error } = await supabase.from("loans").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/banking/loans");

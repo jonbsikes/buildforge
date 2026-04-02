@@ -113,7 +113,9 @@ export async function createHomeConstructionProject(
       }))
     );
     if (pccError) {
-      return { error: pccError.message };
+      // Rollback: delete orphaned project
+      await supabase.from("projects").delete().eq("id", project.id);
+      return { error: `Failed to assign cost codes: ${pccError.message}` };
     }
   }
 
@@ -134,13 +136,15 @@ export async function createHomeConstructionProject(
       }))
     );
     if (stageError) {
-      return { error: stageError.message };
+      // Rollback: delete orphaned project (cascades to cost codes)
+      await supabase.from("projects").delete().eq("id", project.id);
+      return { error: `Failed to create build stages: ${stageError.message}` };
     }
   }
 
   // Create loan record if loan number and lender are provided
   if (input.loan_number?.trim() && input.lender_id) {
-    await supabase.from("loans").insert({
+    const { error: loanError } = await supabase.from("loans").insert({
       project_id: project.id,
       lender_id: input.lender_id,
       loan_number: input.loan_number.trim(),
@@ -148,6 +152,11 @@ export async function createHomeConstructionProject(
       loan_type: "term_loan",
       status: "active",
     });
+    // Loan failure is non-fatal — project and stages are already created.
+    // Return success with a warning so user can add the loan manually.
+    if (loanError) {
+      return { projectId: project.id, error: `Project created, but loan record failed: ${loanError.message}` };
+    }
   }
 
   return { projectId: project.id };
@@ -209,7 +218,8 @@ export async function createLandDevProject(
       }))
     );
     if (pccError) {
-      return { error: pccError.message };
+      await supabase.from("projects").delete().eq("id", project.id);
+      return { error: `Failed to assign cost codes: ${pccError.message}` };
     }
   }
 
@@ -230,13 +240,14 @@ export async function createLandDevProject(
       }))
     );
     if (stageError) {
-      return { error: stageError.message };
+      await supabase.from("projects").delete().eq("id", project.id);
+      return { error: `Failed to create build stages: ${stageError.message}` };
     }
   }
 
   // Create loan record if loan number and lender are provided
   if (input.loan_number?.trim() && input.lender_id) {
-    await supabase.from("loans").insert({
+    const { error: loanError } = await supabase.from("loans").insert({
       project_id: project.id,
       lender_id: input.lender_id,
       loan_number: input.loan_number.trim(),
@@ -244,6 +255,9 @@ export async function createLandDevProject(
       loan_type: "term_loan",
       status: "active",
     });
+    if (loanError) {
+      return { projectId: project.id, error: `Project created, but loan record failed: ${loanError.message}` };
+    }
   }
 
   return { projectId: project.id };

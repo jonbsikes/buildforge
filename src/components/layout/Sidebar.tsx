@@ -172,7 +172,7 @@ export default function Sidebar() {
         />
         <button
           onClick={close}
-          className="lg:hidden p-3 text-gray-400 hover:text-white flex-shrink-0"
+          className="lg:hidden p-3 text-gray-300 hover:text-white flex-shrink-0"
           aria-label="Close menu"
         >
           <X size={18} />
@@ -201,7 +201,7 @@ export default function Sidebar() {
                         className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                           active
                             ? "bg-[#4272EF] text-white"
-                            : "text-gray-400 hover:text-white hover:bg-gray-800"
+                            : "text-gray-300 hover:text-white hover:bg-[#4272EF]/10"
                         }`}
                       >
                         <Icon size={16} />
@@ -222,7 +222,7 @@ export default function Sidebar() {
                         className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                           groupActive
                             ? "text-white"
-                            : "text-gray-400 hover:text-white hover:bg-gray-800"
+                            : "text-gray-300 hover:text-white hover:bg-[#4272EF]/10"
                         }`}
                       >
                         <Icon size={16} />
@@ -246,7 +246,7 @@ export default function Sidebar() {
                                 className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
                                   childActive
                                     ? "text-[#4272EF] font-medium bg-gray-800"
-                                    : "text-gray-400 hover:text-white hover:bg-gray-800"
+                                    : "text-gray-300 hover:text-white hover:bg-[#4272EF]/10"
                                 }`}
                               >
                                 {child.label}
@@ -268,7 +268,7 @@ export default function Sidebar() {
       <div className="px-3 py-4 border-t border-gray-800">
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-[#4272EF]/10 rounded-lg transition-colors"
         >
           <LogOut size={17} />
           Sign out

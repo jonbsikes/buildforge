@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import { createClient } from "@/lib/supabase/server";
 
 const client = new Anthropic();
 
@@ -69,10 +70,23 @@ export interface ExtractedInvoiceData {
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const projectsRaw = formData.get("projects") as string | null;
-    const projects: { id: string; name: string; type?: string; address?: string | null; subdivision?: string | null; block?: string | null; lot?: string | null }[] = projectsRaw ? JSON.parse(projectsRaw) : [];
+    let projects: { id: string; name: string; type?: string; address?: string | null; subdivision?: string | null; block?: string | null; lot?: string | null }[] = [];
+    if (projectsRaw) {
+      try {
+        const parsed = JSON.parse(projectsRaw);
+        if (Array.isArray(parsed)) projects = parsed;
+        else return NextResponse.json({ error: "Invalid projects format" }, { status: 400 });
+      } catch {
+        return NextResponse.json({ error: "Malformed projects JSON" }, { status: 400 });
+      }
+    }
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, AlertTriangle, Info } from "lucide-react";
 import { updateInvoice, type UpdateInvoiceInput } from "@/app/actions/invoices";
@@ -100,6 +100,20 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
   const selectedProject = projects.find((p) => p.id === projectId) ?? null;
   const relevantCodes = getCodesForContext(selectedProject?.project_type ?? null, costCodes);
 
+  // G&A enforcement: if any line item uses a G&A code (103–120), project must be null
+  const hasGaCostCode = lineItems.some((li) => {
+    const n = parseInt(li.cost_code, 10);
+    return n >= 103 && n <= 120;
+  });
+
+  // Auto-clear project when G&A code is selected
+  useEffect(() => {
+    if (hasGaCostCode && projectId) {
+      setProjectId("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasGaCostCode]);
+
   const lineTotal = lineItems.reduce((sum, li) => {
     const n = parseFloat(li.amount);
     return sum + (isNaN(n) ? 0 : n);
@@ -178,7 +192,13 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Project">
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className={ic()}>
+            <select
+              value={hasGaCostCode ? "" : projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              disabled={hasGaCostCode}
+              className={ic() + (hasGaCostCode ? " opacity-50 cursor-not-allowed" : "")}
+              title={hasGaCostCode ? "G&A cost codes (103–120) cannot be assigned to a project" : undefined}
+            >
               <option value="">— G&A (no project) —</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>

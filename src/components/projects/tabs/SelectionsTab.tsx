@@ -51,6 +51,7 @@ function StatusBadge({ selectionId, status, projectId, onChange }: {
       onClick={advance}
       disabled={isPending}
       title="Click to advance status"
+      aria-label={`Status: ${status} — click to advance`}
       className={`text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 transition-opacity ${STATUS_STYLES[status] ?? "bg-gray-100 text-gray-600"} ${isPending ? "opacity-50" : "hover:opacity-80"}`}
     >
       {status}
@@ -75,6 +76,7 @@ function DeleteButton({ selectionId, projectId, onDeleted }: {
       }}
       disabled={isPending}
       className="text-gray-300 hover:text-red-400 transition-colors disabled:opacity-40"
+      aria-label="Remove selection"
     >
       <Trash2 size={13} />
     </button>

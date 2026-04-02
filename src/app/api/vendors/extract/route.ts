@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
+import { createClient } from "@/lib/supabase/server";
 
 const client = new Anthropic();
 
@@ -18,7 +19,6 @@ Extract structured vendor information from the provided document (W9, COI, invoi
 - Trade or type of work they perform
 - COI (Certificate of Insurance) expiry date
 - License expiry date or license number
-- Bank/ACH information if present (routing number, account number, bank name)
 
 ## Trade classification
 Map the vendor's trade/service to one of these descriptions if possible:
@@ -47,10 +47,6 @@ G&A: Office Rent/Utilities, Office Supplies, Software & Subscriptions, Phone & I
   "accounting_contact_phone": "string or null",
   "coi_expiry_date": "YYYY-MM-DD or null",
   "license_expiry_date": "YYYY-MM-DD or null",
-  "ach_bank_name": "string or null",
-  "ach_routing_number": "string or null",
-  "ach_account_number": "string or null",
-  "ach_account_type": "checking or savings or null",
   "notes": "string or null"
 }`;
 
@@ -68,15 +64,15 @@ export interface ExtractedVendorData {
   accounting_contact_phone: string | null;
   coi_expiry_date: string | null;
   license_expiry_date: string | null;
-  ach_bank_name: string | null;
-  ach_routing_number: string | null;
-  ach_account_number: string | null;
-  ach_account_type: string | null;
   notes: string | null;
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 

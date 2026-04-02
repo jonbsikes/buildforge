@@ -44,8 +44,29 @@ export async function saveInvoice(
 
   if (input.line_items.length === 0) return { error: "At least one line item is required" };
 
+  // Validate all line items have positive amounts
+  if (input.line_items.some((li) => isNaN(li.amount) || li.amount <= 0)) {
+    return { error: "All line item amounts must be positive numbers" };
+  }
+
   // Calculate total from line items
   const totalAmount = input.line_items.reduce((sum, li) => sum + li.amount, 0);
+  if (totalAmount <= 0) return { error: "Invoice total must be greater than zero" };
+
+  // Validate all line item cost codes exist
+  const uniqueCodes = [...new Set(input.line_items.map((li) => li.cost_code).filter(Boolean))];
+  if (uniqueCodes.length > 0) {
+    const { data: validCodes } = await supabase
+      .from("cost_codes")
+      .select("code")
+      .in("code", uniqueCodes)
+      .is("user_id", null);
+    const validSet = new Set((validCodes ?? []).map((c) => String(c.code)));
+    const invalid = uniqueCodes.filter((c) => !validSet.has(c));
+    if (invalid.length > 0) {
+      return { error: `Invalid cost code(s): ${invalid.join(", ")}` };
+    }
+  }
 
   // Find dominant cost code (largest line item)
   const dominant = input.line_items.reduce((max, li) => (li.amount > max.amount ? li : max));
@@ -162,6 +183,9 @@ export async function setPendingDraw(
   pending: boolean
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { error } = await supabase
     .from("invoices")
     .update({ pending_draw: pending })
@@ -177,6 +201,9 @@ export async function markManuallyReviewed(
   invoiceId: string
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { error } = await supabase
     .from("invoices")
     .update({ manually_reviewed: true })
@@ -237,8 +264,15 @@ export async function updateInvoice(
   input: UpdateInvoiceInput
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   if (input.line_items.length === 0) return { error: "At least one line item is required" };
+
+  // Validate all line items have positive amounts
+  if (input.line_items.some((li) => isNaN(li.amount) || li.amount <= 0)) {
+    return { error: "All line item amounts must be positive numbers" };
+  }
 
   // Lock check
   if (await isInFundedDraw(supabase, invoiceId)) {
@@ -292,17 +326,32 @@ export async function updateInvoice(
 
   if (updateErr) return { error: updateErr.message };
 
-  // Replace line items
-  await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
-  const { error: lineErr } = await supabase.from("invoice_line_items").insert(
-    input.line_items.map((li) => ({
-      invoice_id: invoiceId,
-      cost_code: li.cost_code ? String(li.cost_code) : null,
-      description: li.description || null,
-      amount: li.amount,
-    }))
-  );
-  if (lineErr) return { error: lineErr.message };
+  // Replace line items: insert new first, then delete old (prevents orphaned invoices on failure)
+  const newLineItems = input.line_items.map((li) => ({
+    invoice_id: invoiceId,
+    cost_code: li.cost_code ? String(li.cost_code) : null,
+    description: li.description || null,
+    amount: li.amount,
+  }));
+
+  const { data: insertedLines, error: lineInsertErr } = await supabase
+    .from("invoice_line_items")
+    .insert(newLineItems)
+    .select("id");
+
+  if (lineInsertErr || !insertedLines) {
+    return { error: lineInsertErr?.message ?? "Failed to insert new line items" };
+  }
+
+  // Delete old line items (exclude the ones we just inserted)
+  const newIds = insertedLines.map((l) => l.id);
+  const { error: lineDelErr } = await supabase
+    .from("invoice_line_items")
+    .delete()
+    .eq("invoice_id", invoiceId)
+    .not("id", "in", `(${newIds.join(",")})`);
+
+  if (lineDelErr) return { error: lineDelErr.message };
 
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
@@ -315,6 +364,8 @@ export async function updateInvoice(
 
 export async function deleteInvoice(invoiceId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   if (await isInFundedDraw(supabase, invoiceId)) {
     return { error: "This invoice is part of a funded draw and cannot be deleted" };
@@ -338,6 +389,9 @@ export async function disputeInvoice(
   invoiceId: string
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
   const { error } = await supabase
     .from("invoices")
     .update({ status: "disputed" })
@@ -355,6 +409,8 @@ export async function advanceInvoiceStatus(
   paymentMethod?: string
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
 
   const updates: Record<string, unknown> = { status: to };
   if (to === "paid") {
@@ -368,6 +424,32 @@ export async function advanceInvoiceStatus(
     .eq("id", invoiceId);
 
   if (error) return { error: error.message };
+
+  // Post GL entry when invoice is marked paid: debit AP, credit Cash
+  if (to === "paid") {
+    const { data: invoice } = await supabase
+      .from("invoices")
+      .select("amount, project_id, vendor, invoice_number")
+      .eq("id", invoiceId)
+      .single();
+
+    if (invoice && invoice.amount) {
+      const desc = [invoice.vendor, invoice.invoice_number]
+        .filter(Boolean)
+        .join(" – ") || "Invoice Payment";
+
+      await supabase.from("gl_entries").insert({
+        entry_date: updates.payment_date as string,
+        description: desc,
+        debit_account: "Accounts Payable",
+        credit_account: "Cash",
+        amount: invoice.amount,
+        source_type: "invoice_payment",
+        source_id: invoiceId,
+        project_id: invoice.project_id ?? null,
+      });
+    }
+  }
 
   revalidatePath("/invoices");
   return {};

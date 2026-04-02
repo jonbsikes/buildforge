@@ -36,7 +36,7 @@ function StatCard({
     <div className={`rounded-xl border p-5 ${accent ? "border-[#4272EF]/20 bg-[#4272EF]/5" : "bg-white border-gray-200"}`}>
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm font-medium text-gray-500">{title}</p>
-        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: "#4272EF15" }}>
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[#4272EF]/[0.08]">
           {icon}
         </div>
       </div>
@@ -126,38 +126,38 @@ export default async function DashboardPage() {
             title="Active Projects"
             value={String(activeProjects)}
             subtitle={`${(projects ?? []).length} total`}
-            icon={<FolderOpen size={18} style={{ color: "#4272EF" }} />}
+            icon={<FolderOpen size={18} className="text-[#4272EF]" />}
           />
           <StatCard
             title="Total Budget"
             value={fmt(totalBudget)}
             subtitle="across all projects"
-            icon={<DollarSign size={18} style={{ color: "#4272EF" }} />}
+            icon={<DollarSign size={18} className="text-[#4272EF]" />}
           />
           <StatCard
             title="Actual Spend"
             value={fmt(totalActual)}
             subtitle={totalBudget > 0 ? `${Math.round((totalActual / totalBudget) * 100)}% of budget` : "approved & paid"}
-            icon={<TrendingUp size={18} style={{ color: "#4272EF" }} />}
+            icon={<TrendingUp size={18} className="text-[#4272EF]" />}
           />
           <StatCard
             title="AP Outstanding"
             value={fmt(outstandingAmount)}
             subtitle={`${pendingInvoices} pending review${pastDueInvoices > 0 ? ` · ${pastDueInvoices} past due` : ""}`}
-            icon={<FileText size={18} style={{ color: "#4272EF" }} />}
+            icon={<FileText size={18} className="text-[#4272EF]" />}
             accent={pastDueInvoices > 0}
           />
           <StatCard
             title="Draws Funded"
             value={fmt(totalFunded)}
             subtitle="total funded draws"
-            icon={<CreditCard size={18} style={{ color: "#4272EF" }} />}
+            icon={<CreditCard size={18} className="text-[#4272EF]" />}
           />
           <StatCard
             title="Open To-Dos"
             value={String(openTodos)}
             subtitle={urgentTodos > 0 ? `${urgentTodos} urgent` : "field to-dos"}
-            icon={<ClipboardList size={18} style={{ color: "#4272EF" }} />}
+            icon={<ClipboardList size={18} className="text-[#4272EF]" />}
             accent={urgentTodos > 0}
           />
         </div>
@@ -168,7 +168,7 @@ export default async function DashboardPage() {
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="font-semibold text-gray-900">Projects</h2>
-                <Link href="/projects" className="text-sm font-medium" style={{ color: "#4272EF" }}>
+                <Link href="/projects" className="text-sm font-medium text-[#4272EF]">
                   View all →
                 </Link>
               </div>
@@ -176,7 +176,7 @@ export default async function DashboardPage() {
                 <div className="px-6 py-12 text-center">
                   <FolderOpen size={40} className="text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500 text-sm mb-3">No projects yet.</p>
-                  <Link href="/projects" className="text-sm text-white px-4 py-2 rounded-lg" style={{ backgroundColor: "#4272EF" }}>
+                  <Link href="/projects" className="text-sm text-white px-4 py-2 rounded-lg bg-[#4272EF] hover:bg-[#3461de]">
                     Create first project
                   </Link>
                 </div>
@@ -235,7 +235,7 @@ export default async function DashboardPage() {
                     <Calendar size={16} className="text-amber-500" />
                     Due This Week
                   </h2>
-                  <Link href="/invoices" className="text-sm font-medium" style={{ color: "#4272EF" }}>View AP →</Link>
+                  <Link href="/invoices" className="text-sm font-medium text-[#4272EF]">View AP →</Link>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {dueThisWeek.slice(0, 5).map((inv) => (
@@ -309,13 +309,13 @@ export default async function DashboardPage() {
               <div className="bg-white rounded-xl border border-gray-200">
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                   <h2 className="font-semibold text-gray-900">Recent Field Logs</h2>
-                  <Link href="/field-logs" className="text-sm font-medium" style={{ color: "#4272EF" }}>View all →</Link>
+                  <Link href="/field-logs" className="text-sm font-medium text-[#4272EF]">View all →</Link>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {(recentLogs ?? []).map((log) => (
                     <div key={log.id} className="px-5 py-3">
                       <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs font-medium" style={{ color: "#4272EF" }}>
+                        <span className="text-xs font-medium text-[#4272EF]">
                           {projectNames[log.project_id] ?? "—"}
                         </span>
                         <span className="text-xs text-gray-400">{log.log_date}</span>
@@ -342,7 +342,7 @@ export default async function DashboardPage() {
                   { href: "/reports/job-cost", label: "Job Cost Report", icon: <TrendingUp size={15} /> },
                 ].map(({ href, label, icon }) => (
                   <Link key={href} href={href} className="flex items-center gap-3 px-5 py-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors">
-                    <span style={{ color: "#4272EF" }}>{icon}</span>
+                    <span className="text-[#4272EF]">{icon}</span>
                     {label}
                   </Link>
                 ))}

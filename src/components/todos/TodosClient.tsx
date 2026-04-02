@@ -193,7 +193,8 @@ export default function TodosClient() {
                   <div key={t.id} className="flex items-start gap-3 px-4 py-3">
                     <button
                       onClick={() => handleComplete(t)}
-                      className="mt-0.5 flex-shrink-0 text-gray-300 hover:text-green-500 transition-colors"
+                      className="mt-0.5 flex-shrink-0 text-gray-300 hover:text-green-500 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      aria-label={`Mark "${t.description}" complete`}
                       title="Mark complete"
                     >
                       <Circle size={18} />
@@ -213,7 +214,8 @@ export default function TodosClient() {
                     </div>
                     <button
                       onClick={() => handleDelete(t)}
-                      className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5"
+                      className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      aria-label={`Delete "${t.description}"`}
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -244,14 +246,16 @@ export default function TodosClient() {
               </div>
               <button
                 onClick={() => handleReopen(t)}
-                className="flex-shrink-0 text-gray-300 hover:text-[#4272EF] transition-colors mt-0.5"
+                className="flex-shrink-0 text-gray-300 hover:text-[#4272EF] transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label={`Reopen "${t.description}"`}
                 title="Reopen"
               >
                 <RotateCcw size={14} />
               </button>
               <button
                 onClick={() => handleDelete(t)}
-                className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5"
+                className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label={`Delete "${t.description}"`}
                 title="Delete"
               >
                 <Trash2 size={14} />

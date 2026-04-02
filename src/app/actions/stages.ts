@@ -71,20 +71,24 @@ export async function updateStage(
         .gt("stage_number", current.stage_number);
 
       if (laterStages && laterStages.length > 0) {
-        // Build batch updates
-        for (const stage of laterStages) {
-          if (!stage.planned_start_date || !stage.planned_end_date) continue;
+        // Batch all stage shifts concurrently
+        const shiftResults = await Promise.all(
+          laterStages
+            .filter((s) => s.planned_start_date && s.planned_end_date)
+            .map((stage) =>
+              supabase
+                .from("build_stages")
+                .update({
+                  planned_start_date: shiftDate(stage.planned_start_date!, delta),
+                  planned_end_date:   shiftDate(stage.planned_end_date!, delta),
+                })
+                .eq("id", stage.id)
+            )
+        );
 
-          const newStart = shiftDate(stage.planned_start_date, delta);
-          const newEnd   = shiftDate(stage.planned_end_date,   delta);
-
-          await supabase
-            .from("build_stages")
-            .update({
-              planned_start_date: newStart,
-              planned_end_date:   newEnd,
-            })
-            .eq("id", stage.id);
+        const failed = shiftResults.filter((r) => r.error);
+        if (failed.length > 0) {
+          return { error: `${failed.length} stage(s) failed to shift: ${failed[0].error!.message}` };
         }
       }
     }
