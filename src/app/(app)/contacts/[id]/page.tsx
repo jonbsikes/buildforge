@@ -49,7 +49,6 @@ export default function ContactDetailPage() {
     { key: "company", label: "Company" },
     { key: "phone", label: "Phone", type: "tel" },
     { key: "email", label: "Email", type: "email" },
-    { key: "address", label: "Address" },
     { key: "notes", label: "Notes" },
   ];
 
