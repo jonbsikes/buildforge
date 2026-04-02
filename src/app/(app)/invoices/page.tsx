@@ -3,6 +3,7 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { Plus, AlertTriangle, Mail } from "lucide-react";
 import InvoiceActions from "@/components/invoices/InvoiceActions";
+import PollEmailButton from "@/components/invoices/PollEmailButton";
 
 export const dynamic = "force-dynamic";
 
@@ -55,13 +56,16 @@ export default async function InvoicesPage() {
           <p className="text-sm text-gray-500">
             {pendingCount > 0 ? `${pendingCount} pending review` : `${rows.length} invoice${rows.length !== 1 ? "s" : ""}`}
           </p>
-          <Link
-            href="/invoices/new"
-            className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-          >
-            <Plus size={16} />
-            New Invoice
-          </Link>
+          <div className="flex items-center gap-3">
+            <PollEmailButton />
+            <Link
+              href="/invoices/new"
+              className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+            >
+              <Plus size={16} />
+              New Invoice
+            </Link>
+          </div>
         </div>
 
         {rows.length === 0 ? (
@@ -165,4 +169,11 @@ export default async function InvoicesPage() {
                 })}
               </tbody>
             </table>
+            </div>
+          </div>
+        )}
+      </main>
+    </>
+  );
+}
          
