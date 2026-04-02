@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   HardHat,
+  LogOut,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -147,7 +148,9 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-gray-800">
         <div className="flex items-center gap-2">
-          <HardHat className="text-[#4272EF]" size={22} />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: "#4272EF" }}>
+            <HardHat size={16} className="text-white" />
+          </div>
           <span className="text-white font-bold text-base">BuildForge</span>
         </div>
       </div>
@@ -239,8 +242,9 @@ export default function Sidebar() {
       <div className="px-3 py-4 border-t border-gray-800">
         <button
           onClick={handleSignOut}
-          className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+          className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
         >
+          <LogOut size={17} />
           Sign out
         </button>
       </div>

@@ -1,11 +1,15 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
 export async function createClient() {
   const cookieStore = await cookies();
 
-  return createServerClient<Database>(
+  // Cast needed: @supabase/ssr 0.6.x passes generics in the old 3-param order
+  // but supabase-js 2.101+ changed the SupabaseClient generic signature.
+  // Using SupabaseClient<Database> with one generic lets defaults resolve correctly.
+  const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -25,4 +29,6 @@ export async function createClient() {
       },
     }
   );
+
+  return client as unknown as SupabaseClient<Database>;
 }
