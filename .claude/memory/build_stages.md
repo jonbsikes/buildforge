@@ -6,7 +6,7 @@ This file defines build stages for two distinct project types. Stages, Gantt tra
 
 # 🏠 Project Type: Home Construction
 
-54 stages total. Used for the per-project `build\_stages` table and the interactive Gantt chart.
+54 stages total. Used for the per-project `build\\\\\\\_stages` table and the interactive Gantt chart.
 
 The Gantt chart uses two parallel tracks:
 
@@ -273,7 +273,4 @@ The Gantt chart uses two parallel tracks:
 |21|Street Signs|
 |22|Street Lights|
 |23|HOA Setup|
-|24|Final Plat Acceptance|
-
-
-
+|24|Final Plat Acceptanc
