@@ -29,6 +29,7 @@ interface Project {
   project_type: string;
   name: string;
   address: string | null;
+  status: string | null;
   subdivision: string | null;
   block: string | null;
   lot: string | null;
@@ -226,6 +227,7 @@ function HomeEditForm({ project, lenders, existingLoans }: Props) {
     home_size_sf: project.home_size_sf != null ? String(project.home_size_sf) : "",
     start_date: project.start_date ?? "",
     lender_id: project.lender_id ?? "",
+    status: project.status ?? "planning",
   });
 
   const s = <K extends keyof UpdateHomeInput>(k: K, v: UpdateHomeInput[K]) =>
@@ -274,6 +276,15 @@ function HomeEditForm({ project, lenders, existingLoans }: Props) {
         <Field label="Plan">
           <input type="text" value={f.plan} onChange={(e) => s("plan", e.target.value)} placeholder="e.g. Ridgeline 2400" className={ic()} />
         </Field>
+        <Field label="Status">
+          <select value={f.status} onChange={(e) => s("status", e.target.value)} className={ic()}>
+            <option value="planning">Planning</option>
+            <option value="active">Active</option>
+            <option value="on_hold">On Hold</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </Field>
         <Field label="Start Date" hint="Changing the start date does not automatically recalculate build stage dates.">
           <input type="date" value={f.start_date} onChange={(e) => s("start_date", e.target.value)} className={ic()} />
         </Field>
@@ -309,6 +320,7 @@ function LandEditForm({ project, lenders, existingLoans }: Props) {
     number_of_phases: project.number_of_phases != null ? String(project.number_of_phases) : "",
     start_date: project.start_date ?? "",
     lender_id: project.lender_id ?? "",
+    status: project.status ?? "planning",
   });
 
   const s = <K extends keyof UpdateLandInput>(k: K, v: UpdateLandInput[K]) =>
@@ -346,6 +358,15 @@ function LandEditForm({ project, lenders, existingLoans }: Props) {
             <input type="number" min="0" value={f.number_of_phases} onChange={(e) => s("number_of_phases", e.target.value)} className={ic()} />
           </Field>
         </div>
+        <Field label="Status">
+          <select value={f.status} onChange={(e) => s("status", e.target.value)} className={ic()}>
+            <option value="planning">Planning</option>
+            <option value="active">Active</option>
+            <option value="on_hold">On Hold</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </Field>
         <Field label="Start Date" hint="Changing the start date does not automatically recalculate build stage dates.">
           <input type="date" value={f.start_date} onChange={(e) => s("start_date", e.target.value)} className={ic()} />
         </Field>

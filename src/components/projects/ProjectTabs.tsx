@@ -5,6 +5,7 @@ import GanttTab from "@/components/projects/tabs/GanttTab";
 import StageReportTab from "@/components/projects/tabs/StageReportTab";
 import CostItemsTab from "@/components/projects/tabs/CostItemsTab";
 import BudgetTab from "@/components/projects/tabs/BudgetTab";
+import PhasesTab from "@/components/projects/tabs/PhasesTab";
 import SelectionsTab from "@/components/projects/tabs/SelectionsTab";
 import FieldLogsTab from "@/components/projects/tabs/FieldLogsTab";
 import DocumentsTab from "@/components/projects/tabs/DocumentsTab";
@@ -28,6 +29,14 @@ export interface CostCode {
   id: string;
   pccId: string;
   budgeted_amount: number;
+  code: string;
+  name: string;
+  category: string;
+  sort_order: number | null;
+}
+
+export interface AvailableCostCode {
+  id: string;
   code: string;
   name: string;
   category: string;
@@ -61,8 +70,11 @@ interface Props {
   startDate: string | null;
   buildStages: BuildStage[];
   costCodes: CostCode[];
+  availableCostCodes: AvailableCostCode[];
   phases: Phase[];
   documents: Document[];
+  committedByCostCodeId: Record<string, number>;
+  actualByCostCodeId: Record<string, number>;
 }
 
 const HOME_TABS = [
@@ -80,6 +92,7 @@ const LAND_TABS = [
   { id: "stage-report", label: "Stage Report" },
   { id: "cost-items",   label: "Cost Items" },
   { id: "budget",       label: "Budget" },
+  { id: "phases",       label: "Phases" },
   { id: "field-logs",   label: "Field Logs" },
   { id: "documents",    label: "Documents" },
 ] as const;
@@ -89,7 +102,8 @@ type LandTabId = (typeof LAND_TABS)[number]["id"];
 type TabId = HomeTabId | LandTabId;
 
 export default function ProjectTabs({
-  projectId, isHome, startDate, buildStages, costCodes, phases, documents,
+  projectId, isHome, startDate, buildStages, costCodes, availableCostCodes, phases, documents,
+  committedByCostCodeId, actualByCostCodeId,
 }: Props) {
   const tabs = isHome ? HOME_TABS : LAND_TABS;
   const [activeTab, setActiveTab] = useState<TabId>("gantt");
@@ -137,12 +151,22 @@ export default function ProjectTabs({
             projectId={projectId}
             isHome={isHome}
             costCodes={costCodes}
+            availableCostCodes={availableCostCodes}
             phases={phases}
           />
         )}
-        {activeTab === "budget" && <BudgetTab />}
-        {activeTab === "selections" && isHome && <SelectionsTab />}
-        {activeTab === "field-logs" && <FieldLogsTab />}
+        {activeTab === "budget" && (
+          <BudgetTab
+            costCodes={costCodes}
+            committedByCostCodeId={committedByCostCodeId}
+            actualByCostCodeId={actualByCostCodeId}
+          />
+        )}
+        {activeTab === "phases" && !isHome && (
+          <PhasesTab projectId={projectId} initialPhases={phases} />
+        )}
+        {activeTab === "selections" && isHome && <SelectionsTab projectId={projectId} />}
+        {activeTab === "field-logs" && <FieldLogsTab projectId={projectId} />}
         {activeTab === "documents" && (
           <DocumentsTab projectId={projectId} initialDocuments={documents} />
         )}

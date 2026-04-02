@@ -21,7 +21,7 @@ export default async function EditInvoicePage({ params }: Props) {
         .select(`
           id, vendor, vendor_id, invoice_number, invoice_date, due_date,
           status, payment_method, ai_confidence, ai_notes, pending_draw,
-          project_id, projects ( id, name )
+          project_id, contract_id, projects ( id, name )
         `)
         .eq("id", id)
         .single(),
@@ -79,6 +79,16 @@ export default async function EditInvoicePage({ params }: Props) {
 
   const project = invoice.projects as { id: string; name: string } | null;
 
+  // Fetch contracts for the invoice's project (if any)
+  const contractsResult = invoice.project_id
+    ? await supabase
+        .from("contracts")
+        .select("id, amount, status, cost_codes ( code, name )")
+        .eq("project_id", invoice.project_id)
+        .in("status", ["draft", "active", "signed"])
+        .order("created_at")
+    : { data: [] };
+
   // Sort cost codes numerically
   const costCodes = (costCodesResult.data ?? []).sort(
     (a, b) => parseInt(a.code, 10) - parseInt(b.code, 10)
@@ -109,6 +119,7 @@ export default async function EditInvoicePage({ params }: Props) {
               payment_method: invoice.payment_method ?? null,
               ai_confidence: invoice.ai_confidence ?? null,
               ai_notes: invoice.ai_notes ?? null,
+              contract_id: invoice.contract_id ?? null,
               line_items: (lineItemsResult.data ?? []).map((li) => ({
                 cost_code: li.cost_code ?? "",
                 description: li.description,
@@ -119,6 +130,10 @@ export default async function EditInvoicePage({ params }: Props) {
             vendors={vendorsResult.data ?? []}
             projects={(projectsResult.data ?? []) as { id: string; name: string; project_type: "home_construction" | "land_development" }[]}
             costCodes={costCodes}
+            contracts={(contractsResult.data ?? []).map((c) => {
+              const cc = c.cost_codes as { code: string; name: string } | null;
+              return { id: c.id, label: cc ? `${cc.code} – ${cc.name}` : "Contract", amount: c.amount ?? 0, status: c.status };
+            })}
           />
         </div>
       </main>
