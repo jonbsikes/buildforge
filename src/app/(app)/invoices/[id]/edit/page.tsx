@@ -21,7 +21,7 @@ export default async function EditInvoicePage({ params }: Props) {
         .select(`
           id, vendor, vendor_id, invoice_number, invoice_date, due_date,
           status, payment_method, ai_confidence, ai_notes, pending_draw,
-          project_id, contract_id, projects ( id, name )
+          project_id, contract_id, file_path, file_name, projects ( id, name )
         `)
         .eq("id", id)
         .single(),
@@ -79,6 +79,15 @@ export default async function EditInvoicePage({ params }: Props) {
 
   const project = invoice.projects as { id: string; name: string } | null;
 
+  // Generate signed URL for file preview
+  let signedFileUrl: string | null = null;
+  if (invoice.file_path) {
+    const { data: signed } = await supabase.storage
+      .from("invoices")
+      .createSignedUrl(invoice.file_path, 3600);
+    signedFileUrl = signed?.signedUrl ?? null;
+  }
+
   // Fetch contracts for the invoice's project (if any)
   const contractsResult = invoice.project_id
     ? await supabase
@@ -107,6 +116,8 @@ export default async function EditInvoicePage({ params }: Props) {
           </Link>
           <EditInvoiceForm
             invoiceId={id}
+            signedFileUrl={signedFileUrl}
+            fileName={invoice.file_name ?? null}
             initial={{
               project_id: invoice.project_id ?? null,
               vendor_id: invoice.vendor_id ?? null,

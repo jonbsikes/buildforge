@@ -12,6 +12,16 @@ export interface VendorFormData {
   coi_expiry_date: string | null;
   license_expiry_date: string | null;
   notes: string | null;
+  primary_contact_name: string | null;
+  primary_contact_email: string | null;
+  primary_contact_phone: string | null;
+  accounting_contact_name: string | null;
+  accounting_contact_email: string | null;
+  accounting_contact_phone: string | null;
+  ach_bank_name: string | null;
+  ach_routing_number: string | null;
+  ach_account_number: string | null;
+  ach_account_type: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,6 +49,16 @@ export async function createVendor(
       license_expiry_date: data.license_expiry_date || null,
       notes: data.notes || null,
       is_active: true,
+      primary_contact_name: data.primary_contact_name || null,
+      primary_contact_email: data.primary_contact_email || null,
+      primary_contact_phone: data.primary_contact_phone || null,
+      accounting_contact_name: data.accounting_contact_name || null,
+      accounting_contact_email: data.accounting_contact_email || null,
+      accounting_contact_phone: data.accounting_contact_phone || null,
+      ach_bank_name: data.ach_bank_name || null,
+      ach_routing_number: data.ach_routing_number || null,
+      ach_account_number: data.ach_account_number || null,
+      ach_account_type: data.ach_account_type || null,
     })
     .select("id")
     .single();
@@ -72,6 +92,16 @@ export async function updateVendor(
       coi_expiry_date: data.coi_expiry_date || null,
       license_expiry_date: data.license_expiry_date || null,
       notes: data.notes || null,
+      primary_contact_name: data.primary_contact_name || null,
+      primary_contact_email: data.primary_contact_email || null,
+      primary_contact_phone: data.primary_contact_phone || null,
+      accounting_contact_name: data.accounting_contact_name || null,
+      accounting_contact_email: data.accounting_contact_email || null,
+      accounting_contact_phone: data.accounting_contact_phone || null,
+      ach_bank_name: data.ach_bank_name || null,
+      ach_routing_number: data.ach_routing_number || null,
+      ach_account_number: data.ach_account_number || null,
+      ach_account_type: data.ach_account_type || null,
     })
     .eq("id", id);
 

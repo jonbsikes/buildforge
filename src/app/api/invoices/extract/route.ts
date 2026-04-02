@@ -24,10 +24,21 @@ Extract structured data from the provided invoice PDF and return ONLY valid JSON
 - If multiple trades appear on one invoice, create one line_item per trade/cost code
 - If only one trade, one line_item with the full amount
 - Dates must be YYYY-MM-DD format; if year is ambiguous use current year
-- If due_date is not stated, set it to invoice_date + 30 days
+- If the invoice shows "terms", "payment terms", "net", or similar followed by a number (e.g. "Net 30", "Terms: 45", "Payment Terms: 60"), set due_date = invoice_date + that number of days
+- If due_date is not stated and no payment terms found, set it to invoice_date + 30 days
 - All amount values must be plain numbers (no $ signs, no commas)
 - ai_confidence: "high" = all key fields clearly readable; "medium" = some fields estimated/unclear; "low" = vendor, amount, or date unreadable/conflicting
 - ai_notes: brief explanation only if confidence is medium or low; empty string otherwise
+
+## Project matching (only when a projects list is provided)
+- A JSON array of projects will be appended to the user message with fields: id, name, type, address, subdivision, block, lot
+- You MUST attempt to match every invoice to a project — do not give up easily
+- Construction invoices almost always have a job site address — scan every address block on the invoice: "Ship To", "Deliver To", "Delivery Address", "Job Site", "Project Address", "Location", "Install At", "Work Location", or any secondary address that differs from the vendor's own address
+- Match any of those addresses against the project address field (partial street number + street name match is sufficient)
+- Also search for: subdivision name, lot number, block number, project name, or PO number referencing a job
+- If multiple projects could match, PREFER home_construction type over land_development
+- Set "project_id" to the matching project's id
+- Only set project_id to null if the invoice is clearly for office/admin/overhead, OR if no address or job site reference of any kind appears on the invoice
 
 ## Output format (return ONLY this JSON, no other text):
 {
@@ -36,6 +47,7 @@ Extract structured data from the provided invoice PDF and return ONLY valid JSON
   "invoice_date": "YYYY-MM-DD",
   "due_date": "YYYY-MM-DD",
   "total_amount": 0.00,
+  "project_id": "uuid or null",
   "line_items": [
     { "cost_code": "string", "description": "string", "amount": 0.00 }
   ],
@@ -49,6 +61,7 @@ export interface ExtractedInvoiceData {
   invoice_date: string;
   due_date: string;
   total_amount: number;
+  project_id: string | null;
   line_items: { cost_code: string; description: string; amount: number }[];
   ai_confidence: "high" | "medium" | "low";
   ai_notes: string;
@@ -58,6 +71,8 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
+    const projectsRaw = formData.get("projects") as string | null;
+    const projects: { id: string; name: string; type?: string; address?: string | null; subdivision?: string | null; block?: string | null; lot?: string | null }[] = projectsRaw ? JSON.parse(projectsRaw) : [];
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -75,7 +90,7 @@ export async function POST(req: NextRequest) {
     const base64 = Buffer.from(buffer).toString("base64");
 
     const message = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
       messages: [
@@ -92,7 +107,9 @@ export async function POST(req: NextRequest) {
             } as ContentBlockParam,
             {
               type: "text",
-              text: "Extract all invoice data from this PDF and return the JSON as specified.",
+              text: projects.length
+                ? `Extract all invoice data from this PDF and return the JSON as specified.\n\nActive projects (match aggressively — prefer home_construction if conflict):\n${JSON.stringify(projects, null, 2)}`
+                : "Extract all invoice data from this PDF and return the JSON as specified.",
             },
           ] as ContentBlockParam[],
         },

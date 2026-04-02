@@ -16,7 +16,7 @@ export default async function NewInvoicePage() {
       .order("name"),
     supabase
       .from("projects")
-      .select("id, name, project_type")
+      .select("id, name, project_type, address, subdivision, block, lot")
       .in("status", ["planning", "active"])
       .order("name"),
     supabase
@@ -45,7 +45,7 @@ export default async function NewInvoicePage() {
         </div>
         <InvoiceForm
           vendors={vendorsResult.data ?? []}
-          projects={(projectsResult.data ?? []) as { id: string; name: string; project_type: "home_construction" | "land_development" }[]}
+          projects={(projectsResult.data ?? []) as { id: string; name: string; project_type: "home_construction" | "land_development"; address?: string | null; subdivision?: string | null; block?: string | null; lot?: string | null }[]}
           costCodes={costCodes}
         />
       </main>

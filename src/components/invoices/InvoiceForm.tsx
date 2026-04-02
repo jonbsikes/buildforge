@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useTransition } from "react";
+import { useState, useRef, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Upload,
@@ -25,6 +25,10 @@ interface Project {
   id: string;
   name: string;
   project_type: "home_construction" | "land_development";
+  address?: string | null;
+  subdivision?: string | null;
+  block?: string | null;
+  lot?: string | null;
 }
 
 interface CostCode {
@@ -63,11 +67,8 @@ function getCodesForContext(
       return n >= 1 && n <= 33;
     });
   }
-  // No project selected → G&A codes only
-  return allCodes.filter((c) => {
-    const n = parseInt(c.code, 10);
-    return n >= 103 && n <= 120;
-  });
+  // No project selected → show all codes so AI-suggested codes are always visible
+  return allCodes;
 }
 
 type AiConfidence = "high" | "medium" | "low" | null;
@@ -80,6 +81,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
   // PDF upload + AI state
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedFilePath, setUploadedFilePath] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [aiConfidence, setAiConfidence] = useState<AiConfidence>(null);
@@ -103,6 +105,11 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
 
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Revoke blob URL on unmount or when file changes
+  useEffect(() => {
+    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewUrl]);
 
   // Derived context
   const selectedProject = projects.find((p) => p.id === projectId) ?? null;
@@ -126,6 +133,8 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     setUploadedFile(file);
     setExtractionError(null);
     setIsExtracting(true);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(URL.createObjectURL(file));
 
     try {
       const supabase = createClient();
@@ -137,6 +146,15 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
       // Run storage upload + AI extraction in parallel
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("projects", JSON.stringify(projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        type: p.project_type,
+        address: p.address ?? null,
+        subdivision: p.subdivision ?? null,
+        block: p.block ?? null,
+        lot: p.lot ?? null,
+      }))));
 
       const [uploadResult, extractRes] = await Promise.allSettled([
         supabase.storage.from("invoices").upload(storagePath, file, { contentType: file.type }),
@@ -166,6 +184,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
       setDueDate(data.due_date ?? "");
       setAiConfidence(data.ai_confidence ?? "low");
       setAiNotes(data.ai_notes ?? "");
+      if (data.project_id) setProjectId(data.project_id);
 
       // Pre-fill line items
       if (data.line_items?.length > 0) {
@@ -348,6 +367,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
                 setUploadedFilePath(null);
                 setAiConfidence(null);
                 setAiNotes("");
+                if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
                 if (fileInputRef.current) fileInputRef.current.value = "";
               }}
               className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -394,6 +414,12 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
                 </option>
               ))}
             </select>
+            <a
+              href={`/vendors/new${vendorName ? `?name=${encodeURIComponent(vendorName)}` : ""}`}
+              className="inline-block mt-1 text-xs text-[#4272EF] hover:underline"
+            >
+              + Create new vendor
+            </a>
           </Field>
         </div>
 
@@ -539,6 +565,29 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
           {isPending ? "Saving…" : "Save Invoice"}
         </button>
       </div>
+
+      {/* PDF Preview */}
+      {previewUrl && uploadedFile && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700">{uploadedFile.name}</h3>
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#4272EF] hover:underline"
+            >
+              Open in new tab ↗
+            </a>
+          </div>
+          <iframe
+            src={previewUrl}
+            title={uploadedFile.name}
+            className="w-full border-0"
+            style={{ height: 900 }}
+          />
+        </div>
+      )}
     </div>
   );
 }

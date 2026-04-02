@@ -29,6 +29,8 @@ interface Step1Fields {
   number_of_phases: string;
   start_date: string;
   lender_id: string;
+  status: string;
+  loan_number: string;
 }
 
 const EMPTY_STEP1: Step1Fields = {
@@ -39,6 +41,8 @@ const EMPTY_STEP1: Step1Fields = {
   number_of_phases: "",
   start_date: "",
   lender_id: "",
+  status: "planning",
+  loan_number: "",
 };
 
 export default function LandDevForm({ lenders, costCodes }: Props) {
@@ -208,6 +212,32 @@ export default function LandDevForm({ lenders, costCodes }: Props) {
               ))}
             </select>
           </Field>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Status">
+              <select
+                value={fields.status}
+                onChange={(e) => updateField("status", e.target.value)}
+                className={inputClass(false)}
+              >
+                <option value="planning">Planning</option>
+                <option value="active">Active</option>
+                <option value="on_hold">On Hold</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </Field>
+
+            <Field label="Loan Number">
+              <input
+                type="text"
+                value={fields.loan_number}
+                onChange={(e) => updateField("loan_number", e.target.value)}
+                placeholder="e.g. LN-2024-001"
+                className={inputClass(false)}
+              />
+            </Field>
+          </div>
 
           <div className="flex justify-end pt-2">
             <button

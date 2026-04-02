@@ -216,6 +216,8 @@ export default function InvoicesClient({
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
 
   const filtered = useMemo(() => {
@@ -304,13 +306,36 @@ export default function InvoicesClient({
             Clear
           </button>
         )}
-        <button
-          onClick={() => setShowAdd(true)}
-          className="ml-auto flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
-          style={{ backgroundColor: "#4272EF" }}
-        >
-          <Plus size={15} /> New Invoice
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {selectMode && selected.size > 0 && (
+            <button
+              onClick={() => {
+                if (!confirm(`Delete ${selected.size} invoice${selected.size > 1 ? "s" : ""}? This cannot be undone.`)) return;
+                startTransition(async () => {
+                  await Promise.all([...selected].map((id) => deleteInvoice(id)));
+                  setSelected(new Set());
+                  setSelectMode(false);
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg"
+            >
+              <Trash2 size={14} /> Delete {selected.size}
+            </button>
+          )}
+          <button
+            onClick={() => { setSelectMode((v) => !v); setSelected(new Set()); }}
+            className={`px-3 py-2 text-sm rounded-lg border transition-colors ${selectMode ? "border-[#4272EF] text-[#4272EF] bg-blue-50" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}
+          >
+            {selectMode ? "Cancel" : "Select"}
+          </button>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
+            style={{ backgroundColor: "#4272EF" }}
+          >
+            <Plus size={15} /> New Invoice
+          </button>
+        </div>
       </div>
 
       {showAdd && <NewInvoiceForm projects={projects} vendors={vendors} onDone={() => setShowAdd(false)} />}
@@ -329,6 +354,19 @@ export default function InvoicesClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
+                {selectMode && (
+                  <th className="px-4 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && filtered.every((inv) => selected.has(inv.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelected(new Set(filtered.map((inv) => inv.id)));
+                        else setSelected(new Set());
+                      }}
+                      className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                    />
+                  </th>
+                )}
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Invoice</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Project</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Vendor</th>
@@ -348,7 +386,25 @@ export default function InvoicesClient({
 
                 return (
                   <>
-                    <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
+                    <tr
+                      key={inv.id}
+                      className={`hover:bg-gray-50 transition-colors ${selectMode && selected.has(inv.id) ? "bg-blue-50" : ""}`}
+                    >
+                      {selectMode && (
+                        <td className="px-4 py-3 w-8">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(inv.id)}
+                            onChange={(e) => {
+                              const next = new Set(selected);
+                              if (e.target.checked) next.add(inv.id);
+                              else next.delete(inv.id);
+                              setSelected(next);
+                            }}
+                            className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <FileText size={14} className="text-gray-400 shrink-0" />
@@ -433,7 +489,7 @@ export default function InvoicesClient({
                     </tr>
                     {markingPaidId === inv.id && (
                       <tr key={`${inv.id}-paid`}>
-                        <td colSpan={8} className="px-4 pb-3">
+                        <td colSpan={selectMode ? 9 : 8} className="px-4 pb-3">
                           <MarkPaidForm invoice={inv} onDone={() => setMarkingPaidId(null)} />
                         </td>
                       </tr>

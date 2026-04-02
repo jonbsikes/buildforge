@@ -40,6 +40,8 @@ interface Props {
   projects: Project[];
   costCodes: CostCode[];
   contracts: Contract[];
+  signedFileUrl: string | null;
+  fileName: string | null;
 }
 
 const EMPTY_LINE: LineItem = { cost_code: "", description: "", amount: "" };
@@ -50,7 +52,7 @@ function getCodesForContext(
 ): CostCode[] {
   if (projectType === "home_construction") return allCodes.filter((c) => { const n = parseInt(c.code, 10); return n >= 34 && n <= 102; });
   if (projectType === "land_development") return allCodes.filter((c) => { const n = parseInt(c.code, 10); return n >= 1 && n <= 33; });
-  return allCodes.filter((c) => { const n = parseInt(c.code, 10); return n >= 103 && n <= 120; });
+  return allCodes;
 }
 
 function ic(err = false) {
@@ -68,7 +70,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
-export default function EditInvoiceForm({ invoiceId, initial, vendors, projects, costCodes, contracts }: Props) {
+export default function EditInvoiceForm({ invoiceId, initial, vendors, projects, costCodes, contracts, signedFileUrl, fileName }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
@@ -190,6 +192,12 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
                 <option key={v.id} value={v.id}>{v.name}</option>
               ))}
             </select>
+            <a
+              href={`/vendors/new${vendorName ? `?name=${encodeURIComponent(vendorName)}` : ""}`}
+              className="inline-block mt-1 text-xs text-[#4272EF] hover:underline"
+            >
+              + Create new vendor
+            </a>
           </Field>
         </div>
 
@@ -314,6 +322,29 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
           {isPending ? "Saving…" : "Save Changes"}
         </button>
       </div>
+
+      {/* PDF Preview */}
+      {signedFileUrl && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700">{fileName ?? "Invoice File"}</h3>
+            <a
+              href={signedFileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#4272EF] hover:underline"
+            >
+              Open in new tab ↗
+            </a>
+          </div>
+          <iframe
+            src={signedFileUrl}
+            title={fileName ?? "Invoice"}
+            className="w-full border-0"
+            style={{ height: 900 }}
+          />
+        </div>
+      )}
     </div>
   );
 }

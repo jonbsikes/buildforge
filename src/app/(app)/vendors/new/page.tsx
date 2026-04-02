@@ -5,8 +5,13 @@ import VendorForm, { type CostCodeOption } from "@/components/vendors/VendorForm
 
 export const dynamic = "force-dynamic";
 
-export default async function NewVendorPage() {
+interface Props {
+  searchParams: Promise<{ name?: string }>;
+}
+
+export default async function NewVendorPage({ searchParams }: Props) {
   const supabase = await createClient();
+  const { name: prefillName } = await searchParams;
 
   const { data: codes } = await supabase
     .from("cost_codes")
@@ -32,7 +37,7 @@ export default async function NewVendorPage() {
           >
             ← Vendors
           </Link>
-          <VendorForm costCodes={costCodes} />
+          <VendorForm costCodes={costCodes} prefillName={prefillName} />
         </div>
       </main>
     </>

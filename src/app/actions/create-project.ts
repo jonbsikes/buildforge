@@ -62,6 +62,8 @@ export interface CreateHomeConstructionInput {
   home_size_sf: string;
   start_date: string;
   lender_id: string;
+  status?: string;
+  loan_number?: string;
   selected_cost_code_ids: string[];
 }
 
@@ -91,7 +93,7 @@ export async function createHomeConstructionProject(
       start_date: input.start_date || null,
       lender_id: input.lender_id || null,
       project_type: "home_construction",
-      status: "planning",
+      status: (input.status as "planning" | "active" | "on_hold" | "completed" | "cancelled") ?? "planning",
       total_budget: 0,
     })
     .select("id")
@@ -136,6 +138,18 @@ export async function createHomeConstructionProject(
     }
   }
 
+  // Create loan record if loan number and lender are provided
+  if (input.loan_number?.trim() && input.lender_id) {
+    await supabase.from("loans").insert({
+      project_id: project.id,
+      lender_id: input.lender_id,
+      loan_number: input.loan_number.trim(),
+      loan_amount: 0,
+      loan_type: "term_loan",
+      status: "active",
+    });
+  }
+
   return { projectId: project.id };
 }
 
@@ -147,6 +161,8 @@ export interface CreateLandDevInput {
   number_of_phases: string;
   start_date: string;
   lender_id: string;
+  status?: string;
+  loan_number?: string;
   selected_cost_code_ids: string[];
 }
 
@@ -173,7 +189,7 @@ export async function createLandDevProject(
       start_date: input.start_date || null,
       lender_id: input.lender_id || null,
       project_type: "land_development",
-      status: "planning",
+      status: (input.status as "planning" | "active" | "on_hold" | "completed" | "cancelled") ?? "planning",
       total_budget: 0,
     })
     .select("id")
@@ -216,6 +232,18 @@ export async function createLandDevProject(
     if (stageError) {
       return { error: stageError.message };
     }
+  }
+
+  // Create loan record if loan number and lender are provided
+  if (input.loan_number?.trim() && input.lender_id) {
+    await supabase.from("loans").insert({
+      project_id: project.id,
+      lender_id: input.lender_id,
+      loan_number: input.loan_number.trim(),
+      loan_amount: 0,
+      loan_type: "term_loan",
+      status: "active",
+    });
   }
 
   return { projectId: project.id };
