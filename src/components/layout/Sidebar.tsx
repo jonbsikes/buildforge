@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
+  LayoutDashboard,
   Building2,
   BarChart2,
   ClipboardList,
@@ -15,7 +17,7 @@ import {
   Users,
   ChevronDown,
   ChevronRight,
-  HardHat,
+  BookOpen,
   LogOut,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -46,6 +48,13 @@ type NavSection = {
 
 const sections: NavSection[] = [
   {
+    title: "Overview",
+    entries: [
+      { type: "link", href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { type: "link", href: "/todos", label: "To-Do List", icon: ClipboardList },
+    ],
+  },
+  {
     title: "Project Management",
     entries: [
       { type: "link", href: "/projects", label: "Projects", icon: Building2 },
@@ -55,14 +64,13 @@ const sections: NavSection[] = [
         label: "Project Reports",
         icon: BarChart2,
         children: [
-          { href: "/reports/stage-progress", label: "Stage Progress" },
-          { href: "/reports/field-logs", label: "Field Logs" },
-          { href: "/reports/job-cost", label: "Job Cost" },
-          { href: "/reports/budget-variance", label: "Budget Variance" },
-          { href: "/reports/selections", label: "Selections" },
+          { href: "/reports/stage-progress",  label: "Stage Progress" },
+          { href: "/reports/gantt",            label: "Gantt Report" },
+          { href: "/reports/job-cost",         label: "Job Cost" },
+          { href: "/reports/budget-variance",  label: "Budget Variance" },
+          { href: "/reports/selections",       label: "Selections" },
         ],
       },
-      { type: "link", href: "/todos", label: "Project To-Do's", icon: ClipboardList },
     ],
   },
   {
@@ -74,14 +82,18 @@ const sections: NavSection[] = [
         label: "Financial Reports",
         icon: TrendingUp,
         children: [
-          { href: "/financial/summary", label: "Summary" },
+          { href: "/financial/summary",         label: "Summary" },
           { href: "/financial/income-statement", label: "Income Statement" },
-          { href: "/financial/balance-sheet", label: "Balance Sheet" },
-          { href: "/financial/cash-flow", label: "Cash Flow Statement" },
-          { href: "/financial/ap-aging", label: "AP Aging" },
+          { href: "/financial/balance-sheet",    label: "Balance Sheet" },
+          { href: "/financial/cash-flow",        label: "Cash Flow Statement" },
+          { href: "/financial/ap-aging",         label: "AP Aging" },
+          { href: "/financial/wip",              label: "WIP Report" },
+          { href: "/financial/vendor-spend",     label: "Vendor Spend" },
+          { href: "/financial/tax-export",       label: "Tax Package Export" },
         ],
       },
-      { type: "link", href: "/invoices", label: "Accounts Payable", icon: Receipt },
+      { type: "link", href: "/financial/journal-entries", label: "Journal Entries", icon: BookOpen },
+      { type: "link", href: "/invoices",   label: "Accounts Payable", icon: Receipt },
       {
         type: "group",
         key: "banking",
@@ -146,13 +158,15 @@ export default function Sidebar() {
   return (
     <aside className="w-60 bg-gray-900 min-h-screen flex flex-col flex-shrink-0">
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: "#4272EF" }}>
-            <HardHat size={16} className="text-white" />
-          </div>
-          <span className="text-white font-bold text-base">BuildForge</span>
-        </div>
+      <div className="bg-white">
+        <Image
+          src="/prairie-sky-logo.png"
+          alt="Prairie Sky Homes"
+          width={240}
+          height={120}
+          className="w-full h-auto object-contain p-3"
+          priority
+        />
       </div>
 
       {/* Nav */}

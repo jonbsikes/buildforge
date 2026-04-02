@@ -34,10 +34,11 @@ export default async function InvoiceDetailPage({ params }: Props) {
     .select(`
       id, vendor, invoice_number, invoice_date, due_date,
       amount, status, ai_confidence, ai_notes,
-      pending_draw, manually_reviewed, file_name,
-      payment_date, payment_method, source,
+      pending_draw, manually_reviewed, file_name, file_path,
+      payment_date, payment_method, source, contract_id,
       projects ( id, name ),
-      vendors ( id, name )
+      vendors ( id, name ),
+      contracts ( id, amount, status, cost_codes ( code, name ) )
     `)
     .eq("id", id)
     .single();
@@ -72,8 +73,22 @@ export default async function InvoiceDetailPage({ params }: Props) {
   }
 
   const project = invoice.projects as { id: string; name: string } | null;
+  type ContractRef = { id: string; amount: number; status: string; cost_codes: { code: string; name: string } | null };
+  const linkedContract = invoice.contracts as ContractRef | null;
   const isLowConf = invoice.ai_confidence === "low";
   const lineTotal = (lineItems ?? []).reduce((s, li) => s + (li.amount ?? 0), 0);
+
+  // Generate a 1-hour signed URL for the stored invoice file
+  let signedFileUrl: string | null = null;
+  if (invoice.file_path) {
+    const { data: signed } = await supabase.storage
+      .from("invoices")
+      .createSignedUrl(invoice.file_path, 3600);
+    signedFileUrl = signed?.signedUrl ?? null;
+  }
+
+  const fileExt = invoice.file_name?.split(".").pop()?.toLowerCase() ?? "";
+  const isImage = ["jpg", "jpeg", "png", "gif", "webp"].includes(fileExt);
 
   const isEditable =
     !isInFundedDraw &&
@@ -166,6 +181,21 @@ export default async function InvoiceDetailPage({ params }: Props) {
                 <p className="text-xs text-gray-400 mb-0.5">Total</p>
                 <p className="text-lg font-semibold text-gray-900">{fmt(invoice.amount)}</p>
               </div>
+              {linkedContract && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Contract</p>
+                  <Link
+                    href={`/contracts/${linkedContract.id}/edit`}
+                    className="text-sm text-[#4272EF] hover:underline font-medium"
+                  >
+                    {linkedContract.cost_codes
+                      ? `${linkedContract.cost_codes.code} – ${linkedContract.cost_codes.name}`
+                      : "View Contract"
+                    }
+                  </Link>
+                  <p className="text-xs text-gray-400">{fmt(linkedContract.amount)} · {linkedContract.status}</p>
+                </div>
+              )}
               {invoice.payment_date && (
                 <div>
                   <p className="text-xs text-gray-400 mb-0.5">Paid</p>
@@ -227,6 +257,42 @@ export default async function InvoiceDetailPage({ params }: Props) {
               </table>
             )}
           </div>
+
+          {/* File viewer */}
+          {signedFileUrl && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  {invoice.file_name ?? "Invoice File"}
+                </h3>
+                <a
+                  href={signedFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[#4272EF] hover:underline"
+                >
+                  Open in new tab ↗
+                </a>
+              </div>
+              {isImage ? (
+                <div className="p-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={signedFileUrl}
+                    alt={invoice.file_name ?? "Invoice"}
+                    className="max-w-full rounded"
+                  />
+                </div>
+              ) : (
+                <iframe
+                  src={signedFileUrl}
+                  title={invoice.file_name ?? "Invoice"}
+                  className="w-full border-0"
+                  style={{ height: 900 }}
+                />
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           <InvoiceDetailActions

@@ -229,6 +229,7 @@ export interface UpdateInvoiceInput {
   payment_method: string;
   line_items: LineItemInput[];
   project_name: string;
+  contract_id: string | null;
 }
 
 export async function updateInvoice(
@@ -284,6 +285,7 @@ export async function updateInvoice(
       pending_draw: input.pending_draw,
       status: input.status,
       payment_method: input.payment_method || null,
+      contract_id: input.contract_id || null,
       manually_reviewed: true, // editing counts as reviewing
     })
     .eq("id", invoiceId);

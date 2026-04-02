@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { saveInvoice } from "@/app/actions/invoices";
 import type { ExtractedInvoiceData } from "@/app/api/invoices/extract/route";
+import { createClient } from "@/lib/supabase/client";
 
 interface Vendor {
   id: string;
@@ -127,14 +128,34 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     setIsExtracting(true);
 
     try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      const uid = user?.id ?? "anon";
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `${uid}/${Date.now()}-${safeName}`;
+
+      // Run storage upload + AI extraction in parallel
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/invoices/extract", { method: "POST", body: fd });
-      const data: ExtractedInvoiceData & { error?: string } = await res.json();
 
-      if (!res.ok || data.error) {
+      const [uploadResult, extractRes] = await Promise.allSettled([
+        supabase.storage.from("invoices").upload(storagePath, file, { contentType: file.type }),
+        fetch("/api/invoices/extract", { method: "POST", body: fd }).then((r) => r.json() as Promise<ExtractedInvoiceData & { error?: string }>),
+      ]);
+
+      // Save file path if upload succeeded
+      if (uploadResult.status === "fulfilled" && uploadResult.value.data) {
+        setUploadedFilePath(uploadResult.value.data.path);
+      }
+
+      // Handle extraction
+      if (extractRes.status === "rejected") {
+        setExtractionError("Could not reach extraction service");
+        return;
+      }
+      const data = extractRes.value;
+      if (data.error) {
         setExtractionError(data.error ?? "Extraction failed");
-        setIsExtracting(false);
         return;
       }
 
@@ -146,7 +167,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
       setAiConfidence(data.ai_confidence ?? "low");
       setAiNotes(data.ai_notes ?? "");
 
-      // Pre-fill line items, filtering to valid codes
+      // Pre-fill line items
       if (data.line_items?.length > 0) {
         setLineItems(
           data.line_items.map((li) => ({

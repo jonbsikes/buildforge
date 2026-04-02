@@ -9,18 +9,20 @@ import {
   FileText,
   CreditCard,
   Truck,
+  ClipboardList,
+  Calendar,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 function fmt(n: number) {
-  return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  planning: "bg-gray-100 text-gray-600",
-  active: "bg-green-50 text-green-700",
-  on_hold: "bg-amber-50 text-amber-700",
+  planning:  "bg-gray-100 text-gray-600",
+  active:    "bg-green-50 text-green-700",
+  on_hold:   "bg-amber-50 text-amber-700",
   completed: "bg-blue-50 text-blue-700",
   cancelled: "bg-red-50 text-red-600",
 };
@@ -28,11 +30,7 @@ const STATUS_COLORS: Record<string, string> = {
 function StatCard({
   title, value, subtitle, icon, accent = false,
 }: {
-  title: string;
-  value: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  accent?: boolean;
+  title: string; value: string; subtitle: string; icon: React.ReactNode; accent?: boolean;
 }) {
   return (
     <div className={`rounded-xl border p-5 ${accent ? "border-[#4272EF]/20 bg-[#4272EF]/5" : "bg-white border-gray-200"}`}>
@@ -51,50 +49,72 @@ function StatCard({
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toISOString().split("T")[0]!;
+  const weekFromNow = new Date();
+  weekFromNow.setDate(weekFromNow.getDate() + 7);
+  const weekStr = weekFromNow.toISOString().split("T")[0]!;
 
   const [
     { data: projects },
-    { data: costItems },
+    { data: pccRows },
     { data: invoices },
     { data: draws },
     { data: vendors },
     { data: fieldTodos },
+    { data: recentLogs },
+    { data: contracts },
   ] = await Promise.all([
-    supabase.from("projects").select("id, name, status, total_budget, project_type, subdivision").order("created_at", { ascending: false }),
-    supabase.from("cost_items").select("budgeted_amount, actual_amount, project_id"),
-    supabase.from("invoices").select("id, status, total_amount, due_date, project_id"),
+    supabase.from("projects").select("id, name, status, project_type, subdivision").order("created_at", { ascending: false }),
+    supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
+    supabase.from("invoices").select("id, status, amount, total_amount, due_date, project_id, vendor, invoice_number"),
     supabase.from("loan_draws").select("id, status, total_amount"),
     supabase.from("vendors").select("id, coi_expiry_date, license_expiry_date"),
-    supabase.from("field_todos").select("id, status, priority"),
+    supabase.from("field_todos").select("id, status, priority, description, project_id, due_date"),
+    supabase.from("field_logs").select("id, log_date, notes, project_id").order("log_date", { ascending: false }).limit(5),
+    supabase.from("contracts").select("project_id, cost_code_id, amount"),
   ]);
 
-  const activeProjects = (projects ?? []).filter(p => p.status === "active").length;
-  const totalBudget = (projects ?? []).reduce((s, p) => s + (p.total_budget ?? 0), 0);
-  const totalActual = (costItems ?? []).reduce((s, c) => s + (c.actual_amount ?? 0), 0);
-  const totalBudgeted = (costItems ?? []).reduce((s, c) => s + (c.budgeted_amount ?? 0), 0);
+  // KPI: budget from project_cost_codes, actual from approved/paid invoices
+  const totalBudget    = (pccRows ?? []).reduce((s, r) => s + (r.budgeted_amount ?? 0), 0);
+  const approvedInvoices = (invoices ?? []).filter((i) => i.status === "approved" || i.status === "paid");
+  const totalActual    = approvedInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
 
-  const pendingInvoices = (invoices ?? []).filter(i => i.status === "pending_review").length;
-  const pastDueInvoices = (invoices ?? []).filter(i => i.status !== "paid" && i.due_date && i.due_date < today).length;
-  const outstandingAmount = (invoices ?? []).filter(i => i.status !== "paid").reduce((s, i) => s + (i.total_amount ?? 0), 0);
+  const activeProjects = (projects ?? []).filter((p) => p.status === "active").length;
 
-  const totalFunded = (draws ?? []).filter(d => d.status === "funded").reduce((s, d) => s + d.total_amount, 0);
+  const pendingInvoices  = (invoices ?? []).filter((i) => i.status === "pending_review").length;
+  const pastDueInvoices  = (invoices ?? []).filter((i) => i.status !== "paid" && i.due_date && i.due_date < today).length;
+  const outstandingAmount = (invoices ?? []).filter((i) => i.status !== "paid").reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
+  const dueThisWeek      = (invoices ?? []).filter((i) => i.status !== "paid" && i.due_date && i.due_date >= today && i.due_date <= weekStr);
+
+  const totalFunded = (draws ?? []).filter((d) => d.status === "funded").reduce((s, d) => s + d.total_amount, 0);
 
   const daysUntil = (d: string | null) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
-  const vendorAlerts = (vendors ?? []).filter(v => {
+  const vendorAlerts = (vendors ?? []).filter((v) => {
     const coi = daysUntil(v.coi_expiry_date);
     const lic = daysUntil(v.license_expiry_date);
     return (coi !== null && coi <= 30) || (lic !== null && lic <= 30);
   }).length;
 
-  const urgentTodos = (fieldTodos ?? []).filter(t => t.status !== "done" && t.priority === "urgent").length;
+  const urgentTodos = (fieldTodos ?? []).filter((t) => t.status !== "done" && t.priority === "urgent").length;
+  const openTodos   = (fieldTodos ?? []).filter((t) => t.status !== "done").length;
 
-  const overBudgetProjects = (projects ?? []).filter(p => {
-    const items = (costItems ?? []).filter(c => c.project_id === p.id);
-    const actual = items.reduce((s, c) => s + c.actual_amount, 0);
-    const budget = items.reduce((s, c) => s + c.budgeted_amount, 0);
-    return actual > budget && actual > 0;
+  // Over-budget projects: sum of approved invoices vs sum of budgeted cost codes
+  const actualByProject: Record<string, number> = {};
+  for (const inv of approvedInvoices) {
+    if (inv.project_id) actualByProject[inv.project_id] = (actualByProject[inv.project_id] ?? 0) + (inv.total_amount ?? inv.amount ?? 0);
+  }
+  const budgetByProject: Record<string, number> = {};
+  for (const pcc of pccRows ?? []) {
+    if (pcc.project_id) budgetByProject[pcc.project_id] = (budgetByProject[pcc.project_id] ?? 0) + (pcc.budgeted_amount ?? 0);
+  }
+  const overBudgetProjects = (projects ?? []).filter((p) => {
+    const actual = actualByProject[p.id] ?? 0;
+    const budget = budgetByProject[p.id] ?? 0;
+    return actual > budget && budget > 0;
   });
+
+  const projectNames: Record<string, string> = {};
+  for (const p of projects ?? []) projectNames[p.id] = p.name;
 
   return (
     <>
@@ -111,13 +131,13 @@ export default async function DashboardPage() {
           <StatCard
             title="Total Budget"
             value={fmt(totalBudget)}
-            subtitle="all projects"
+            subtitle="across all projects"
             icon={<DollarSign size={18} style={{ color: "#4272EF" }} />}
           />
           <StatCard
             title="Actual Spend"
             value={fmt(totalActual)}
-            subtitle={`${totalBudgeted > 0 ? Math.round((totalActual / totalBudgeted) * 100) : 0}% of budgeted`}
+            subtitle={totalBudget > 0 ? `${Math.round((totalActual / totalBudget) * 100)}% of budget` : "approved & paid"}
             icon={<TrendingUp size={18} style={{ color: "#4272EF" }} />}
           />
           <StatCard
@@ -134,80 +154,114 @@ export default async function DashboardPage() {
             icon={<CreditCard size={18} style={{ color: "#4272EF" }} />}
           />
           <StatCard
-            title="Alerts"
-            value={String(vendorAlerts + urgentTodos + overBudgetProjects.length)}
-            subtitle={`${vendorAlerts} vendor · ${urgentTodos} urgent todos`}
-            icon={<AlertTriangle size={18} style={{ color: "#4272EF" }} />}
-            accent={vendorAlerts + urgentTodos > 0}
+            title="Open To-Dos"
+            value={String(openTodos)}
+            subtitle={urgentTodos > 0 ? `${urgentTodos} urgent` : "field to-dos"}
+            icon={<ClipboardList size={18} style={{ color: "#4272EF" }} />}
+            accent={urgentTodos > 0}
           />
         </div>
 
-        {/* Main content grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Projects table - spans 2 cols */}
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">Projects</h2>
-              <Link href="/projects" className="text-sm font-medium" style={{ color: "#4272EF" }}>
-                View all →
-              </Link>
-            </div>
-            {(projects ?? []).length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <FolderOpen size={40} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm mb-3">No projects yet.</p>
-                <Link href="/projects" className="text-sm text-white px-4 py-2 rounded-lg" style={{ backgroundColor: "#4272EF" }}>
-                  Create first project
+          {/* Projects table — 2 cols */}
+          <div className="lg:col-span-2 space-y-5">
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-900">Projects</h2>
+                <Link href="/projects" className="text-sm font-medium" style={{ color: "#4272EF" }}>
+                  View all →
                 </Link>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase">Project</th>
-                      <th className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="text-right px-5 py-3 text-xs font-medium text-gray-500 uppercase">Budget</th>
-                      <th className="text-right px-5 py-3 text-xs font-medium text-gray-500 uppercase">Spent</th>
-                      <th className="text-right px-5 py-3 text-xs font-medium text-gray-500 uppercase">Remaining</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {(projects ?? []).map((project) => {
-                      const items = (costItems ?? []).filter(c => c.project_id === project.id);
-                      const spent = items.reduce((s, c) => s + c.actual_amount, 0);
-                      const remaining = (project.total_budget ?? 0) - spent;
-                      const isOver = remaining < 0;
-                      return (
-                        <tr key={project.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-5 py-3">
-                            <Link href={`/projects/${project.id}`} className="font-medium text-gray-900 hover:underline">
-                              {project.name}
-                            </Link>
-                            {project.subdivision && (
-                              <span className="ml-2 text-xs text-gray-400">{project.subdivision}</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status] ?? "bg-gray-100 text-gray-600"}`}>
-                              {project.status.replace("_", " ")}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 text-right text-gray-700">{fmt(project.total_budget ?? 0)}</td>
-                          <td className="px-5 py-3 text-right text-gray-700">{fmt(spent)}</td>
-                          <td className={`px-5 py-3 text-right font-medium ${isOver ? "text-red-600" : "text-green-600"}`}>
-                            {isOver ? "-" : ""}{fmt(Math.abs(remaining))}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              {(projects ?? []).length === 0 ? (
+                <div className="px-6 py-12 text-center">
+                  <FolderOpen size={40} className="text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 text-sm mb-3">No projects yet.</p>
+                  <Link href="/projects" className="text-sm text-white px-4 py-2 rounded-lg" style={{ backgroundColor: "#4272EF" }}>
+                    Create first project
+                  </Link>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase">Project</th>
+                        <th className="text-left px-5 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="text-right px-5 py-3 text-xs font-medium text-gray-500 uppercase">Budget</th>
+                        <th className="text-right px-5 py-3 text-xs font-medium text-gray-500 uppercase">Spent</th>
+                        <th className="text-right px-5 py-3 text-xs font-medium text-gray-500 uppercase">Remaining</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {(projects ?? []).map((project) => {
+                        const budget = budgetByProject[project.id] ?? 0;
+                        const spent  = actualByProject[project.id] ?? 0;
+                        const remaining = budget - spent;
+                        const isOver = budget > 0 && remaining < 0;
+                        return (
+                          <tr key={project.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-5 py-3">
+                              <Link href={`/projects/${project.id}`} className="font-medium text-gray-900 hover:underline">
+                                {project.name}
+                              </Link>
+                              {project.subdivision && (
+                                <span className="ml-2 text-xs text-gray-400">{project.subdivision}</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status] ?? "bg-gray-100 text-gray-600"}`}>
+                                {project.status.replace("_", " ")}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 text-right text-gray-700">{budget > 0 ? fmt(budget) : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-5 py-3 text-right text-gray-700">{spent > 0 ? fmt(spent) : <span className="text-gray-300">—</span>}</td>
+                            <td className={`px-5 py-3 text-right font-medium ${isOver ? "text-red-600" : budget > 0 ? "text-green-600" : "text-gray-300"}`}>
+                              {budget > 0 ? (isOver ? `−${fmt(Math.abs(remaining))}` : fmt(remaining)) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Due this week */}
+            {dueThisWeek.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <Calendar size={16} className="text-amber-500" />
+                    Due This Week
+                  </h2>
+                  <Link href="/invoices" className="text-sm font-medium" style={{ color: "#4272EF" }}>View AP →</Link>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {dueThisWeek.slice(0, 5).map((inv) => (
+                    <Link
+                      key={inv.id}
+                      href={`/invoices/${inv.id}`}
+                      className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{inv.vendor ?? "Unknown Vendor"}</p>
+                        <p className="text-xs text-gray-400">{projectNames[inv.project_id ?? ""] ?? "G&A"}{inv.invoice_number ? ` · #${inv.invoice_number}` : ""}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-gray-900">{fmt(inv.total_amount ?? inv.amount ?? 0)}</p>
+                        <p className={`text-xs ${inv.due_date && inv.due_date < today ? "text-red-500 font-medium" : "text-gray-400"}`}>
+                          due {inv.due_date}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Right column: alerts + quick links */}
+          {/* Right column */}
           <div className="space-y-4">
             {/* Alerts */}
             {(overBudgetProjects.length > 0 || vendorAlerts > 0 || urgentTodos > 0 || pastDueInvoices > 0) && (
@@ -235,16 +289,39 @@ export default async function DashboardPage() {
                     </Link>
                   )}
                   {urgentTodos > 0 && (
-                    <Link href="/field-logs" className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
+                    <Link href="/todos" className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
                       <AlertTriangle size={16} className="text-red-500 shrink-0" />
                       <span className="text-sm text-gray-700">{urgentTodos} urgent to-do{urgentTodos !== 1 ? "s" : ""}</span>
                     </Link>
                   )}
-                  {overBudgetProjects.map(p => (
+                  {overBudgetProjects.map((p) => (
                     <Link key={p.id} href={`/projects/${p.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
                       <AlertTriangle size={16} className="text-amber-500 shrink-0" />
                       <span className="text-sm text-gray-700">{p.name} over budget</span>
                     </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recent field logs */}
+            {(recentLogs ?? []).length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h2 className="font-semibold text-gray-900">Recent Field Logs</h2>
+                  <Link href="/field-logs" className="text-sm font-medium" style={{ color: "#4272EF" }}>View all →</Link>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {(recentLogs ?? []).map((log) => (
+                    <div key={log.id} className="px-5 py-3">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-medium" style={{ color: "#4272EF" }}>
+                          {projectNames[log.project_id] ?? "—"}
+                        </span>
+                        <span className="text-xs text-gray-400">{log.log_date}</span>
+                      </div>
+                      <p className="text-sm text-gray-700 line-clamp-2">{log.notes}</p>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -257,11 +334,12 @@ export default async function DashboardPage() {
               </div>
               <div className="divide-y divide-gray-50">
                 {[
-                  { href: "/invoices", label: "AP & Invoices", icon: <FileText size={15} /> },
-                  { href: "/field-logs", label: "Field Logs", icon: <AlertTriangle size={15} /> },
-                  { href: "/draws", label: "Loans & Draws", icon: <CreditCard size={15} /> },
-                  { href: "/vendors", label: "Vendors", icon: <Truck size={15} /> },
-                  { href: "/reports", label: "Reports", icon: <TrendingUp size={15} /> },
+                  { href: "/invoices/new",  label: "New Invoice",    icon: <FileText size={15} /> },
+                  { href: "/invoices",      label: "AP & Invoices",  icon: <FileText size={15} /> },
+                  { href: "/field-logs",    label: "Field Logs",     icon: <ClipboardList size={15} /> },
+                  { href: "/draws",         label: "Loans & Draws",  icon: <CreditCard size={15} /> },
+                  { href: "/vendors",       label: "Vendors",        icon: <Truck size={15} /> },
+                  { href: "/reports/job-cost", label: "Job Cost Report", icon: <TrendingUp size={15} /> },
                 ].map(({ href, label, icon }) => (
                   <Link key={href} href={href} className="flex items-center gap-3 px-5 py-3 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors">
                     <span style={{ color: "#4272EF" }}>{icon}</span>

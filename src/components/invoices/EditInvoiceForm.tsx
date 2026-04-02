@@ -8,6 +8,7 @@ import { updateInvoice, type UpdateInvoiceInput } from "@/app/actions/invoices";
 interface Vendor { id: string; name: string }
 interface Project { id: string; name: string; project_type: "home_construction" | "land_development" }
 interface CostCode { id: string; code: string; name: string }
+interface Contract { id: string; label: string; amount: number; status: string }
 
 interface LineItem {
   cost_code: string;
@@ -27,6 +28,7 @@ interface InitialData {
   payment_method: string | null;
   ai_confidence: string | null;
   ai_notes: string | null;
+  contract_id: string | null;
   line_items: { cost_code: string; description: string | null; amount: number }[];
   project_name: string | null;
 }
@@ -37,6 +39,7 @@ interface Props {
   vendors: Vendor[];
   projects: Project[];
   costCodes: CostCode[];
+  contracts: Contract[];
 }
 
 const EMPTY_LINE: LineItem = { cost_code: "", description: "", amount: "" };
@@ -65,11 +68,12 @@ function Field({ label, required, children }: { label: string; required?: boolea
   );
 }
 
-export default function EditInvoiceForm({ invoiceId, initial, vendors, projects, costCodes }: Props) {
+export default function EditInvoiceForm({ invoiceId, initial, vendors, projects, costCodes, contracts }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const [projectId, setProjectId] = useState(initial.project_id ?? "");
+  const [contractId, setContractId] = useState(initial.contract_id ?? "");
   const [vendorId, setVendorId] = useState(initial.vendor_id ?? "");
   const [vendorName, setVendorName] = useState(initial.vendor ?? "");
   const [invoiceNumber, setInvoiceNumber] = useState(initial.invoice_number ?? "");
@@ -128,6 +132,7 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
       pending_draw: pendingDraw,
       status,
       payment_method: paymentMethod,
+      contract_id: contractId || null,
       line_items: lineItems.map((li) => ({
         cost_code: li.cost_code,
         description: li.description,
@@ -191,6 +196,19 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
         {!vendorId && (
           <Field label="Vendor name (if not in list)">
             <input type="text" value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="Enter vendor name" className={ic()} />
+          </Field>
+        )}
+
+        {contracts.length > 0 && (
+          <Field label="Linked Contract">
+            <select value={contractId} onChange={(e) => setContractId(e.target.value)} className={ic()}>
+              <option value="">— No contract —</option>
+              {contracts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label} · ${c.amount.toLocaleString()} · {c.status}
+                </option>
+              ))}
+            </select>
           </Field>
         )}
 

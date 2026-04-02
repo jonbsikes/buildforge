@@ -18,6 +18,7 @@ export interface UpdateHomeInput {
   home_size_sf: string;
   start_date: string;
   lender_id: string;
+  status: string;
 }
 
 export interface UpdateLandInput {
@@ -28,6 +29,7 @@ export interface UpdateLandInput {
   number_of_phases: string;
   start_date: string;
   lender_id: string;
+  status: string;
 }
 
 export async function updateHomeProject(
@@ -48,6 +50,7 @@ export async function updateHomeProject(
       home_size_sf: input.home_size_sf ? parseInt(input.home_size_sf, 10) : null,
       start_date: input.start_date || null,
       lender_id: input.lender_id || null,
+      status: (input.status || undefined) as "planning" | "active" | "on_hold" | "completed" | "cancelled" | undefined,
     })
     .eq("id", id);
   if (error) return { error: error.message };
@@ -70,6 +73,7 @@ export async function updateLandProject(
       number_of_phases: input.number_of_phases ? parseInt(input.number_of_phases, 10) : null,
       start_date: input.start_date || null,
       lender_id: input.lender_id || null,
+      status: (input.status || undefined) as "planning" | "active" | "on_hold" | "completed" | "cancelled" | undefined,
     })
     .eq("id", id);
   if (error) return { error: error.message };
@@ -170,6 +174,139 @@ export async function saveDocument(data: {
   if (error) return { error: error.message };
   revalidatePath(`/projects/${data.projectId}`);
   return { id: doc.id };
+}
+
+// ---------------------------------------------------------------------------
+// addProjectCostCode — add a master cost code to a project
+// ---------------------------------------------------------------------------
+export async function addProjectCostCode(
+  projectId: string,
+  costCodeId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("project_cost_codes").insert({
+    project_id: projectId,
+    cost_code_id: costCodeId,
+    budgeted_amount: 0,
+  });
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// updateCostCodeBudget — edit the budgeted_amount for a project cost code
+// ---------------------------------------------------------------------------
+export async function updateCostCodeBudget(
+  pccId: string,
+  amount: number
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("project_cost_codes")
+    .update({ budgeted_amount: amount })
+    .eq("id", pccId);
+  if (error) return { error: error.message };
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// removeProjectCostCode — remove a cost code from a project
+// ---------------------------------------------------------------------------
+export async function removeProjectCostCode(
+  pccId: string,
+  projectId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("project_cost_codes")
+    .delete()
+    .eq("id", pccId);
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// createPhase
+// ---------------------------------------------------------------------------
+export async function createPhase(
+  projectId: string,
+  data: {
+    phase_number?: number;
+    name: string;
+    size_acres?: number | null;
+    number_of_lots?: number | null;
+    lots_sold?: number | null;
+    status: string;
+    notes?: string | null;
+  }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("project_phases").insert({
+    project_id: projectId,
+    phase_number: data.phase_number ?? null,
+    name: data.name.trim(),
+    size_acres: data.size_acres ?? null,
+    number_of_lots: data.number_of_lots ?? null,
+    lots_sold: data.lots_sold ?? 0,
+    status: data.status,
+    notes: data.notes?.trim() || null,
+  });
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// updatePhase
+// ---------------------------------------------------------------------------
+export async function updatePhase(
+  phaseId: string,
+  projectId: string,
+  data: {
+    phase_number?: number | null;
+    name?: string;
+    size_acres?: number | null;
+    number_of_lots?: number | null;
+    lots_sold?: number | null;
+    status?: string;
+    notes?: string | null;
+  }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("project_phases")
+    .update({
+      phase_number: data.phase_number ?? null,
+      name: data.name?.trim(),
+      size_acres: data.size_acres ?? null,
+      number_of_lots: data.number_of_lots ?? null,
+      lots_sold: data.lots_sold ?? null,
+      status: data.status,
+      notes: data.notes?.trim() || null,
+    })
+    .eq("id", phaseId);
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// deletePhase
+// ---------------------------------------------------------------------------
+export async function deletePhase(
+  phaseId: string,
+  projectId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("project_phases")
+    .delete()
+    .eq("id", phaseId);
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}`);
+  return {};
 }
 
 // ---------------------------------------------------------------------------

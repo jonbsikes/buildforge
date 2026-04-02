@@ -13,11 +13,11 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  planning:   "bg-gray-100 text-gray-700",
-  active:     "bg-green-100 text-green-700",
-  on_hold:    "bg-amber-100 text-amber-700",
-  completed:  "bg-blue-100 text-blue-700",
-  cancelled:  "bg-red-100 text-red-600",
+  planning:  "bg-gray-100 text-gray-700",
+  active:    "bg-green-100 text-green-700",
+  on_hold:   "bg-amber-100 text-amber-700",
+  completed: "bg-blue-100 text-blue-700",
+  cancelled: "bg-red-100 text-red-600",
 };
 
 function daysUnderConstruction(startDate: string | null): number | null {
@@ -40,6 +40,9 @@ export default async function ProjectDetailPage({ params }: Props) {
     costCodesResult,
     stagesResult,
     documentsResult,
+    allMasterCodesResult,
+    contractsResult,
+    invoicesResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -78,6 +81,22 @@ export default async function ProjectDetailPage({ params }: Props) {
       .select("id, folder, file_name, storage_path, file_size_kb, mime_type, created_at")
       .eq("project_id", id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("cost_codes")
+      .select("id, code, name, category, project_type, sort_order")
+      .order("code"),
+
+    supabase
+      .from("contracts")
+      .select("cost_code_id, amount")
+      .eq("project_id", id),
+
+    supabase
+      .from("invoices")
+      .select("cost_code_id, amount, total_amount")
+      .eq("project_id", id)
+      .in("status", ["approved", "paid"]),
   ]);
 
   if (!projectResult.data) notFound();
@@ -124,6 +143,28 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const buildStages = stagesResult.data ?? [];
   const documents = documentsResult.data ?? [];
+
+  // All master cost codes for this project type (excluding G&A)
+  const projectTypeName = isHome ? "home_construction" : "land_development";
+  const enabledCodes = new Set(costCodes.map((c) => c.code));
+  const availableCostCodes = (allMasterCodesResult.data ?? [])
+    .filter((c) => c.project_type === projectTypeName && !enabledCodes.has(c.code))
+    .map((c) => ({ id: c.id, code: c.code, name: c.name, category: c.category, sort_order: c.sort_order }));
+
+  // Aggregate committed (contracts) and actual (invoices) by cost_code_id
+  const committedByCostCodeId: Record<string, number> = {};
+  for (const c of contractsResult.data ?? []) {
+    if (c.cost_code_id) {
+      committedByCostCodeId[c.cost_code_id] = (committedByCostCodeId[c.cost_code_id] ?? 0) + (c.amount ?? 0);
+    }
+  }
+  const actualByCostCodeId: Record<string, number> = {};
+  for (const inv of invoicesResult.data ?? []) {
+    if (inv.cost_code_id) {
+      const amt = inv.total_amount ?? inv.amount ?? 0;
+      actualByCostCodeId[inv.cost_code_id] = (actualByCostCodeId[inv.cost_code_id] ?? 0) + amt;
+    }
+  }
 
   const days = daysUnderConstruction(project.start_date);
 
@@ -227,8 +268,11 @@ export default async function ProjectDetailPage({ params }: Props) {
             startDate={project.start_date}
             buildStages={buildStages}
             costCodes={costCodes}
+            availableCostCodes={availableCostCodes}
             phases={phases}
             documents={documents}
+            committedByCostCodeId={committedByCostCodeId}
+            actualByCostCodeId={actualByCostCodeId}
           />
         </div>
       </main>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { FileDown, X } from "lucide-react";
+import { FileDown, X, BookOpen } from "lucide-react";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -28,6 +28,12 @@ interface DrillItem {
   entries: GLEntry[];
 }
 
+interface EquityLine {
+  account_number: string;
+  name: string;
+  balance: number;
+}
+
 interface BalanceSheetData {
   cashAccounts: { id: string; bank_name: string; account_last_four: string }[];
   accountsReceivable: number;
@@ -39,7 +45,9 @@ interface BalanceSheetData {
   loansPayable: number;
   loanEntries: GLEntry[];
   totalLiabilities: number;
+  equityLines: EquityLine[];
   ownerEquity: number;
+  fromLedger: boolean;
 }
 
 export default function BalanceSheetClient() {
@@ -53,50 +61,66 @@ export default function BalanceSheetClient() {
     setLoading(true);
     const supabase = createClient();
 
-    const [accountsRes, invoicesRes, drawsRes, glRes, projectsRes, costItemsRes] = await Promise.all([
+    const [accountsRes, invoicesRes, drawsRes, projectsRes, costItemsRes, ledgerRes] = await Promise.all([
       supabase.from("bank_accounts").select("id, bank_name, account_last_four").eq("is_active", true).order("bank_name"),
       supabase.from("invoices").select("id, vendor, invoice_number, amount, due_date, invoice_date, status").in("status", ["pending_review", "approved", "scheduled"]).lte("invoice_date", asOf),
       supabase.from("loan_draws").select("id, total_amount, draw_date, draw_number, status").eq("status", "funded").lte("draw_date", asOf),
-      supabase.from("gl_entries").select("id, entry_date, description, amount, debit_account, credit_account, source_type").lte("entry_date", asOf),
       supabase.from("projects").select("id, name, status"),
       supabase.from("cost_items").select("actual_amount, project_id"),
+      supabase.from("journal_entry_lines").select(`
+        debit, credit,
+        account:chart_of_accounts(account_number, name, type),
+        journal_entry:journal_entries(entry_date, status)
+      `).lte("journal_entries.entry_date", asOf).eq("journal_entries.status", "posted"),
     ]);
 
-    const accounts = accountsRes.data ?? [];
+    const bankAccounts = accountsRes.data ?? [];
     const unpaidInvoices = invoicesRes.data ?? [];
     const fundedDraws = drawsRes.data ?? [];
-    const glEntries = glRes.data ?? [];
     const projects = projectsRes.data ?? [];
     const costItems = costItemsRes.data ?? [];
+    const ledgerLines = (ledgerRes.data ?? []).filter((l: any) => l.journal_entry?.status === "posted");
 
-    const apTotal = unpaidInvoices.reduce((s, i) => s + (i.amount ?? 0), 0);
-    const apEntries: GLEntry[] = unpaidInvoices.map(i => ({
+    const apTotal = unpaidInvoices.reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
+    const apEntries: GLEntry[] = unpaidInvoices.map((i: any) => ({
       id: i.id, entry_date: i.invoice_date ?? "",
       description: `${i.vendor ?? "Unknown"} · #${i.invoice_number ?? "—"}`,
       amount: i.amount ?? 0, debit_account: "Construction Costs",
       credit_account: "Accounts Payable", source_type: "invoice",
     }));
 
-    const loansPayable = fundedDraws.reduce((s, d) => s + d.total_amount, 0);
-    const loanEntries: GLEntry[] = fundedDraws.map(d => ({
+    const loansPayable = fundedDraws.reduce((s: number, d: any) => s + d.total_amount, 0);
+    const loanEntries: GLEntry[] = fundedDraws.map((d: any) => ({
       id: d.id, entry_date: d.draw_date, description: `Draw #${d.draw_number}`,
       amount: d.total_amount, debit_account: "Cash",
       credit_account: "Construction Loans Payable", source_type: "loan_draw",
     }));
 
-    const activeProjectIds = new Set(projects.filter(p => p.status === "active").map(p => p.id));
+    const activeProjectIds = new Set(projects.filter((p: any) => p.status === "active").map((p: any) => p.id));
     const cip = costItems
-      .filter(ci => ci.project_id && activeProjectIds.has(ci.project_id))
-      .reduce((s, ci) => s + (ci.actual_amount ?? 0), 0);
+      .filter((ci: any) => ci.project_id && activeProjectIds.has(ci.project_id))
+      .reduce((s: number, ci: any) => s + (ci.actual_amount ?? 0), 0);
 
-    const cipEntries = glEntries.filter(e => /construction in progress|cip|wip/i.test(e.debit_account));
-    const arEntries = glEntries.filter(e => /accounts receivable|receivable/i.test(e.debit_account));
-    const accountsReceivable = arEntries.reduce((s, e) => s + e.amount, 0);
-    const totalAssets = accountsReceivable + cip;
+    // Build equity from ledger (3xxx accounts)
+    const equityByAcct: Record<string, { account_number: string; name: string; debit: number; credit: number }> = {};
+    for (const line of ledgerLines) {
+      const acc = line.account as { account_number: string; name: string; type: string };
+      if (!acc || acc.type !== "equity") continue;
+      if (!equityByAcct[acc.account_number]) equityByAcct[acc.account_number] = { account_number: acc.account_number, name: acc.name, debit: 0, credit: 0 };
+      equityByAcct[acc.account_number].debit += Number(line.debit);
+      equityByAcct[acc.account_number].credit += Number(line.credit);
+    }
+    const equityLines: EquityLine[] = Object.values(equityByAcct)
+      .map((e) => ({ account_number: e.account_number, name: e.name, balance: e.credit - e.debit }))
+      .sort((a, b) => a.account_number.localeCompare(b.account_number));
+    const fromLedger = equityLines.length > 0;
+
+    const totalAssets = cip; // cash tracked in banking module
     const totalLiabilities = apTotal + loansPayable;
-    const ownerEquity = totalAssets - totalLiabilities;
+    const ledgerEquity = equityLines.reduce((s, e) => s + e.balance, 0);
+    const ownerEquity = fromLedger ? ledgerEquity : (totalAssets - totalLiabilities);
 
-    setData({ cashAccounts: accounts, accountsReceivable, constructionInProgress: cip, cipEntries, totalAssets, accountsPayable: apTotal, apInvoices: apEntries, loansPayable, loanEntries, totalLiabilities, ownerEquity });
+    setData({ cashAccounts: bankAccounts, accountsReceivable: 0, constructionInProgress: cip, cipEntries: [], totalAssets, accountsPayable: apTotal, apInvoices: apEntries, loansPayable, loanEntries, totalLiabilities, equityLines, ownerEquity, fromLedger });
     setLoading(false);
   }, [asOf]);
 
@@ -150,9 +174,23 @@ export default function BalanceSheetClient() {
                 <TotalRow label="Total Liabilities" amount={data.totalLiabilities} />
                 <div className="mt-6">
                   <BSSectionHeader title="Equity" />
-                  <BSGroup label="Owner Equity" items={[
-                    { label: "Owner's Equity", amount: data.ownerEquity, drillable: false },
-                  ]} />
+                  {!data.fromLedger ? (
+                    <>
+                      <div className="flex items-center gap-1.5 mb-2 text-xs text-yellow-600 bg-yellow-50 px-2 py-1.5 rounded">
+                        <BookOpen size={11} /> Post equity journal entries to see account detail
+                      </div>
+                      <BSGroup label="Calculated Equity" items={[
+                        { label: "Total Equity (Assets − Liabilities)", amount: data.ownerEquity, drillable: false },
+                      ]} />
+                    </>
+                  ) : (
+                    <BSGroup label="Equity Accounts" items={data.equityLines.map(e => ({
+                      label: `${e.account_number} · ${e.name}`,
+                      amount: e.balance,
+                      drillable: false,
+                    }))} />
+                  )}
+                  <TotalRow label="Total Equity" amount={data.ownerEquity} />
                   <TotalRow label="Total Liabilities + Equity" amount={data.totalLiabilities + data.ownerEquity} />
                 </div>
                 <div className={`mt-4 px-3 py-2 rounded-lg text-xs font-medium text-center ${Math.abs(data.totalAssets - (data.totalLiabilities + data.ownerEquity)) < 1 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
