@@ -1,11 +1,11 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import type { Database } from "@/types/database";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient<Database>(
+  const supabase = createServerClient<any>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
