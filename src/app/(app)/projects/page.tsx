@@ -1,141 +1,134 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
-import { FolderOpen, Plus, MapPin, Calendar, DollarSign } from "lucide-react";
-import type { Database } from "@/types/database";
+import { Building2, Landmark, Plus } from "lucide-react";
 
-type Project = Database["public"]["Tables"]["projects"]["Row"];
-
-const statusStyles: Record<string, string> = {
-  planning: "bg-gray-100 text-gray-600",
-  active: "bg-green-100 text-green-700",
-  on_hold: "bg-amber-100 text-amber-700",
-  completed: "bg-blue-100 text-blue-700",
-  cancelled: "bg-red-100 text-red-600",
-};
-
-const typeStyles: Record<string, string> = {
-  home_construction: "bg-amber-100 text-amber-700",
-  land_development: "bg-violet-100 text-violet-700",
-};
-
-const typeLabels: Record<string, string> = {
-  home_construction: "Home Construction",
-  land_development: "Land Development",
-};
-
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-}
-
-function fmtDate(d: string | null) {
-  if (!d) return null;
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
+export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
   const supabase = await createClient();
+
   const { data: projects } = await supabase
     .from("projects")
-    .select("*")
+    .select("id, name, address, status, project_type, subdivision, start_date, created_at")
     .order("created_at", { ascending: false });
 
-  const list = (projects ?? []) as Project[];
+  const homeProjects = (projects ?? []).filter((p) => p.project_type === "home_construction");
+  const landProjects = (projects ?? []).filter((p) => p.project_type === "land_development");
+
+  const statusColor: Record<string, string> = {
+    planning:   "bg-gray-100 text-gray-600",
+    active:     "bg-green-100 text-green-700",
+    on_hold:    "bg-amber-100 text-amber-700",
+    completed:  "bg-blue-100 text-blue-700",
+    cancelled:  "bg-red-100 text-red-600",
+  };
 
   return (
     <>
       <Header title="Projects" />
-      <main className="flex-1 p-4 sm:p-6 overflow-auto bg-gray-50">
+      <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-gray-500">{list.length} project{list.length !== 1 ? "s" : ""}</p>
+          <p className="text-sm text-gray-500">
+            {(projects ?? []).length} project{(projects ?? []).length !== 1 ? "s" : ""}
+          </p>
           <Link
             href="/projects/new"
-            className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-lg px-4 py-2 text-sm transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
           >
-            <Plus size={15} />
+            <Plus size={16} />
             New Project
           </Link>
         </div>
 
-        {list.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-6 py-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <FolderOpen size={28} className="text-gray-400" />
+        <div className="space-y-6">
+          {/* Home Construction */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Building2 size={16} className="text-gray-400" />
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                Home Construction
+              </h2>
+              <span className="text-xs text-gray-400">({homeProjects.length})</span>
             </div>
-            <h3 className="font-semibold text-gray-700 mb-1">No projects yet</h3>
-            <p className="text-gray-500 text-sm mb-4">Create your first project to start tracking costs and stages.</p>
-            <Link
-              href="/projects/new"
-              className="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-lg px-4 py-2 text-sm transition-colors"
-            >
-              <Plus size={15} />
-              New Project
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {list.map((project) => {
-              const contractPrice = (project as unknown as { contract_price?: number }).contract_price;
-              const startDate = (project as unknown as { start_date?: string }).start_date;
-              const targetClose = (project as unknown as { target_close?: string; end_date?: string }).target_close
-                ?? (project as unknown as { end_date?: string }).end_date;
-              const projectType = (project as unknown as { project_type?: string }).project_type ?? "";
 
-              return (
-                <Link
-                  key={project.id}
-                  href={`/projects/${project.id}`}
-                  className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 hover:border-amber-300 hover:shadow-md transition-all group"
-                >
-                  {/* Header row */}
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <h3 className="font-semibold text-gray-900 group-hover:text-amber-600 transition-colors leading-snug">
-                      {project.name}
-                    </h3>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      {projectType && (
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${typeStyles[projectType] ?? "bg-gray-100 text-gray-600"}`}>
-                          {typeLabels[projectType] ?? projectType}
-                        </span>
+            {homeProjects.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 px-6 py-8 text-center text-sm text-gray-400">
+                No home construction projects yet.
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+                {homeProjects.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/projects/${p.id}`}
+                    className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{p.name}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {p.subdivision && (
+                          <span className="text-xs text-gray-400">{p.subdivision}</span>
+                        )}
+                        {p.address && (
+                          <span className="text-xs text-gray-400">{p.address}</span>
+                        )}
+                      </div>
+                    </div>
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        statusColor[p.status] ?? "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {p.status.replace("_", " ")}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Land Development */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Landmark size={16} className="text-gray-400" />
+              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                Land Development
+              </h2>
+              <span className="text-xs text-gray-400">({landProjects.length})</span>
+            </div>
+
+            {landProjects.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 px-6 py-8 text-center text-sm text-gray-400">
+                No land development projects yet.
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+                {landProjects.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={`/projects/${p.id}`}
+                    className="flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{p.name}</p>
+                      {p.address && (
+                        <p className="text-xs text-gray-400 mt-0.5">{p.address}</p>
                       )}
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusStyles[project.status] ?? statusStyles.planning}`}>
-                        {project.status.replace("_", " ")}
-                      </span>
                     </div>
-                  </div>
-
-                  {/* Address */}
-                  {(project as unknown as { address?: string }).address && (
-                    <div className="flex items-center gap-1.5 text-gray-500 text-sm mb-3">
-                      <MapPin size={13} className="shrink-0" />
-                      <span className="truncate">{(project as unknown as { address: string }).address}</span>
-                    </div>
-                  )}
-
-                  {/* Footer row */}
-                  <div className="border-t border-gray-100 pt-3 mt-2 flex items-center justify-between">
-                    {contractPrice != null && contractPrice > 0 ? (
-                      <div className="flex items-center gap-1.5 text-gray-700">
-                        <DollarSign size={13} className="text-gray-400" />
-                        <span className="font-semibold text-sm">{fmt(contractPrice)}</span>
-                        <span className="text-xs text-gray-400">contract</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400">No contract price set</span>
-                    )}
-                    {startDate && (
-                      <div className="flex items-center gap-1 text-xs text-gray-400">
-                        <Calendar size={11} />
-                        <span>{fmtDate(startDate)}</span>
-                        {targetClose && <span>— {fmtDate(targetClose)}</span>}
-                      </div>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        statusColor[p.status] ?? "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {p.status.replace("_", " ")}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </main>
     </>
   );

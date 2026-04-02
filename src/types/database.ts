@@ -4,526 +4,1539 @@ export type Json =
   | boolean
   | null
   | { [key: string]: Json | undefined }
-  | Json[];
+  | Json[]
 
-// ── Enums / string unions ──────────────────────────────────────────────────
-export type ProjectStatus = "planning" | "active" | "on_hold" | "completed" | "cancelled";
-export type ProjectType = "land_development" | "home_construction";
-export type StageStatus = "not_started" | "in_progress" | "completed" | "blocked";
-export type InvoiceStatus = "pending_review" | "approved" | "scheduled" | "paid" | "disputed";
-export type InvoiceSource = "email" | "upload";
-export type AIConfidence = "high" | "medium" | "low";
-export type PaymentMethod = "check" | "ach" | "wire" | "credit_card";
-export type VendorType = "subcontractor" | "supplier" | "utility" | "professional";
-export type ContactType = "lender" | "title_company" | "architect" | "engineer" | "inspector" | "municipality" | "realtor" | "other";
-export type POStatus = "draft" | "sent" | "acknowledged" | "closed";
-export type ContractStatus = "draft" | "active" | "complete";
-export type ChangeOrderStatus = "pending" | "approved" | "rejected";
-export type LoanType = "construction" | "land" | "lot" | "bridge";
-export type LoanStatus = "active" | "paid_off" | "extended";
-export type DrawStatus = "draft" | "submitted" | "approved" | "funded";
-export type PaymentType = "interest" | "principal" | "interest_reserve";
-export type DocumentType = "inspection_report" | "permit" | "approval" | "other";
-export type VendorDocType = "coi" | "w9" | "license" | "contract" | "other";
-
-// Legacy (kept for backward compat)
-export type SaleType = "lot_sale" | "house_sale" | "progress_payment" | "deposit" | "variation" | "other";
-export type CostCategory =
-  | "land" | "siteworks" | "foundation" | "framing" | "roofing"
-  | "electrical" | "plumbing" | "hvac" | "insulation" | "drywall"
-  | "flooring" | "cabinetry" | "painting" | "landscaping" | "permits"
-  | "professional_fees" | "contingency" | "other";
-
-// ── Row interfaces ─────────────────────────────────────────────────────────
-
-interface ContactRow {
-  id: string;
-  user_id: string;
-  name: string;
-  type: ContactType;
-  company: string | null;
-  phone: string | null;
-  email: string | null;
-  address: string | null;
-  notes: string | null;
-  created_at: string;
-}
-
-interface ProjectRow {
-  id: string;
-  user_id: string;
-  name: string;
-  address: string | null;
-  description: string | null;
-  project_type: ProjectType;
-  status: ProjectStatus;
-  total_budget: number;
-  contract_price: number | null;
-  lender_id: string | null;
-  target_close: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface CostCodeRow {
-  code: number;
-  category: string;
-  description: string;
-}
-
-interface BuildStageRow {
-  stage_number: number;
-  name: string;
-}
-
-interface ProjectStageRow {
-  id: string;
-  project_id: string;
-  stage_number: number;
-  status: StageStatus;
-  planned_start: string | null;
-  planned_end: string | null;
-  actual_start: string | null;
-  actual_end: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface StagePhotoRow {
-  id: string;
-  project_stage_id: string;
-  file_url: string;
-  caption: string | null;
-  uploaded_by: string | null;
-  uploaded_at: string;
-}
-
-interface StageDocumentRow {
-  id: string;
-  project_stage_id: string;
-  file_url: string;
-  document_type: DocumentType;
-  name: string;
-  uploaded_by: string | null;
-  uploaded_at: string;
-}
-
-interface ProjectBudgetRow {
-  id: string;
-  project_id: string;
-  cost_code: number;
-  budgeted_amount: number;
-  committed_amount: number;
-  actual_amount: number;
-}
-
-interface VendorRow {
-  id: string;
-  user_id: string;
-  name: string;
-  type: VendorType;
-  contact_name: string | null;
-  phone: string | null;
-  email: string | null;
-  address: string | null;
-  w9_on_file: boolean;
-  coi_expiry: string | null;
-  license_number: string | null;
-  license_expiry: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface VendorDocumentRow {
-  id: string;
-  vendor_id: string;
-  document_type: VendorDocType;
-  file_url: string;
-  expiry_date: string | null;
-  uploaded_at: string;
-}
-
-interface PurchaseOrderRow {
-  id: string;
-  project_id: string;
-  vendor_id: string | null;
-  cost_code: number | null;
-  po_number: string;
-  description: string;
-  amount: number;
-  status: POStatus;
-  issued_date: string | null;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ContractRow {
-  id: string;
-  project_id: string;
-  vendor_id: string | null;
-  cost_code: number | null;
-  po_id: string | null;
-  description: string;
-  contract_amount: number;
-  status: ContractStatus;
-  signed_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ChangeOrderRow {
-  id: string;
-  contract_id: string;
-  description: string;
-  amount: number;
-  status: ChangeOrderStatus;
-  created_at: string;
-}
-
-interface InvoiceRow {
-  id: string;
-  project_id: string;
-  vendor_id: string | null;
-  po_id: string | null;
-  contract_id: string | null;
-  cost_code: number | null;
-  cost_item_id: string | null;
-  file_path: string;
-  file_name: string;
-  vendor: string | null;
-  invoice_number: string | null;
-  invoice_date: string | null;
-  total_amount: number | null;
-  amount: number | null;
-  status: InvoiceStatus;
-  due_date: string | null;
-  payment_date: string | null;
-  payment_method: PaymentMethod | null;
-  ai_confidence: AIConfidence | null;
-  ai_notes: string | null;
-  source: InvoiceSource;
-  extracted_data: Json | null;
-  processed: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-interface InvoiceFileRow {
-  id: string;
-  invoice_id: string;
-  file_url: string;
-  file_type: string;
-  uploaded_at: string;
-}
-
-interface LoanRow {
-  id: string;
-  project_id: string;
-  lender_id: string | null;
-  loan_number: string | null;
-  loan_type: LoanType;
-  total_amount: number;
-  interest_rate: number;
-  rate_type: string;
-  origination_date: string | null;
-  maturity_date: string | null;
-  status: LoanStatus;
-  created_at: string;
-  updated_at: string;
-}
-
-interface LoanDrawRow {
-  id: string;
-  loan_id: string;
-  draw_number: number;
-  amount_requested: number;
-  amount_approved: number | null;
-  status: DrawStatus;
-  submitted_date: string | null;
-  funded_date: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface LoanDrawItemRow {
-  id: string;
-  draw_id: string;
-  cost_code: number | null;
-  invoice_id: string | null;
-  description: string;
-  amount: number;
-}
-
-interface LoanPaymentRow {
-  id: string;
-  loan_id: string;
-  payment_date: string;
-  payment_type: PaymentType;
-  amount: number;
-  notes: string | null;
-  created_at: string;
-}
-
-// Legacy tables
-interface StageRow {
-  id: string;
-  project_id: string;
-  name: string;
-  description: string | null;
-  status: StageStatus;
-  order_index: number;
-  budget: number;
-  start_date: string | null;
-  end_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface CostItemRow {
-  id: string;
-  project_id: string;
-  stage_id: string | null;
-  cost_code: number | null;
-  category: CostCategory;
-  description: string;
-  budgeted_amount: number;
-  actual_amount: number;
-  vendor: string | null;
-  invoice_date: string | null;
-  invoice_number: string | null;
-  invoice_file_path: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface SaleRow {
-  id: string;
-  project_id: string;
-  sale_type: SaleType;
-  description: string;
-  buyer_name: string | null;
-  contract_price: number | null;
-  deposit_amount: number | null;
-  deposit_received_date: string | null;
-  settlement_date: string | null;
-  is_settled: boolean;
-  settled_amount: number | null;
-  settled_date: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface MilestoneRow {
-  id: string;
-  project_id: string;
-  stage_id: string | null;
-  name: string;
-  due_date: string | null;
-  completed_date: string | null;
-  is_completed: boolean;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export type TodoStatus = "open" | "in_progress" | "done";
-export type TodoPriority = "low" | "normal" | "urgent";
-
-interface FieldLogRow {
-  id: string;
-  project_id: string;
-  project_stage_id: string | null;
-  log_date: string;
-  notes: string;
-  created_by: string;
-  created_at: string;
-}
-
-interface FieldTodoRow {
-  id: string;
-  project_id: string;
-  field_log_id: string | null;
-  description: string;
-  status: TodoStatus;
-  priority: TodoPriority;
-  due_date: string | null;
-  resolved_date: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// ── Database type ─────────────────────────────────────────────────────────
-
-export interface Database {
+export type Database = {
+  __InternalSupabase: {
+    PostgrestVersion: "14.4"
+  }
   public: {
     Tables: {
-      contacts: {
-        Row: ContactRow;
-        Insert: Omit<ContactRow, "id" | "created_at">;
-        Update: Partial<Omit<ContactRow, "id" | "created_at">>;
-        Relationships: [];
-      };
-      projects: {
-        Row: ProjectRow;
-        Insert: Omit<ProjectRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<ProjectRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      cost_codes: {
-        Row: CostCodeRow;
-        Insert: CostCodeRow;
-        Update: Partial<CostCodeRow>;
-        Relationships: [];
-      };
+      bank_accounts: {
+        Row: {
+          id: string
+          bank_name: string
+          account_name: string
+          account_last_four: string
+          account_type: string
+          notes: string | null
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          bank_name: string
+          account_name: string
+          account_last_four: string
+          account_type?: string
+          notes?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          bank_name?: string
+          account_name?: string
+          account_last_four?: string
+          account_type?: string
+          notes?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
       build_stages: {
-        Row: BuildStageRow;
-        Insert: BuildStageRow;
-        Update: Partial<BuildStageRow>;
-        Relationships: [];
-      };
-      project_stages: {
-        Row: ProjectStageRow;
-        Insert: Omit<ProjectStageRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<ProjectStageRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      stage_photos: {
-        Row: StagePhotoRow;
-        Insert: Omit<StagePhotoRow, "id" | "uploaded_at">;
-        Update: Partial<Omit<StagePhotoRow, "id" | "uploaded_at">>;
-        Relationships: [];
-      };
-      stage_documents: {
-        Row: StageDocumentRow;
-        Insert: Omit<StageDocumentRow, "id" | "uploaded_at">;
-        Update: Partial<Omit<StageDocumentRow, "id" | "uploaded_at">>;
-        Relationships: [];
-      };
-      project_budget: {
-        Row: ProjectBudgetRow;
-        Insert: Omit<ProjectBudgetRow, "id">;
-        Update: Partial<Omit<ProjectBudgetRow, "id">>;
-        Relationships: [];
-      };
-      vendors: {
-        Row: VendorRow;
-        Insert: Omit<VendorRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<VendorRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      vendor_documents: {
-        Row: VendorDocumentRow;
-        Insert: Omit<VendorDocumentRow, "id" | "uploaded_at">;
-        Update: Partial<Omit<VendorDocumentRow, "id" | "uploaded_at">>;
-        Relationships: [];
-      };
-      purchase_orders: {
-        Row: PurchaseOrderRow;
-        Insert: Omit<PurchaseOrderRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<PurchaseOrderRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
+        Row: {
+          actual_end_date: string | null
+          actual_start_date: string | null
+          baseline_end_date: string | null
+          baseline_start_date: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          planned_end_date: string | null
+          planned_start_date: string | null
+          project_id: string
+          stage_name: string
+          stage_number: number
+          status: string
+          track: string | null
+          updated_at: string
+        }
+        Insert: {
+          actual_end_date?: string | null
+          actual_start_date?: string | null
+          baseline_end_date?: string | null
+          baseline_start_date?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          planned_end_date?: string | null
+          planned_start_date?: string | null
+          project_id: string
+          stage_name: string
+          stage_number: number
+          status?: string
+          track?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actual_end_date?: string | null
+          actual_start_date?: string | null
+          baseline_end_date?: string | null
+          baseline_start_date?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          planned_end_date?: string | null
+          planned_start_date?: string | null
+          project_id?: string
+          stage_name?: string
+          stage_number?: number
+          status?: string
+          track?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "build_stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contacts: {
+        Row: {
+          company: string | null
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       contracts: {
-        Row: ContractRow;
-        Insert: Omit<ContractRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<ContractRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      change_orders: {
-        Row: ChangeOrderRow;
-        Insert: Omit<ChangeOrderRow, "id" | "created_at">;
-        Update: Partial<Omit<ChangeOrderRow, "id" | "created_at">>;
-        Relationships: [];
-      };
-      invoices: {
-        Row: InvoiceRow;
-        Insert: Omit<InvoiceRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<InvoiceRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      invoice_files: {
-        Row: InvoiceFileRow;
-        Insert: Omit<InvoiceFileRow, "id" | "uploaded_at">;
-        Update: Partial<Omit<InvoiceFileRow, "id" | "uploaded_at">>;
-        Relationships: [];
-      };
-      loans: {
-        Row: LoanRow;
-        Insert: Omit<LoanRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<LoanRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      loan_draws: {
-        Row: LoanDrawRow;
-        Insert: Omit<LoanDrawRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<LoanDrawRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      loan_draw_items: {
-        Row: LoanDrawItemRow;
-        Insert: Omit<LoanDrawItemRow, "id">;
-        Update: Partial<Omit<LoanDrawItemRow, "id">>;
-        Relationships: [];
-      };
-      loan_payments: {
-        Row: LoanPaymentRow;
-        Insert: Omit<LoanPaymentRow, "id" | "created_at">;
-        Update: Partial<Omit<LoanPaymentRow, "id" | "created_at">>;
-        Relationships: [];
-      };
-      stages: {
-        Row: StageRow;
-        Insert: Omit<StageRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<StageRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
+        Row: {
+          amount: number
+          cost_code_id: string | null
+          created_at: string
+          description: string
+          id: string
+          notes: string | null
+          project_id: string
+          signed_date: string | null
+          status: string
+          updated_at: string
+          vendor_id: string | null
+        }
+        Insert: {
+          amount?: number
+          cost_code_id?: string | null
+          created_at?: string
+          description: string
+          id?: string
+          notes?: string | null
+          project_id: string
+          signed_date?: string | null
+          status?: string
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Update: {
+          amount?: number
+          cost_code_id?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          notes?: string | null
+          project_id?: string
+          signed_date?: string | null
+          status?: string
+          updated_at?: string
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contracts_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cost_codes: {
+        Row: {
+          category: Database["public"]["Enums"]["cost_category"]
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          project_type: Database["public"]["Enums"]["project_type"] | null
+          sort_order: number | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          category?: Database["public"]["Enums"]["cost_category"]
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          project_type?: Database["public"]["Enums"]["project_type"] | null
+          sort_order?: number | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["cost_category"]
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          project_type?: Database["public"]["Enums"]["project_type"] | null
+          sort_order?: number | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       cost_items: {
-        Row: CostItemRow;
-        Insert: Omit<CostItemRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<CostItemRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      sales: {
-        Row: SaleRow;
-        Insert: Omit<SaleRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<SaleRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-      milestones: {
-        Row: MilestoneRow;
-        Insert: Omit<MilestoneRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<MilestoneRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
+        Row: {
+          actual_amount: number
+          budgeted_amount: number
+          category: Database["public"]["Enums"]["cost_category"]
+          cost_code_id: string | null
+          created_at: string
+          description: string
+          id: string
+          invoice_date: string | null
+          invoice_file_path: string | null
+          invoice_number: string | null
+          notes: string | null
+          project_id: string
+          stage_id: string | null
+          updated_at: string
+          vendor: string | null
+        }
+        Insert: {
+          actual_amount?: number
+          budgeted_amount?: number
+          category?: Database["public"]["Enums"]["cost_category"]
+          cost_code_id?: string | null
+          created_at?: string
+          description: string
+          id?: string
+          invoice_date?: string | null
+          invoice_file_path?: string | null
+          invoice_number?: string | null
+          notes?: string | null
+          project_id: string
+          stage_id?: string | null
+          updated_at?: string
+          vendor?: string | null
+        }
+        Update: {
+          actual_amount?: number
+          budgeted_amount?: number
+          category?: Database["public"]["Enums"]["cost_category"]
+          cost_code_id?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          invoice_date?: string | null
+          invoice_file_path?: string | null
+          invoice_number?: string | null
+          notes?: string | null
+          project_id?: string
+          stage_id?: string | null
+          updated_at?: string
+          vendor?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_items_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_items_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_size_kb: number | null
+          folder: string
+          id: string
+          mime_type: string | null
+          notes: string | null
+          project_id: string | null
+          storage_path: string
+          uploaded_by: string | null
+          vendor_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_size_kb?: number | null
+          folder?: string
+          id?: string
+          mime_type?: string | null
+          notes?: string | null
+          project_id?: string | null
+          storage_path: string
+          uploaded_by?: string | null
+          vendor_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_size_kb?: number | null
+          folder?: string
+          id?: string
+          mime_type?: string | null
+          notes?: string | null
+          project_id?: string | null
+          storage_path?: string
+          uploaded_by?: string | null
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      draw_invoices: {
+        Row: {
+          draw_id: string
+          id: string
+          invoice_id: string
+        }
+        Insert: {
+          draw_id: string
+          id?: string
+          invoice_id: string
+        }
+        Update: {
+          draw_id?: string
+          id?: string
+          invoice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "draw_invoices_draw_id_fkey"
+            columns: ["draw_id"]
+            isOneToOne: false
+            referencedRelation: "loan_draws"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "draw_invoices_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       field_logs: {
-        Row: FieldLogRow;
-        Insert: Omit<FieldLogRow, "id" | "created_at">;
-        Update: Partial<Omit<FieldLogRow, "id" | "created_at">>;
-        Relationships: [];
-      };
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          log_date: string
+          notes: string
+          project_id: string
+          project_stage_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          log_date?: string
+          notes: string
+          project_id: string
+          project_stage_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          log_date?: string
+          notes?: string
+          project_id?: string
+          project_stage_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "field_logs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       field_todos: {
-        Row: FieldTodoRow;
-        Insert: Omit<FieldTodoRow, "id" | "created_at" | "updated_at">;
-        Update: Partial<Omit<FieldTodoRow, "id" | "created_at" | "updated_at">>;
-        Relationships: [];
-      };
-    };
-    Views: Record<string, { Row: Record<string, unknown>; Relationships: [] }>;
-    Functions: Record<string, never>;
+        Row: {
+          created_at: string
+          created_by: string
+          description: string
+          due_date: string | null
+          field_log_id: string | null
+          id: string
+          priority: string
+          project_id: string
+          resolved_date: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          description: string
+          due_date?: string | null
+          field_log_id?: string | null
+          id?: string
+          priority?: string
+          project_id: string
+          resolved_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          description?: string
+          due_date?: string | null
+          field_log_id?: string | null
+          id?: string
+          priority?: string
+          project_id?: string
+          resolved_date?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "field_todos_field_log_id_fkey"
+            columns: ["field_log_id"]
+            isOneToOne: false
+            referencedRelation: "field_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "field_todos_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gl_entries: {
+        Row: {
+          amount: number
+          created_at: string
+          credit_account: string
+          debit_account: string
+          description: string
+          entry_date: string
+          id: string
+          project_id: string | null
+          source_id: string | null
+          source_type: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          credit_account: string
+          debit_account: string
+          description: string
+          entry_date?: string
+          id?: string
+          project_id?: string | null
+          source_id?: string | null
+          source_type?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          credit_account?: string
+          debit_account?: string
+          description?: string
+          entry_date?: string
+          id?: string
+          project_id?: string | null
+          source_id?: string | null
+          source_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gl_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_line_items: {
+        Row: {
+          amount: number | null
+          cost_code: string | null
+          created_at: string
+          description: string | null
+          id: string
+          invoice_id: string
+        }
+        Insert: {
+          amount?: number | null
+          cost_code?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          invoice_id: string
+        }
+        Update: {
+          amount?: number | null
+          cost_code?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          invoice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_line_items_cost_code_fkey"
+            columns: ["cost_code"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "invoice_line_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoices: {
+        Row: {
+          ai_confidence: string
+          ai_notes: string | null
+          amount: number | null
+          contract_id: string | null
+          cost_code_id: string | null
+          cost_item_id: string | null
+          created_at: string
+          due_date: string | null
+          email_message_id: string | null
+          extracted_data: Json | null
+          file_name: string | null
+          file_path: string | null
+          id: string
+          invoice_date: string | null
+          invoice_number: string | null
+          manually_reviewed: boolean
+          payment_date: string | null
+          payment_method: string | null
+          pending_draw: boolean
+          processed: boolean
+          project_id: string | null
+          source: string
+          status: string
+          total_amount: number | null
+          updated_at: string
+          user_id: string | null
+          vendor: string | null
+          vendor_id: string | null
+        }
+        Insert: {
+          ai_confidence?: string
+          ai_notes?: string | null
+          amount?: number | null
+          contract_id?: string | null
+          cost_code_id?: string | null
+          cost_item_id?: string | null
+          created_at?: string
+          due_date?: string | null
+          email_message_id?: string | null
+          extracted_data?: Json | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          manually_reviewed?: boolean
+          payment_date?: string | null
+          payment_method?: string | null
+          pending_draw?: boolean
+          processed?: boolean
+          project_id?: string | null
+          source?: string
+          status?: string
+          total_amount?: number | null
+          updated_at?: string
+          user_id?: string | null
+          vendor?: string | null
+          vendor_id?: string | null
+        }
+        Update: {
+          ai_confidence?: string
+          ai_notes?: string | null
+          amount?: number | null
+          contract_id?: string | null
+          cost_code_id?: string | null
+          cost_item_id?: string | null
+          created_at?: string
+          due_date?: string | null
+          email_message_id?: string | null
+          extracted_data?: Json | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          manually_reviewed?: boolean
+          payment_date?: string | null
+          payment_method?: string | null
+          pending_draw?: boolean
+          processed?: boolean
+          project_id?: string | null
+          source?: string
+          status?: string
+          total_amount?: number | null
+          updated_at?: string
+          user_id?: string | null
+          vendor?: string | null
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_cost_item_id_fkey"
+            columns: ["cost_item_id"]
+            isOneToOne: false
+            referencedRelation: "cost_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loan_draws: {
+        Row: {
+          created_at: string
+          draw_date: string
+          draw_number: number
+          id: string
+          lender_id: string | null
+          loan_id: string | null
+          notes: string | null
+          project_id: string | null
+          status: string
+          total_amount: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          draw_date?: string
+          draw_number: number
+          id?: string
+          lender_id?: string | null
+          loan_id?: string | null
+          notes?: string | null
+          project_id?: string | null
+          status?: string
+          total_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          draw_date?: string
+          draw_number?: number
+          id?: string
+          lender_id?: string | null
+          loan_id?: string | null
+          notes?: string | null
+          project_id?: string | null
+          status?: string
+          total_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loan_draws_lender_id_fkey"
+            columns: ["lender_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loan_draws_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loan_draws_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loans: {
+        Row: {
+          created_at: string
+          credit_limit: number | null
+          current_balance: number | null
+          id: string
+          interest_rate: number | null
+          lender_id: string
+          loan_amount: number
+          loan_number: string
+          loan_type: string
+          maturity_date: string | null
+          notes: string | null
+          origination_date: string | null
+          project_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          credit_limit?: number | null
+          current_balance?: number | null
+          id?: string
+          interest_rate?: number | null
+          lender_id: string
+          loan_amount: number
+          loan_number: string
+          loan_type?: string
+          maturity_date?: string | null
+          notes?: string | null
+          origination_date?: string | null
+          project_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          credit_limit?: number | null
+          current_balance?: number | null
+          id?: string
+          interest_rate?: number | null
+          lender_id?: string
+          loan_amount?: number
+          loan_number?: string
+          loan_type?: string
+          maturity_date?: string | null
+          notes?: string | null
+          origination_date?: string | null
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loans_lender_id_fkey"
+            columns: ["lender_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      milestones: {
+        Row: {
+          completed_date: string | null
+          created_at: string
+          due_date: string | null
+          id: string
+          is_completed: boolean
+          name: string
+          notes: string | null
+          project_id: string
+          stage_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          completed_date?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          is_completed?: boolean
+          name: string
+          notes?: string | null
+          project_id: string
+          stage_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          completed_date?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          is_completed?: boolean
+          name?: string
+          notes?: string | null
+          project_id?: string
+          stage_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "milestones_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          reference_id: string | null
+          reference_type: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          reference_id?: string | null
+          reference_type?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          reference_id?: string | null
+          reference_type?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      project_cost_codes: {
+        Row: {
+          budgeted_amount: number
+          cost_code_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          budgeted_amount?: number
+          cost_code_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          budgeted_amount?: number
+          cost_code_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cost_codes_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_cost_codes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_phases: {
+        Row: {
+          created_at: string
+          id: string
+          lots_sold: number
+          name: string | null
+          notes: string | null
+          number_of_lots: number | null
+          phase_number: number | null
+          project_id: string
+          size_acres: number | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lots_sold?: number
+          name?: string | null
+          notes?: string | null
+          number_of_lots?: number | null
+          phase_number?: number | null
+          project_id: string
+          size_acres?: number | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lots_sold?: number
+          name?: string | null
+          notes?: string | null
+          number_of_lots?: number | null
+          phase_number?: number | null
+          project_id?: string
+          size_acres?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_phases_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          address: string | null
+          block: string | null
+          created_at: string
+          description: string | null
+          end_date: string | null
+          home_size_sf: number | null
+          id: string
+          lender_id: string | null
+          lot: string | null
+          lot_size_acres: number | null
+          name: string
+          number_of_lots: number | null
+          number_of_phases: number | null
+          plan: string | null
+          project_type: Database["public"]["Enums"]["project_type"]
+          size_acres: number | null
+          start_date: string | null
+          status: Database["public"]["Enums"]["project_status"]
+          subdivision: string | null
+          total_budget: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          block?: string | null
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          home_size_sf?: number | null
+          id?: string
+          lender_id?: string | null
+          lot?: string | null
+          lot_size_acres?: number | null
+          name: string
+          number_of_lots?: number | null
+          number_of_phases?: number | null
+          plan?: string | null
+          project_type?: Database["public"]["Enums"]["project_type"]
+          size_acres?: number | null
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["project_status"]
+          subdivision?: string | null
+          total_budget?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          block?: string | null
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          home_size_sf?: number | null
+          id?: string
+          lender_id?: string | null
+          lot?: string | null
+          lot_size_acres?: number | null
+          name?: string
+          number_of_lots?: number | null
+          number_of_phases?: number | null
+          plan?: string | null
+          project_type?: Database["public"]["Enums"]["project_type"]
+          size_acres?: number | null
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["project_status"]
+          subdivision?: string | null
+          total_budget?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_lender_id_fkey"
+            columns: ["lender_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sales: {
+        Row: {
+          buyer_name: string | null
+          contract_price: number | null
+          created_at: string
+          deposit_amount: number | null
+          deposit_received_date: string | null
+          description: string
+          id: string
+          is_settled: boolean
+          notes: string | null
+          project_id: string
+          sale_type: Database["public"]["Enums"]["sale_type"]
+          settled_amount: number | null
+          settled_date: string | null
+          settlement_date: string | null
+          updated_at: string
+        }
+        Insert: {
+          buyer_name?: string | null
+          contract_price?: number | null
+          created_at?: string
+          deposit_amount?: number | null
+          deposit_received_date?: string | null
+          description: string
+          id?: string
+          is_settled?: boolean
+          notes?: string | null
+          project_id: string
+          sale_type?: Database["public"]["Enums"]["sale_type"]
+          settled_amount?: number | null
+          settled_date?: string | null
+          settlement_date?: string | null
+          updated_at?: string
+        }
+        Update: {
+          buyer_name?: string | null
+          contract_price?: number | null
+          created_at?: string
+          deposit_amount?: number | null
+          deposit_received_date?: string | null
+          description?: string
+          id?: string
+          is_settled?: boolean
+          notes?: string | null
+          project_id?: string
+          sale_type?: Database["public"]["Enums"]["sale_type"]
+          settled_amount?: number | null
+          settled_date?: string | null
+          settlement_date?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      selections: {
+        Row: {
+          category: string
+          cost_code_id: string | null
+          created_at: string
+          id: string
+          item_name: string
+          notes: string | null
+          project_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          cost_code_id?: string | null
+          created_at?: string
+          id?: string
+          item_name: string
+          notes?: string | null
+          project_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          cost_code_id?: string | null
+          created_at?: string
+          id?: string
+          item_name?: string
+          notes?: string | null
+          project_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "selections_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "selections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stages: {
+        Row: {
+          budget: number
+          created_at: string
+          description: string | null
+          end_date: string | null
+          id: string
+          name: string
+          order_index: number
+          project_id: string
+          start_date: string | null
+          status: Database["public"]["Enums"]["stage_status"]
+          updated_at: string
+        }
+        Insert: {
+          budget?: number
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          id?: string
+          name: string
+          order_index?: number
+          project_id: string
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["stage_status"]
+          updated_at?: string
+        }
+        Update: {
+          budget?: number
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          id?: string
+          name?: string
+          order_index?: number
+          project_id?: string
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["stage_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendors: {
+        Row: {
+          address: string | null
+          coi_expiry_date: string | null
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          license_expiry_date: string | null
+          name: string
+          notes: string | null
+          phone: string | null
+          trade: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address?: string | null
+          coi_expiry_date?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          license_expiry_date?: string | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          trade?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string | null
+          coi_expiry_date?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          license_expiry_date?: string | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          trade?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      generate_notifications: { Args: never; Returns: Json }
+    }
     Enums: {
-      project_status: ProjectStatus;
-      project_type: ProjectType;
-      stage_status: StageStatus;
-      invoice_status: InvoiceStatus;
-    };
-  };
+      cost_category:
+        | "land"
+        | "siteworks"
+        | "foundation"
+        | "framing"
+        | "roofing"
+        | "electrical"
+        | "plumbing"
+        | "hvac"
+        | "insulation"
+        | "drywall"
+        | "flooring"
+        | "cabinetry"
+        | "painting"
+        | "landscaping"
+        | "permits"
+        | "professional_fees"
+        | "contingency"
+        | "other"
+      project_status:
+        | "planning"
+        | "active"
+        | "on_hold"
+        | "completed"
+        | "cancelled"
+      project_type: "land_development" | "home_construction"
+      sale_type:
+        | "lot_sale"
+        | "house_sale"
+        | "progress_payment"
+        | "deposit"
+        | "variation"
+        | "other"
+      stage_status: "not_started" | "in_progress" | "completed" | "blocked"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
 }
+
+export type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof Database },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof Database },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      cost_category: [
+        "land",
+        "siteworks",
+        "foundation",
+        "framing",
+        "roofing",
+        "electrical",
+        "plumbing",
+        "hvac",
+        "insulation",
+        "drywall",
+        "flooring",
+        "cabinetry",
+        "painting",
+        "landscaping",
+        "permits",
+        "professional_fees",
+        "contingency",
+        "other",
+      ],
+      project_status: [
+        "planning",
+        "active",
+        "on_hold",
+        "completed",
+        "cancelled",
+      ],
+      project_type: ["land_development", "home_construction"],
+      sale_type: [
+        "lot_sale",
+        "house_sale",
+        "progress_payment",
+        "deposit",
+        "variation",
+        "other",
+      ],
+      stage_status: ["not_started", "in_progress", "completed", "blocked"],
+    },
+  },
+} as const

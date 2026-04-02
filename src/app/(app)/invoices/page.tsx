@@ -1,225 +1,171 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
-import { FileText, AlertCircle, Clock, CheckCircle2, XCircle, Upload } from "lucide-react";
-import type { Database } from "@/types/database";
+import { Plus, AlertTriangle, Mail } from "lucide-react";
+import InvoiceActions from "@/components/invoices/InvoiceActions";
 
 export const dynamic = "force-dynamic";
 
-type Invoice = Database["public"]["Tables"]["invoices"]["Row"];
-type Project = Pick<Database["public"]["Tables"]["projects"]["Row"], "id" | "name">;
-type CostCode = Pick<Database["public"]["Tables"]["cost_codes"]["Row"], "code" | "description">;
+const STATUS_COLORS: Record<string, string> = {
+  pending_review: "bg-amber-100 text-amber-700",
+  approved:       "bg-blue-100 text-blue-700",
+  scheduled:      "bg-purple-100 text-purple-700",
+  paid:           "bg-green-100 text-green-700",
+  disputed:       "bg-red-100 text-red-600",
+};
 
 function fmt(n: number | null) {
   if (n == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-}
-function fmtDate(d: string | null) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-function agingBucket(due: string | null): "current" | "30" | "60" | "90plus" {
-  if (!due) return "current";
-  const days = Math.floor((Date.now() - new Date(due).getTime()) / 86400000);
-  if (days <= 0) return "current";
-  if (days <= 30) return "30";
-  if (days <= 60) return "60";
-  return "90plus";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-const statusConfig: Record<string, { label: string; color: string }> = {
-  pending_review: { label: "Pending Review", color: "bg-amber-100 text-amber-700" },
-  approved: { label: "Approved", color: "bg-blue-100 text-blue-700" },
-  scheduled: { label: "Scheduled", color: "bg-violet-100 text-violet-700" },
-  paid: { label: "Paid", color: "bg-green-100 text-green-700" },
-  disputed: { label: "Disputed", color: "bg-red-100 text-red-700" },
-};
-
-const tabs = [
-  { key: "all", label: "All" },
-  { key: "pending_review", label: "Pending Review" },
-  { key: "approved", label: "Approved" },
-  { key: "scheduled", label: "Scheduled" },
-  { key: "paid", label: "Paid" },
-  { key: "disputed", label: "Disputed" },
-] as const;
-
-export default async function InvoicesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ status?: string }>;
-}) {
-  const params = await searchParams;
+export default async function InvoicesPage() {
   const supabase = await createClient();
 
-  const [invoicesRes, projectsRes, costCodesRes] = await Promise.all([
-    supabase.from("invoices").select("*").order("created_at", { ascending: false }),
-    supabase.from("projects").select("id, name"),
-    supabase.from("cost_codes").select("code, description").order("code"),
-  ]);
+  const { data: invoices } = await supabase
+    .from("invoices")
+    .select(`
+      id, vendor, invoice_number, invoice_date, due_date,
+      amount, status, ai_confidence, pending_draw, manually_reviewed,
+      file_name, source,
+      projects ( id, name )
+    `)
+    .order("created_at", { ascending: false });
 
-  const allInvoices = (invoicesRes.data ?? []) as Invoice[];
-  const projects = (projectsRes.data ?? []) as Project[];
-  const costCodes = (costCodesRes.data ?? []) as CostCode[];
-  const projectMap = Object.fromEntries(projects.map((p) => [p.id, p.name]));
-  const codeMap = Object.fromEntries(costCodes.map((c) => [c.code, c.description]));
+  const rows = invoices ?? [];
 
-  const activeFilter = params.status ?? "all";
-  const invoices =
-    activeFilter === "all"
-      ? allInvoices
-      : allInvoices.filter((i) => i.status === activeFilter);
-
-  const counts: Record<string, number> = {
-    all: allInvoices.length,
-    pending_review: allInvoices.filter((i) => i.status === "pending_review").length,
-    approved: allInvoices.filter((i) => i.status === "approved").length,
-    scheduled: allInvoices.filter((i) => i.status === "scheduled").length,
-    paid: allInvoices.filter((i) => i.status === "paid").length,
-    disputed: allInvoices.filter((i) => i.status === "disputed").length,
-  };
-
-  // AP aging totals (unpaid only)
-  const unpaid = allInvoices.filter((i) => i.status !== "paid");
-  const aging = {
-    current: unpaid.filter((i) => agingBucket(i.due_date) === "current").reduce((s, i) => s + (i.amount ?? i.total_amount ?? 0), 0),
-    "30": unpaid.filter((i) => agingBucket(i.due_date) === "30").reduce((s, i) => s + (i.amount ?? i.total_amount ?? 0), 0),
-    "60": unpaid.filter((i) => agingBucket(i.due_date) === "60").reduce((s, i) => s + (i.amount ?? i.total_amount ?? 0), 0),
-    "90plus": unpaid.filter((i) => agingBucket(i.due_date) === "90plus").reduce((s, i) => s + (i.amount ?? i.total_amount ?? 0), 0),
-  };
+  const pendingCount = rows.filter((i) => i.status === "pending_review").length;
+  const lowConfCount = rows.filter(
+    (i) => i.ai_confidence === "low" && i.status === "pending_review"
+  ).length;
 
   return (
     <>
       <Header title="Accounts Payable" />
       <main className="flex-1 p-6 overflow-auto">
-        {/* AP Aging */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {[
-            { label: "Current", value: aging.current, color: "text-gray-900" },
-            { label: "1–30 Days Overdue", value: aging["30"], color: "text-amber-600" },
-            { label: "31–60 Days Overdue", value: aging["60"], color: "text-orange-600" },
-            { label: "60+ Days Overdue", value: aging["90plus"], color: "text-red-600" },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs text-gray-400 mb-1">{label}</p>
-              <p className={`text-xl font-bold ${color}`}>{fmt(value)}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Tabs + action */}
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
-            {tabs.map(({ key, label }) => (
-              <Link
-                key={key}
-                href={`/invoices?status=${key}`}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  activeFilter === key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {label}
-                <span className={`ml-1.5 text-xs ${activeFilter === key ? "text-gray-500" : "text-gray-400"}`}>
-                  {counts[key] ?? 0}
-                </span>
-              </Link>
-            ))}
+        {/* Alerts */}
+        {lowConfCount > 0 && (
+          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
+            <AlertTriangle size={16} className="flex-shrink-0 text-amber-500" />
+            {lowConfCount} invoice{lowConfCount > 1 ? "s" : ""} flagged as low AI confidence — manual review required before approval.
           </div>
+        )}
+
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-gray-500">
+            {pendingCount > 0 ? `${pendingCount} pending review` : `${rows.length} invoice${rows.length !== 1 ? "s" : ""}`}
+          </p>
           <Link
-            href="/invoices/upload"
-            className="inline-flex items-center gap-2 bg-amber-500 text-gray-900 font-medium px-4 py-2 rounded-lg text-sm hover:bg-amber-400 transition-colors"
+            href="/invoices/new"
+            className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
           >
-            <Upload size={15} />
-            Upload Invoice
+            <Plus size={16} />
+            New Invoice
           </Link>
         </div>
 
-        {/* Invoice table */}
-        <div className="bg-white rounded-xl border border-gray-200">
-          {invoices.length === 0 ? (
-            <div className="px-6 py-16 text-center">
-              <FileText size={40} className="text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">
-                {activeFilter !== "all"
-                  ? `No invoices with status "${activeFilter.replace("_", " ")}".`
-                  : "No invoices yet."}
-              </p>
-              <Link href="/invoices/upload" className="mt-2 inline-block text-sm text-amber-600 hover:underline">
-                Upload your first invoice
-              </Link>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">Vendor</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">Project</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">Cost Code</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">Invoice #</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">Due</th>
-                    <th className="text-right px-5 py-3 text-xs font-medium text-gray-400 uppercase">Amount</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">Status</th>
-                    <th className="text-left px-5 py-3 text-xs font-medium text-gray-400 uppercase">AI</th>
-                    <th className="px-5 py-3" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {invoices.map((inv) => {
-                    const s = statusConfig[inv.status] ?? statusConfig.pending_review;
-                    const overdue =
-                      inv.due_date && inv.status !== "paid" && new Date(inv.due_date) < new Date();
-                    return (
-                      <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-5 py-3">
-                          <div className="font-medium text-gray-900">
-                            {inv.vendor ?? <span className="text-gray-400 italic">Unknown vendor</span>}
-                          </div>
-                          <div className="text-xs text-gray-400 truncate max-w-[140px]">{inv.file_name}</div>
-                        </td>
-                        <td className="px-5 py-3 text-gray-500 text-xs">{projectMap[inv.project_id] ?? "—"}</td>
-                        <td className="px-5 py-3 text-gray-500 text-xs">
-                          {inv.cost_code ? `${inv.cost_code} — ${codeMap[inv.cost_code] ?? ""}` : "—"}
-                        </td>
-                        <td className="px-5 py-3 text-gray-600">{inv.invoice_number ?? "—"}</td>
-                        <td className={`px-5 py-3 text-xs ${overdue ? "text-red-600 font-medium" : "text-gray-500"}`}>
-                          {overdue && <AlertCircle size={12} className="inline mr-1" />}
-                          {fmtDate(inv.due_date)}
-                        </td>
-                        <td className="px-5 py-3 text-right font-medium text-gray-900">
-                          {fmt(inv.amount ?? inv.total_amount)}
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.color}`}>
-                            {inv.status === "paid" ? <CheckCircle2 size={11} /> :
-                             inv.status === "disputed" ? <XCircle size={11} /> :
-                             <Clock size={11} />}
-                            {s.label}
+        {rows.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
+            No invoices yet.{" "}
+            <Link href="/invoices/new" className="text-[#4272EF] hover:underline">
+              Add one
+            </Link>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {["Vendor / Invoice", "Project", "Date", "Due", "Amount", "Status", ""].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider"
+                      >
+                        {h}
+                      </th>
+                    )
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {rows.map((inv) => {
+                  const project = inv.projects as { id: string; name: string } | null;
+                  const isLowConf =
+                    inv.ai_confidence === "low" && inv.status === "pending_review";
+                  return (
+                    <tr key={inv.id} className="hover:bg-gray-50 transition-colors group">
+                      <td className="px-0 py-0">
+                        <Link href={`/invoices/${inv.id}`} className="block px-4 py-3">
+                          <p className="font-medium text-gray-900 flex items-center gap-1.5">
+                            {isLowConf && (
+                              <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
+                            )}
+                            {inv.vendor ?? "—"}
+                          </p>
+                          <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                            {inv.invoice_number ?? "No #"}
+                            {inv.pending_draw && (
+                              <span className="text-[#4272EF] font-medium">• Draw</span>
+                            )}
+                            {inv.source === "email" && (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[#4272EF]"
+                                title="Imported via Gmail"
+                              >
+                                <Mail size={11} />
+                                <span className="text-[10px] font-medium">Email</span>
+                              </span>
+                            )}
+                          </p>
+                        </Link>
+                      </td>
+                      <td className="px-0 py-0">
+                        <Link href={`/invoices/${inv.id}`} className="block px-4 py-3 text-gray-600 text-xs">
+                          {project?.name ?? <span className="text-gray-400">G&A</span>}
+                        </Link>
+                      </td>
+                      <td className="px-0 py-0">
+                        <Link href={`/invoices/${inv.id}`} className="block px-4 py-3 text-gray-600 text-xs">
+                          {inv.invoice_date ?? "—"}
+                        </Link>
+                      </td>
+                      <td className="px-0 py-0">
+                        <Link href={`/invoices/${inv.id}`} className="block px-4 py-3 text-gray-600 text-xs">
+                          {inv.due_date ?? "—"}
+                        </Link>
+                      </td>
+                      <td className="px-0 py-0">
+                        <Link href={`/invoices/${inv.id}`} className="block px-4 py-3 font-medium text-gray-900">
+                          {fmt(inv.amount)}
+                        </Link>
+                      </td>
+                      <td className="px-0 py-0">
+                        <Link href={`/invoices/${inv.id}`} className="block px-4 py-3">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              STATUS_COLORS[inv.status] ?? "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {inv.status.replace("_", " ")}
                           </span>
-                        </td>
-                        <td className="px-5 py-3">
-                          {inv.ai_confidence && (
-                            <span className={`text-xs font-medium capitalize ${
-                              inv.ai_confidence === "high" ? "text-green-600" :
-                              inv.ai_confidence === "medium" ? "text-amber-600" : "text-red-600"
-                            }`}>
-                              {inv.ai_confidence}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <Link href={`/invoices/${inv.id}`} className="text-xs text-amber-600 hover:underline font-medium">
-                            Review →
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <InvoiceActions
+                          invoiceId={inv.id}
+                          status={inv.status}
+                          aiConfidence={inv.ai_confidence}
+                          manuallyReviewed={inv.manually_reviewed ?? false}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </main>
     </>
   );
