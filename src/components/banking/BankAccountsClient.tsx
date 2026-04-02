@@ -13,8 +13,8 @@ interface BankAccount {
   id: string;
   bank_name: string;
   account_name: string;
-  account_last_four: string;
-  account_type: string;
+  account_last_four: string | null;
+  account_type: string | null;
   notes: string | null;
 }
 
@@ -211,7 +211,7 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
                   <tr key={acct.id}>
                     <td colSpan={6} className="p-4">
                       <AccountForm
-                        initial={{ bank_name: acct.bank_name, account_name: acct.account_name, account_last_four: acct.account_last_four, account_type: acct.account_type, notes: acct.notes ?? "" }}
+                        initial={{ bank_name: acct.bank_name, account_name: acct.account_name, account_last_four: acct.account_last_four ?? "", account_type: acct.account_type ?? "", notes: acct.notes ?? "" }}
                         onSave={(data) => handleUpdate(acct.id, data)}
                         onCancel={() => setEditingId(null)}
                         isPending={isPending}

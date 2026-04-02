@@ -105,7 +105,7 @@ export async function saveInvoice(
     const { error: lineError } = await supabase.from("invoice_line_items").insert(
       input.line_items.map((li) => ({
         invoice_id: invoice.id,
-        cost_code: parseInt(li.cost_code) || null,
+        cost_code: li.cost_code ? String(li.cost_code) : null,
         description: li.description || null,
         amount: li.amount,
       }))
@@ -297,7 +297,7 @@ export async function updateInvoice(
   const { error: lineErr } = await supabase.from("invoice_line_items").insert(
     input.line_items.map((li) => ({
       invoice_id: invoiceId,
-      cost_code: parseInt(li.cost_code) || null,
+      cost_code: li.cost_code ? String(li.cost_code) : null,
       description: li.description || null,
       amount: li.amount,
     }))

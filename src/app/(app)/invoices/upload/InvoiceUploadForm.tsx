@@ -231,7 +231,7 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
     }).eq("id", invoiceId);
     if (lineItems.length > 0) {
       await supabase.from("invoice_line_items").insert(
-        lineItems.map((li) => ({ invoice_id: invoiceId, cost_code: li.cost_code || null, description: li.description || "", amount: li.amount || 0 }))
+        lineItems.map((li) => ({ invoice_id: invoiceId, cost_code: li.cost_code ? String(li.cost_code) : null, description: li.description || "", amount: li.amount || 0 }))
       );
     }
     router.push("/invoices");
