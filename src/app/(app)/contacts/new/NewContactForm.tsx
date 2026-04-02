@@ -112,4 +112,6 @@ export default function NewContactForm() {
           </form>
         </div>
       </div>
-    
+    </main>
+  );
+}

@@ -18,4 +18,5 @@ export default async function SettingsPage() {
         <SettingsClient costCodes={costCodes ?? []} />
       </main>
     </>
-  
+  );
+}

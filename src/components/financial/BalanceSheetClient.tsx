@@ -248,4 +248,44 @@ function BSdrillModal({ item, onClose }: { item: DrillItem; onClose: () => void 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
-        <div className="flex items-cen
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100" style={{ backgroundColor: "#4272EF" }}>
+          <div>
+            <h3 className="font-semibold text-white">{item.label}</h3>
+            <p className="text-xs text-blue-100 mt-0.5">{item.entries.length} entries · Total: {fmtFull(item.amount)}</p>
+          </div>
+          <button onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={18} /></button>
+        </div>
+        <div className="overflow-auto flex-1">
+          {item.entries.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-gray-400">No GL entries found. Amount derived from cost items.</div>
+          ) : (
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
+                <tr className="text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left">Date</th>
+                  <th className="px-5 py-3 text-left">Description</th>
+                  <th className="px-5 py-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {item.entries.map(e => (
+                  <tr key={e.id} className="border-b border-gray-50">
+                    <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.entry_date}</td>
+                    <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
+                    <td className="px-5 py-2.5 text-right font-medium text-gray-800">{fmtFull(e.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
+          <span className="text-sm font-semibold text-gray-700">Total</span>
+          <span className="text-sm font-semibold text-gray-900">{fmtFull(item.amount)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}

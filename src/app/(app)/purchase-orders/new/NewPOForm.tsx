@@ -202,4 +202,6 @@ export default function NewPOForm({ projects, vendors, costCodes, nextPONumber }
           </form>
         </div>
       </div>
-    
+    </main>
+  );
+}

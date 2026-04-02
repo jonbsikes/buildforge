@@ -250,4 +250,5 @@ function ComplianceDate({
     >
       {label}: {date}
     </div>
-  
+  );
+}

@@ -561,7 +561,7 @@ export type Database = {
       invoice_line_items: {
         Row: {
           amount: number | null
-          cost_code: string | null
+          cost_code: number | null
           created_at: string
           description: string | null
           id: string
@@ -569,7 +569,7 @@ export type Database = {
         }
         Insert: {
           amount?: number | null
-          cost_code?: string | null
+          cost_code?: number | null
           created_at?: string
           description?: string | null
           id?: string
@@ -577,7 +577,7 @@ export type Database = {
         }
         Update: {
           amount?: number | null
-          cost_code?: string | null
+          cost_code?: number | null
           created_at?: string
           description?: string | null
           id?: string
@@ -1539,4 +1539,5 @@ export const Constants = {
       ],
       stage_status: ["not_started", "in_progress", "completed", "blocked"],
     },
-  
+  },
+} as const

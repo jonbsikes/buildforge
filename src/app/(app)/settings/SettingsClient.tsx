@@ -163,4 +163,9 @@ export default function SettingsClient({ costCodes }: { costCodes: CostCode[] })
         )}
 
         {inactive.length > 0 && (
-          <p className="text-xs text-gray-400 mt-2">{inactive.length} inactive code{inactive.length !== 1 ? "s" : ""} hidden from selection. Toggle to r
+          <p className="text-xs text-gray-400 mt-2">{inactive.length} inactive code{inactive.length !== 1 ? "s" : ""} hidden from selection. Toggle to reactivate.</p>
+        )}
+      </section>
+    </div>
+  );
+}

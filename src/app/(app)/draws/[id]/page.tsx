@@ -326,4 +326,9 @@ export default async function DrawDetailPage({ params }: Props) {
           </div>
 
           {/* Actions */}
-          <DrawActions drawId={
+          <DrawActions drawId={id} status={draw.status} />
+        </div>
+      </main>
+    </>
+  );
+}

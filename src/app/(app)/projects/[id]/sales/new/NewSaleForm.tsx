@@ -175,4 +175,6 @@ export default function NewSaleForm() {
           </form>
         </div>
       </div>
-    
+    </main>
+  );
+}

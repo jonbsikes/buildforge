@@ -371,4 +371,26 @@ function LandEditForm({ project, lenders, existingLoans }: Props) {
           <input type="date" value={f.start_date} onChange={(e) => s("start_date", e.target.value)} className={ic()} />
         </Field>
         <Field label="Lender">
-          <select
+          <select value={f.lender_id} onChange={(e) => s("lender_id", e.target.value)} className={ic()}>
+            <option value="">— No lender —</option>
+            {lenders.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <LoanSection projectId={project.id} lenderId={f.lender_id} existingLoans={existingLoans} />
+
+      <FormActions projectId={project.id} isPending={isPending} error={error} onSave={save} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+export default function EditProjectForm({ project, lenders, existingLoans }: Props) {
+  return project.project_type === "home_construction"
+    ? <HomeEditForm project={project} lenders={lenders} existingLoans={existingLoans} />
+    : <LandEditForm project={project} lenders={lenders} existingLoans={existingLoans} />;
+}

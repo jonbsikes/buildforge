@@ -52,4 +52,5 @@ export default async function EditVendorPage({ params }: Props) {
         </div>
       </main>
     </>
-  
+  );
+}

@@ -534,4 +534,37 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         <button
           onClick={handleSubmit}
           disabled={isPending || isExtracting}
-          className="px-6 py-2.5 bg-[#4272EF] text-white rounded
+          className="px-6 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isPending ? "Saving…" : "Save Invoice"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function inputClass(hasError: boolean) {
+  return `w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] focus:border-transparent transition-colors ${
+    hasError ? "border-red-400" : "border-gray-300"
+  }`;
+}

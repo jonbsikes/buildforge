@@ -298,4 +298,22 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
 
         <button onClick={() => setLineItems((p) => [...p, { ...EMPTY_LINE }])} className="mt-3 flex items-center gap-1.5 text-sm text-[#4272EF] hover:text-[#3461de]">
           <Plus size={15} />
-          Ad
+          Add line item
+        </button>
+      </section>
+
+      {submitError && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{submitError}</div>
+      )}
+
+      <div className="flex items-center justify-between pb-6">
+        <button onClick={() => router.push(`/invoices/${invoiceId}`)} className="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50">
+          Cancel
+        </button>
+        <button onClick={handleSubmit} disabled={isPending} className="px-6 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] disabled:opacity-60">
+          {isPending ? "Saving…" : "Save Changes"}
+        </button>
+      </div>
+    </div>
+  );
+}

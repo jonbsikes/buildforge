@@ -19,4 +19,5 @@ export default async function NotificationsPage() {
         <NotificationsClient notifications={notifications ?? []} />
       </main>
     </>
-  
+  );
+}

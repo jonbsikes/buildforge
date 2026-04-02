@@ -313,4 +313,6 @@ export default function ContractDetailPage() {
           )}
         </div>
       </div>
-    
+    </main>
+  );
+}

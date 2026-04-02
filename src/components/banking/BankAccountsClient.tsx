@@ -277,4 +277,9 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
           className="flex items-center gap-2 px-4 py-2 text-sm text-[#4272EF] border border-[#4272EF]/30 rounded-lg hover:bg-blue-50 transition-colors"
         >
           <Plus size={15} />
-          Add B
+          Add Bank Account
+        </button>
+      )}
+    </div>
+  );
+}

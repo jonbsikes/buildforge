@@ -30,7 +30,7 @@ export default function InvoiceUploadForm({ projects, costCodes, hasAI }: Props)
   const [error, setError] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
 
-  const [lineItems, setLineItems] = useState<{ cost_code: string; description: string; amount: number }[]>([]);
+  const [lineItems, setLineItems] = useState<{ cost_code: number | null; description: string; amount: number }[]>([]);
 
   const [form, setForm] = useState({
     project_id: projects[0]?.id ?? "",
@@ -165,7 +165,7 @@ export default function InvoiceUploadForm({ projects, costCodes, hasAI }: Props)
     if (lineItems.length > 0) {
       const rows = lineItems.map((li) => ({
         invoice_id: invoiceId,
-        cost_code: parseInt(li.cost_code) || null,
+        cost_code: li.cost_code || null,
         description: li.description || "",
         amount: li.amount || 0,
       }));

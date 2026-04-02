@@ -110,3 +110,6 @@ export default async function ContractsPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
       </main>
+    </>
+  );
+}

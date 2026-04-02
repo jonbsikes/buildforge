@@ -442,4 +442,10 @@ export default function InvoicesClient({
                 );
               })}
             </tbody>
-      
+          </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

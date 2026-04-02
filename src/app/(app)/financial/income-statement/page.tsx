@@ -11,4 +11,5 @@ export default function IncomeStatementPage() {
         <IncomeStatementClient />
       </main>
     </>
-  
+  );
+}

@@ -436,4 +436,6 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
           );
         })}
       </div>
-   
+    </div>
+  );
+}

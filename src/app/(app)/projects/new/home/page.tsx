@@ -48,4 +48,5 @@ export default async function NewHomeConstructionPage() {
         />
       </main>
     </>
-  
+  );
+}

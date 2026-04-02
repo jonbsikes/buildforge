@@ -86,4 +86,6 @@ export default function CostCodesClient({ costCodes }: { costCodes: CostCode[] }
           </div>
         </div>
       </div>
-    
+    </main>
+  );
+}

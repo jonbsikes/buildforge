@@ -245,4 +245,63 @@ export default async function ProjectDetailPage({ params }: Props) {
               {/* Land Development */}
               {!isHome && project.size_acres != null && (
                 <DetailField label="Size" value={`${project.size_acres} acres`} />
- 
+              )}
+              {!isHome && project.number_of_lots != null && (
+                <DetailField label="Total Lots" value={String(project.number_of_lots)} />
+              )}
+              {!isHome && (
+                <DetailField label="Lots Sold" value={String(totalSoldLots)} />
+              )}
+              {!isHome && project.number_of_lots != null && (
+                <DetailField label="Remaining Lots" value={String(remainingLots >= 0 ? remainingLots : 0)} />
+              )}
+              {!isHome && project.number_of_phases != null && (
+                <DetailField label="Phases" value={String(project.number_of_phases)} />
+              )}
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <ProjectTabs
+            projectId={id}
+            isHome={isHome}
+            startDate={project.start_date}
+            buildStages={buildStages}
+            costCodes={costCodes}
+            availableCostCodes={availableCostCodes}
+            phases={phases}
+            documents={documents}
+            committedByCostCodeId={committedByCostCodeId}
+            actualByCostCodeId={actualByCostCodeId}
+          />
+        </div>
+      </main>
+    </>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+  icon,
+  wide,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  icon?: React.ReactNode;
+  wide?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div className={wide ? "col-span-2" : ""}>
+      <p className="text-xs text-gray-400 mb-0.5 flex items-center gap-1">
+        {icon}
+        {label}
+      </p>
+      <p className={`text-sm font-medium ${highlight ? "text-[#4272EF]" : "text-gray-800"}`}>
+        {value}
+      </p>
+    </div>
+  );
+}

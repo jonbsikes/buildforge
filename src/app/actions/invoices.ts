@@ -54,7 +54,7 @@ export async function saveInvoice(
   const { data: dominantCode } = await supabase
     .from("cost_codes")
     .select("id, name")
-    .eq("code", dominant.cost_code)
+    .eq("code", String(parseInt(dominant.cost_code) || 0))
     .is("user_id", null)
     .single();
 
@@ -105,7 +105,7 @@ export async function saveInvoice(
     const { error: lineError } = await supabase.from("invoice_line_items").insert(
       input.line_items.map((li) => ({
         invoice_id: invoice.id,
-        cost_code: li.cost_code,
+        cost_code: parseInt(li.cost_code) || null,
         description: li.description || null,
         amount: li.amount,
       }))
@@ -251,7 +251,7 @@ export async function updateInvoice(
   const { data: dominantCode } = await supabase
     .from("cost_codes")
     .select("id")
-    .eq("code", dominant.cost_code)
+    .eq("code", String(parseInt(dominant.cost_code) || 0))
     .is("user_id", null)
     .maybeSingle();
 
@@ -297,7 +297,7 @@ export async function updateInvoice(
   const { error: lineErr } = await supabase.from("invoice_line_items").insert(
     input.line_items.map((li) => ({
       invoice_id: invoiceId,
-      cost_code: li.cost_code,
+      cost_code: parseInt(li.cost_code) || null,
       description: li.description || null,
       amount: li.amount,
     }))
@@ -367,4 +367,8 @@ export async function advanceInvoiceStatus(
     .update(updates)
     .eq("id", invoiceId);
 
-  if (error) return 
+  if (error) return { error: error.message };
+
+  revalidatePath("/invoices");
+  return {};
+}

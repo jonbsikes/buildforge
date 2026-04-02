@@ -136,3 +136,6 @@ export default async function PurchaseOrdersPage({
           )}
         </div>
       </main>
+    </>
+  );
+}

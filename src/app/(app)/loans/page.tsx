@@ -134,3 +134,6 @@ export default async function LoansPage() {
           </div>
         )}
       </main>
+    </>
+  );
+}

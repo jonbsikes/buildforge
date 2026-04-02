@@ -266,4 +266,111 @@ export default function CostItemsTab({
           .sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999))
       );
     }
-    setActiveCodes((prev) => prev.filter((c) => c.pc
+    setActiveCodes((prev) => prev.filter((c) => c.pccId !== pccId));
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Phases section (land dev only) */}
+      {!isHome && phases.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Project Phases</h3>
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">#</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Phase Name</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Acreage</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Total Lots</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Sold</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Remaining</th>
+                  <th className="px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {phases.map((phase) => (
+                  <PhaseRow key={phase.id} phase={phase} projectId={projectId} />
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">Click a "Sold" number to update lots sold for that phase.</p>
+        </div>
+      )}
+
+      {/* Cost codes */}
+      <div>
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">
+              Cost Items — {isHome ? "Home Construction" : "Land Development"}
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Total budget: <span className="font-semibold text-gray-700">{fmt(totalBudget)}</span>
+            </p>
+          </div>
+          {available.length > 0 && (
+            <AddCostCodePanel
+              projectId={projectId}
+              available={available}
+              onAdded={handleAdded}
+            />
+          )}
+        </div>
+
+        {activeCodes.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8">
+            No cost codes are enabled for this project. Use "Add Cost Code" to add one.
+          </p>
+        ) : (
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Code</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Description</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Category</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Budget</th>
+                  <th className="w-8"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {activeCodes.map((cc) => (
+                  <tr key={cc.pccId || cc.code} className="hover:bg-gray-50 transition-colors group">
+                    <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{cc.code}</td>
+                    <td className="px-4 py-2.5 text-gray-900">{cc.name}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{CATEGORY_LABEL(cc.category)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-800 font-medium">
+                      {cc.budgeted_amount > 0 ? fmt(cc.budgeted_amount) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                      {cc.pccId && (
+                        <RemoveCodeButton
+                          pccId={cc.pccId}
+                          projectId={projectId}
+                          onRemoved={() => handleRemoved(cc.pccId)}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-gray-200 bg-gray-50">
+                  <td colSpan={3} className="px-4 py-3 text-xs font-semibold text-gray-600">Total</td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{fmt(totalBudget)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

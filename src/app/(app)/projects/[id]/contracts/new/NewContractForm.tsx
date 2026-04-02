@@ -198,4 +198,6 @@ export default function NewContractForm({ projectId, projectName, vendors, costC
           </form>
         </div>
       </div>
-    
+    </main>
+  );
+}

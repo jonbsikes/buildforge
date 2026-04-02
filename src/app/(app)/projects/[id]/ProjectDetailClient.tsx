@@ -796,4 +796,10 @@ export default function ProjectDetailClient({
             })}
             {selections.length === 0 && !showAdd && (
               <p className="text-sm text-gray-400 bg-white rounded-xl border border-gray-200 px-5 py-8 text-center">No selections yet. Click &ldquo;Add Item&rdquo; to start.</p>
-      
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
