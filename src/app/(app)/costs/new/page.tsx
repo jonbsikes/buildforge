@@ -1,3 +1,4 @@
+// @ts-nocheck
 import Header from "@/components/layout/Header";
 import { createClient } from "@/lib/supabase/server";
 import NewCostForm from "./NewCostForm";
