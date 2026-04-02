@@ -207,11 +207,4 @@ export default function APAgingClient() {
               <div className="flex justify-between items-center px-5 py-3 bg-gray-50 border-t border-gray-200 font-bold">
                 <span className="text-gray-800">Total Outstanding</span>
                 <span className="text-gray-900 text-base">{fmt(grandTotal)}</span>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+              </d

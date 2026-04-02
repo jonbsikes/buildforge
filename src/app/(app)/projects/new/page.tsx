@@ -67,5 +67,4 @@ export default function NewProjectTypePage() {
         </div>
       </main>
     </>
-  );
-}
+  

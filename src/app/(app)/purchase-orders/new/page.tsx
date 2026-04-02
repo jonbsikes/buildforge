@@ -30,6 +30,3 @@ export default async function NewPOPage() {
         costCodes={(codesRes.data ?? []) as Parameters<typeof NewPOForm>[0]["costCodes"]}
         nextPONumber={nextPONumber}
       />
-    </>
-  );
-}

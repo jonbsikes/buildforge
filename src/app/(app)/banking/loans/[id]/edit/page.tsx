@@ -68,5 +68,4 @@ export default async function EditLoanPage({ params }: Props) {
         </div>
       </main>
     </>
-  );
-}
+  

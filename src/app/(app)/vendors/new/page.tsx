@@ -36,5 +36,4 @@ export default async function NewVendorPage() {
         </div>
       </main>
     </>
-  );
-}
+  

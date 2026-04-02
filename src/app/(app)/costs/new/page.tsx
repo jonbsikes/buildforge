@@ -39,6 +39,3 @@ export default async function NewCostPage({
         costCodes={costCodes}
         defaultProjectId={projectId}
       />
-    </>
-  );
-}

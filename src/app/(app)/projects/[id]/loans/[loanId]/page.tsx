@@ -44,6 +44,3 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
           />
         </div>
       </main>
-    </>
-  );
-}

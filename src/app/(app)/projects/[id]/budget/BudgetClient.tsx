@@ -215,6 +215,4 @@ export default function BudgetClient({ projectId, contractPrice, budgetRows: ini
           </div>
         )}
       </div>
-    </div>
-  );
-}
+   

@@ -25,6 +25,3 @@ export default async function InvoiceUploadPage() {
         costCodes={costCodes as Parameters<typeof InvoiceUploadForm>[0]["costCodes"]}
         hasAI={hasAI}
       />
-    </>
-  );
-}

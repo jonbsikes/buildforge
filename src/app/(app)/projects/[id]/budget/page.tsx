@@ -52,6 +52,3 @@ export default async function ProjectBudgetPage({ params }: { params: Promise<{ 
           />
         </div>
       </main>
-    </>
-  );
-}

@@ -163,10 +163,4 @@ export default async function LoansPage() {
                 </tbody>
               </table>
               </div>
-            </div>
-          )}
-        </div>
-      </main>
-    </>
-  );
-}
+     

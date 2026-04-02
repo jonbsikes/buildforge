@@ -120,6 +120,3 @@ export default async function ProjectLoansPage({ params }: { params: Promise<{ i
           )}
         </div>
       </main>
-    </>
-  );
-}

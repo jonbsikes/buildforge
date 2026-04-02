@@ -371,6 +371,4 @@ export default function LoanDetailClient({ projectId, loan, draws: initialDraws,
           </table>
         )}
       </div>
-    </div>
-  );
-}
+   

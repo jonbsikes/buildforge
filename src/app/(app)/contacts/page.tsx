@@ -19,5 +19,4 @@ export default async function ContactsPage() {
         <ContactsClient contacts={contacts ?? []} />
       </main>
     </>
-  );
-}
+  

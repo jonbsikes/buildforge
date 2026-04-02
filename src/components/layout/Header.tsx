@@ -27,24 +27,4 @@ export default async function Header({ title }: { title: string }) {
     <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-4 flex items-center justify-between">
       <div className="flex items-center gap-2">
         <MobileMenuButton />
-        <h1 className="text-lg lg:text-xl font-semibold text-gray-900">{title}</h1>
-      </div>
-      <div className="flex items-center gap-4">
-        {/* BuildForge branding */}
-        <div className="hidden sm:block pr-4 border-r border-gray-200">
-          <span className="text-sm font-semibold text-gray-700">BuildForge</span>
-        </div>
-        <NotificationBell />
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600 font-medium hidden sm:block">{displayName}</span>
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-sm"
-            style={{ backgroundColor: "#4272EF" }}
-          >
-            {initials}
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-}
+        <h1 classN

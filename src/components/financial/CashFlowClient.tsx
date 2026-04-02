@@ -287,9 +287,4 @@ function CFDrillModal({ line, onClose }: { line: CashFlowLine; onClose: () => vo
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
           <span className="text-sm font-semibold text-gray-700">Total</span>
-          <span className="text-sm font-semibold text-gray-900">{fmtFull(line.amount)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+          <span classNam

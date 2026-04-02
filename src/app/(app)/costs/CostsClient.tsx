@@ -177,9 +177,4 @@ export default function CostsClient({
               </tr>
             </tfoot>
           </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+  

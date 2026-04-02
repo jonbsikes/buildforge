@@ -15,7 +15,7 @@ Includes: project management, job costing, full double-entry accounting, loan/dr
 - **Frontend:** Next.js (React) — web + PWA
 - **Database:** Supabase (Postgres)
 - **Auth:** Supabase Auth
-- **AI:** Anthropic Claude API (`claude-sonnet-4-20250514`) — invoice categorization
+- **AI:** Anthropic Claude API (`claude-sonnet-4-6`) — invoice categorization
 - **File Storage:** Supabase Storage
 - **Email Ingestion:** Gmail API (prairiesky25@gmail.com)
 - **Styling:** Tailwind CSS + shadcn/ui
@@ -235,6 +235,7 @@ Management
 | ai_notes | text | |
 | source | string | `'email'`, `'upload'` |
 | pending_draw | boolean | default false — flagged to be included in next draw request |
+| email_message_id | string | nullable — Gmail message ID for email-ingested invoices (prevents duplicates) |
 | created_at | timestamp | |
 
 > **Invoice filename convention:** When an invoice is stored, the description/display name is formatted as: `Vendor Name – Cost Code – Project Name – Invoice Number`
@@ -424,7 +425,7 @@ Management
 
 ---
 
-## Feature Modules & Build Priority
+## Feature Modules
 
 ### 1. Auth & Setup
 - Supabase Auth (email/password)
@@ -450,7 +451,8 @@ Management
 - Land Development supports phases (see `project_phases` table) — each phase has its own acreage, lot count, and sold/remaining tracking
 
 **Project page tab layout — Home Construction:**
-- Stage Report (build stages + Gantt)
+- Gantt Chart
+- Stage Report
 - Cost Items (cost codes — construction types only)
 - Budget
 - Selections
@@ -458,7 +460,8 @@ Management
 - Documents
 
 **Project page tab layout — Land Development:**
-- Stage Report (build stages + Gantt)
+- Gantt Chart
+- Stage Report
 - Cost Items (cost codes — land dev types only)
 - Budget
 - Field Logs
@@ -571,7 +574,7 @@ Management
 ## Invoice Processing Rules
 
 ### Model
-- Always use `claude-sonnet-4-20250514` for all invoice extraction and categorization
+- Always use `claude-sonnet-4-6` for all invoice extraction and categorization
 - Enable prompt caching on system prompt + extraction schema for repeated calls
 - Never use Haiku for primary invoice processing
 
@@ -608,8 +611,6 @@ Management
 
 ## Developer Notes
 
-- Explain things clearly with exact commands
-- Build and test one feature at a time — do not bundle unrelated features
 - Cost codes master list: `.claude/memory/cost_codes.md` (codes 1–120)
 - Build stages master list: `.claude/memory/build_stages.md` (54 stages)
 - Always seed the `cost_codes` master table on first run (all 120 codes)
@@ -618,3 +619,4 @@ Management
 - GMT timestamps throughout; display in user's local time
 - File uploads: `documents` bucket for docs; `invoices` bucket for invoice attachments
 - Keep storage lean — no auto-upload of images unless user explicitly attaches them
+- **Supabase type fix:** `@supabase/ssr` passes Schema as 3rd generic but `supabase-js 2.101+` expects SchemaName (string). In `server.ts` and `client.ts`, cast the client: `return client as unknown as SupabaseClient<Database>;`

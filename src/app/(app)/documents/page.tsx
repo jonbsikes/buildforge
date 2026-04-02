@@ -21,5 +21,4 @@ export default async function DocumentsPage() {
         <DocumentsClient documents={documents ?? []} projects={projects ?? []} />
       </main>
     </>
-  );
-}
+  

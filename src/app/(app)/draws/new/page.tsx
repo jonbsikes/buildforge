@@ -89,5 +89,4 @@ export default async function NewDrawPage() {
         </div>
       </main>
     </>
-  );
-}
+  

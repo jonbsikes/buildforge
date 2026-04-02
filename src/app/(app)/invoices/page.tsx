@@ -165,10 +165,4 @@ export default async function InvoicesPage() {
                 })}
               </tbody>
             </table>
-            </div>
-          </div>
-        )}
-      </main>
-    </>
-  );
-}
+         

@@ -122,21 +122,4 @@ export default async function EditInvoicePage({ params }: Props) {
               contract_id: invoice.contract_id ?? null,
               line_items: (lineItemsResult.data ?? []).map((li) => ({
                 cost_code: li.cost_code ?? "",
-                description: li.description,
-                amount: li.amount ?? 0,
-              })),
-              project_name: project?.name ?? null,
-            }}
-            vendors={vendorsResult.data ?? []}
-            projects={(projectsResult.data ?? []) as { id: string; name: string; project_type: "home_construction" | "land_development" }[]}
-            costCodes={costCodes}
-            contracts={(contractsResult.data ?? []).map((c) => {
-              const cc = c.cost_codes as { code: string; name: string } | null;
-              return { id: c.id, label: cc ? `${cc.code} – ${cc.name}` : "Contract", amount: c.amount ?? 0, status: c.status };
-            })}
-          />
-        </div>
-      </main>
-    </>
-  );
-}
+             

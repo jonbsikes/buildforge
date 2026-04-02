@@ -25,6 +25,3 @@ export default async function NewContractPage({ params }: { params: Promise<{ id
         vendors={vendorsRes.data ?? []}
         costCodes={codesRes.data ?? []}
       />
-    </>
-  );
-}

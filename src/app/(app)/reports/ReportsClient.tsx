@@ -222,10 +222,4 @@ export default function ReportsClient({
       )}
 
       {filtered.projects.length === 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center text-sm text-gray-400">
-          No data to report. Create a project and add cost items.
-        </div>
-      )}
-    </div>
-  );
-}
+        <div className="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center text-

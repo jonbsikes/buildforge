@@ -122,6 +122,4 @@ export default function NewLoanForm({ projectId, contacts }: Props) {
           </form>
         </div>
       </div>
-    </main>
-  );
-}
+    

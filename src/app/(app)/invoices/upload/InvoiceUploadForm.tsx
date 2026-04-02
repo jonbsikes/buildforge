@@ -30,6 +30,8 @@ export default function InvoiceUploadForm({ projects, costCodes, hasAI }: Props)
   const [error, setError] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState<string | null>(null);
 
+  const [lineItems, setLineItems] = useState<{ cost_code: string; description: string; amount: number }[]>([]);
+
   const [form, setForm] = useState({
     project_id: projects[0]?.id ?? "",
     cost_code: "",
@@ -105,23 +107,31 @@ export default function InvoiceUploadForm({ projects, costCodes, hasAI }: Props)
     if (hasAI) {
       setStep("extracting");
       try {
+        const fd = new FormData();
+        fd.append("file", file);
         const res = await fetch("/api/invoices/extract", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ invoiceId: invoice.id, filePath }),
+          body: fd,
         });
-        const { extracted } = await res.json();
-        if (extracted) {
+        const data = await res.json();
+        if (data && !data.error) {
+          // Map API response fields to form state
+          const primaryCode = data.line_items?.[0]?.cost_code ?? "";
           setForm((f) => ({
             ...f,
-            vendor: extracted.vendor_name ?? "",
-            invoice_number: extracted.invoice_number ?? "",
-            invoice_date: extracted.invoice_date ?? "",
-            amount: extracted.amount != null ? String(extracted.amount) : "",
-            cost_code: extracted.cost_code != null ? String(extracted.cost_code) : "",
-            ai_notes: extracted.ai_notes ?? "",
-            ai_confidence: extracted.confidence ?? "",
+            vendor: data.vendor ?? "",
+            invoice_number: data.invoice_number ?? "",
+            invoice_date: data.invoice_date ?? "",
+            due_date: data.due_date ?? "",
+            amount: data.total_amount != null ? String(data.total_amount) : "",
+            cost_code: primaryCode,
+            ai_notes: data.ai_notes ?? "",
+            ai_confidence: data.ai_confidence ?? "",
           }));
+          // Store line items for saving
+          if (data.line_items?.length) {
+            setLineItems(data.line_items);
+          }
         }
       } catch {
         // Extraction failed — proceed to review with empty fields
@@ -151,11 +161,23 @@ export default function InvoiceUploadForm({ projects, costCodes, hasAI }: Props)
       status: "pending_review",
     }).eq("id", invoiceId);
 
+    // Save line items if AI extracted them
+    if (lineItems.length > 0) {
+      const rows = lineItems.map((li) => ({
+        invoice_id: invoiceId,
+        cost_code: parseInt(li.cost_code) || null,
+        description: li.description || "",
+        amount: li.amount || 0,
+      }));
+      await supabase.from("invoice_line_items").insert(rows);
+    }
+
     router.push("/invoices");
   }
 
-  const landCodes = costCodes.filter((c) => c.category === "Land Development");
-  const homeCodes = costCodes.filter((c) => c.category === "Home Construction");
+  const landCodes = costCodes.filter((c) => c.code >= 1 && c.code <= 33);
+  const homeCodes = costCodes.filter((c) => c.code >= 34 && c.code <= 102);
+  const gaCodes = costCodes.filter((c) => c.code >= 103 && c.code <= 120);
 
   return (
     <main className="flex-1 p-6 overflow-auto">
@@ -305,9 +327,38 @@ export default function InvoiceUploadForm({ projects, costCodes, hasAI }: Props)
                     <optgroup label="Home Construction (34–102)">
                       {homeCodes.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description}</option>)}
                     </optgroup>
+                    <optgroup label="General & Administrative (103–120)">
+                      {gaCodes.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description}</option>)}
+                    </optgroup>
                   </select>
                 </div>
               </div>
+
+              {lineItems.length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Line Items ({lineItems.length})</label>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Code</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Description</th>
+                          <th className="text-right px-3 py-2 font-medium text-gray-600">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lineItems.map((li, i) => (
+                          <tr key={i} className="border-t border-gray-100">
+                            <td className="px-3 py-2 text-gray-800">{li.cost_code}</td>
+                            <td className="px-3 py-2 text-gray-600">{li.description}</td>
+                            <td className="px-3 py-2 text-right text-gray-800">${li.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {form.ai_notes && (
                 <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-600">

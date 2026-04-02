@@ -163,6 +163,4 @@ export default function NewStageForm() {
             </form>
           </div>
         </div>
-    </main>
-  );
-}
+    

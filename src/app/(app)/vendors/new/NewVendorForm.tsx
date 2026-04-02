@@ -155,6 +155,4 @@ export default function NewVendorForm() {
           </form>
         </div>
       </div>
-    </main>
-  );
-}
+    

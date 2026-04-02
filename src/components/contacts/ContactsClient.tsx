@@ -365,10 +365,4 @@ export default function ContactsClient({ contacts }: { contacts: Contact[] }) {
               >
                 {isDeleting ? "Deleting…" : "Delete"}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
+            </div>

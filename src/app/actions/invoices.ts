@@ -367,8 +367,4 @@ export async function advanceInvoiceStatus(
     .update(updates)
     .eq("id", invoiceId);
 
-  if (error) return { error: error.message };
-
-  revalidatePath("/invoices");
-  return {};
-}
+  if (error) return 

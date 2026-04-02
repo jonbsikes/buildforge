@@ -317,6 +317,4 @@ export default function NewCostForm({ projects, stages, costCodes, defaultProjec
           </form>
         </div>
       </div>
-    </main>
-  );
-}
+    

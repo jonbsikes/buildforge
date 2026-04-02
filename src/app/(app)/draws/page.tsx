@@ -137,10 +137,4 @@ export default async function DrawsPage() {
                 })}
               </tbody>
             </table>
-            </div>
-          </div>
-        )}
-      </main>
-    </>
-  );
-}
+         

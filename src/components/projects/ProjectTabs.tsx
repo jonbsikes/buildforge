@@ -149,28 +149,4 @@ export default function ProjectTabs({
         {activeTab === "cost-items" && (
           <CostItemsTab
             projectId={projectId}
-            isHome={isHome}
-            costCodes={costCodes}
-            availableCostCodes={availableCostCodes}
-            phases={phases}
-          />
-        )}
-        {activeTab === "budget" && (
-          <BudgetTab
-            costCodes={costCodes}
-            committedByCostCodeId={committedByCostCodeId}
-            actualByCostCodeId={actualByCostCodeId}
-          />
-        )}
-        {activeTab === "phases" && !isHome && (
-          <PhasesTab projectId={projectId} initialPhases={phases} />
-        )}
-        {activeTab === "selections" && isHome && <SelectionsTab projectId={projectId} />}
-        {activeTab === "field-logs" && <FieldLogsTab projectId={projectId} />}
-        {activeTab === "documents" && (
-          <DocumentsTab projectId={projectId} initialDocuments={documents} />
-        )}
-      </div>
-    </div>
-  );
-}
+       

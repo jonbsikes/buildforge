@@ -188,7 +188,4 @@ function KpiCard({ label, value, color, note }: { label: string; value: string; 
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
       <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`${note ? "text-base mt-1" : "text-xl"} font-semibold ${color}`}>{value}</p>
-    </div>
-  );
-}
+      <p className={`${note ? "text-base mt-1" :

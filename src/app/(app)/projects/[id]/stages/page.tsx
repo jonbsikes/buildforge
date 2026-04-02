@@ -35,6 +35,3 @@ export default async function ProjectStagesPage({ params }: { params: Promise<{ 
           />
         </div>
       </main>
-    </>
-  );
-}

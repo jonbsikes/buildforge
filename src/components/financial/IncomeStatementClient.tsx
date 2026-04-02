@@ -269,35 +269,3 @@ function DrillModal({ line, onClose }: { line: AccountLine; onClose: () => void 
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={18} /></button>
         </div>
-        <div className="overflow-auto flex-1">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
-              <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                <th className="px-5 py-3 text-left">Date</th>
-                <th className="px-5 py-3 text-left">Ref</th>
-                <th className="px-5 py-3 text-left">Description</th>
-                <th className="px-5 py-3 text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {line.entries.map((e, i) => (
-                <tr key={i} className="border-b border-gray-50">
-                  <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.date}</td>
-                  <td className="px-5 py-2.5 text-gray-400 font-mono text-xs">{e.reference ?? "—"}</td>
-                  <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
-                  <td className="px-5 py-2.5 text-right font-medium text-gray-800">{fmtFull(e.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-        <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
-          <span className="text-sm font-semibold text-gray-700">Total</span>
-          <span className="text-sm font-semibold text-gray-900">{fmtFull(line.total)}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
