@@ -213,6 +213,7 @@ export default function SelectionsTab({ projectId }: { projectId: string }) {
               </div>
 
               {items.length > 0 && (
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-gray-50">
                     {items.map((s) => (
@@ -234,6 +235,7 @@ export default function SelectionsTab({ projectId }: { projectId: string }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
 
               <AddSelectionForm projectId={projectId} category={cat} onCreated={load} />

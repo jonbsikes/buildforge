@@ -15,7 +15,7 @@ export default async function ContactsPage() {
   return (
     <>
       <Header title="Contacts" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <ContactsClient contacts={contacts ?? []} />
       </main>
     </>

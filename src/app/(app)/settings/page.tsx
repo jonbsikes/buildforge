@@ -14,7 +14,7 @@ export default async function SettingsPage() {
   return (
     <>
       <Header title="Settings" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <SettingsClient costCodes={costCodes ?? []} />
       </main>
     </>

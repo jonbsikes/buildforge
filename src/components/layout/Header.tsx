@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import NotificationBell from "@/components/layout/NotificationBell";
+import MobileMenuButton from "@/components/layout/MobileMenuButton";
 
 export default async function Header({ title }: { title: string }) {
   const supabase = await createClient();
@@ -23,11 +24,14 @@ export default async function Header({ title }: { title: string }) {
     .slice(0, 2);
 
   return (
-    <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-      <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
+    <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-4 flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <MobileMenuButton />
+        <h1 className="text-lg lg:text-xl font-semibold text-gray-900">{title}</h1>
+      </div>
       <div className="flex items-center gap-4">
         {/* BuildForge branding */}
-        <div className="pr-4 border-r border-gray-200">
+        <div className="hidden sm:block pr-4 border-r border-gray-200">
           <span className="text-sm font-semibold text-gray-700">BuildForge</span>
         </div>
         <NotificationBell />

@@ -171,7 +171,7 @@ export default async function ProjectDetailPage({ params }: Props) {
   return (
     <>
       <Header title={project.name} />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-6xl mx-auto space-y-5">
           <Link
             href="/projects"

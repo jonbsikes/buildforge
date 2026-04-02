@@ -567,6 +567,7 @@ export default function ProjectDetailClient({
               <p className="text-sm text-gray-400 bg-white rounded-xl border border-gray-200 px-5 py-8 text-center">No cost items yet.</p>
             ) : (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
@@ -599,6 +600,7 @@ export default function ProjectDetailClient({
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </div>

@@ -276,6 +276,7 @@ export default function CostItemsTab({
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Project Phases</h3>
           <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
@@ -294,6 +295,7 @@ export default function CostItemsTab({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
           <p className="text-xs text-gray-400 mt-1.5">Click a "Sold" number to update lots sold for that phase.</p>
         </div>
@@ -325,6 +327,7 @@ export default function CostItemsTab({
           </p>
         ) : (
           <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
@@ -364,6 +367,7 @@ export default function CostItemsTab({
                 </tr>
               </tfoot>
             </table>
+            </div>
           </div>
         )}
       </div>

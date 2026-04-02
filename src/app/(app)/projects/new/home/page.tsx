@@ -33,7 +33,7 @@ export default async function NewHomeConstructionPage() {
   return (
     <>
       <Header title="New Home Construction Project" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-2xl mx-auto mb-6">
           <Link
             href="/projects/new"

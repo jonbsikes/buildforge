@@ -19,7 +19,9 @@ import {
   ChevronRight,
   BookOpen,
   LogOut,
+  X,
 } from "lucide-react";
+import { useSidebar } from "./SidebarContext";
 import { createClient } from "@/lib/supabase/client";
 
 type SubItem = { href: string; label: string };
@@ -129,6 +131,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const { isOpen, close } = useSidebar();
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
@@ -155,10 +158,10 @@ export default function Sidebar() {
     router.refresh();
   }
 
-  return (
-    <aside className="w-60 bg-gray-900 min-h-screen flex flex-col flex-shrink-0">
+  const sidebarContent = (
+    <>
       {/* Logo */}
-      <div className="bg-white">
+      <div className="bg-white flex items-center justify-between">
         <Image
           src="/prairie-sky-logo.png"
           alt="Prairie Sky Homes"
@@ -167,6 +170,13 @@ export default function Sidebar() {
           className="w-full h-auto object-contain p-3"
           priority
         />
+        <button
+          onClick={close}
+          className="lg:hidden p-3 text-gray-400 hover:text-white flex-shrink-0"
+          aria-label="Close menu"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* Nav */}
@@ -187,6 +197,7 @@ export default function Sidebar() {
                       <Link
                         key={entry.href}
                         href={entry.href}
+                        onClick={close}
                         className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                           active
                             ? "bg-[#4272EF] text-white"
@@ -231,6 +242,7 @@ export default function Sidebar() {
                               <Link
                                 key={child.href}
                                 href={child.href}
+                                onClick={close}
                                 className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
                                   childActive
                                     ? "text-[#4272EF] font-medium bg-gray-800"
@@ -262,6 +274,30 @@ export default function Sidebar() {
           Sign out
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex w-60 bg-gray-900 min-h-screen flex-col flex-shrink-0">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50"
+            onClick={close}
+          />
+          {/* Drawer */}
+          <aside className="relative w-72 bg-gray-900 flex flex-col flex-shrink-0 overflow-y-auto">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

@@ -212,6 +212,7 @@ export default function BudgetTab({ costCodes, committedByCostCodeId, actualByCo
             </button>
           )}
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-100">
@@ -275,6 +276,7 @@ export default function BudgetTab({ costCodes, committedByCostCodeId, actualByCo
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <p className="text-xs text-gray-400">

@@ -7,7 +7,7 @@ export default function TaxExportPage() {
   return (
     <>
       <Header title="Tax Package Export" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <TaxExportClient />
       </main>
     </>

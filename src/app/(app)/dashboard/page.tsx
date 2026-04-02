@@ -119,7 +119,7 @@ export default async function DashboardPage() {
   return (
     <>
       <Header title="Dashboard" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         {/* KPI grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
           <StatCard

@@ -16,7 +16,7 @@ export default async function CostsPage() {
   return (
     <>
       <Header title="Cost Tracking" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <CostsClient
           projects={projects ?? []}
           costItems={costItems ?? []}

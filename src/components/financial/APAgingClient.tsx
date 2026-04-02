@@ -162,6 +162,7 @@ export default function APAgingClient() {
                       <span>{BUCKET_LABELS[bucket]}</span>
                       <span>{fmt(bucketTotal)}</span>
                     </div>
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-50 text-xs text-gray-400 uppercase tracking-wide">
@@ -199,6 +200,7 @@ export default function APAgingClient() {
                         </tr>
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 );
               })}

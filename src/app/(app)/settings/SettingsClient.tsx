@@ -112,6 +112,7 @@ export default function SettingsClient({ costCodes }: { costCodes: CostCode[] })
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
@@ -157,6 +158,7 @@ export default function SettingsClient({ costCodes }: { costCodes: CostCode[] })
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 

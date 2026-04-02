@@ -15,7 +15,7 @@ export default async function NotificationsPage() {
   return (
     <>
       <Header title="Notifications" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <NotificationsClient notifications={notifications ?? []} />
       </main>
     </>

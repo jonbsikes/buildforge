@@ -63,7 +63,7 @@ export default async function LoansPage() {
   return (
     <>
       <Header title="Loans" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between mb-5">
             <p className="text-sm text-gray-500">
@@ -87,6 +87,7 @@ export default async function LoansPage() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
@@ -161,6 +162,7 @@ export default async function LoansPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>

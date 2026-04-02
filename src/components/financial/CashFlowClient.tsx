@@ -218,6 +218,7 @@ function CFSection({ section, onDrill }: { section: CashFlowSection; onDrill: (l
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-wider text-[#4272EF] mb-2">{section.title}</h3>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm mb-2">
         <tbody>
           {section.lines.map(line => (
@@ -236,6 +237,7 @@ function CFSection({ section, onDrill }: { section: CashFlowSection; onDrill: (l
           ))}
         </tbody>
       </table>
+      </div>
       <div className="flex justify-between items-center border-t border-gray-200 pt-2">
         <span className="text-sm font-semibold text-gray-700">Net Cash from {section.title}</span>
         <span className={`text-sm font-semibold ${section.total >= 0 ? "text-green-700" : "text-red-700"}`}>
@@ -261,6 +263,7 @@ function CFDrillModal({ line, onClose }: { line: CashFlowLine; onClose: () => vo
           {line.entries.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-gray-400">No entries for this period.</div>
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
                 <tr className="text-xs text-gray-500 uppercase tracking-wide">
@@ -279,6 +282,7 @@ function CFDrillModal({ line, onClose }: { line: CashFlowLine; onClose: () => vo
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">

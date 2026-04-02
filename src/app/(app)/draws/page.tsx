@@ -37,7 +37,7 @@ export default async function DrawsPage() {
   return (
     <>
       <Header title="Draw Requests" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         {/* Pending draw banner */}
         {eligibleInvoices.length > 0 && (
           <div className="flex items-center justify-between bg-[#4272EF]/5 border border-[#4272EF]/20 rounded-xl px-5 py-4 mb-5">
@@ -89,6 +89,7 @@ export default async function DrawsPage() {
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
@@ -136,6 +137,7 @@ export default async function DrawsPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </main>

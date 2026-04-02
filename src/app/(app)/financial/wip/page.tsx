@@ -7,7 +7,7 @@ export default function WIPReportPage() {
   return (
     <>
       <Header title="WIP Report" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <WIPClient />
       </main>
     </>

@@ -153,6 +153,7 @@ export default function SelectionsReportClient() {
                   <div className="px-5 py-2 bg-gray-50/50 border-b border-gray-50">
                     <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{category}</p>
                   </div>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <tbody className="divide-y divide-gray-50">
                       {items.map((s) => (
@@ -170,6 +171,7 @@ export default function SelectionsReportClient() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               ))}
             </div>

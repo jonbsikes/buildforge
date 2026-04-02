@@ -258,6 +258,7 @@ function BSdrillModal({ item, onClose }: { item: DrillItem; onClose: () => void 
           {item.entries.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-gray-400">No GL entries found. Amount derived from cost items.</div>
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
                 <tr className="text-xs text-gray-500 uppercase tracking-wide">
@@ -276,6 +277,7 @@ function BSdrillModal({ item, onClose }: { item: DrillItem; onClose: () => void 
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">

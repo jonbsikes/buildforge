@@ -148,7 +148,7 @@ export default async function DrawDetailPage({ params }: Props) {
   return (
     <>
       <Header title={drawName} />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-4xl mx-auto space-y-5">
           <Link
             href="/draws"
@@ -220,6 +220,7 @@ export default async function DrawDetailPage({ params }: Props) {
             {enrichedRows.length === 0 ? (
               <p className="text-sm text-gray-400 px-5 py-6">No invoices in this draw.</p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50">
@@ -320,6 +321,7 @@ export default async function DrawDetailPage({ params }: Props) {
                   </tr>
                 </tfoot>
               </table>
+              </div>
             )}
           </div>
 

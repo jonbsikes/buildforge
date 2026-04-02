@@ -165,6 +165,7 @@ export default function VendorSpendClient() {
                 {/* Expanded breakdown */}
                 {isExpanded && (
                   <div className="bg-gray-50 border-t border-gray-100">
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
@@ -191,6 +192,7 @@ export default function VendorSpendClient() {
                         </tr>
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 )}
               </div>

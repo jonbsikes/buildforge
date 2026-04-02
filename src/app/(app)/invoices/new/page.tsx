@@ -34,7 +34,7 @@ export default async function NewInvoicePage() {
   return (
     <>
       <Header title="New Invoice" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-3xl mx-auto mb-5">
           <Link
             href="/invoices"

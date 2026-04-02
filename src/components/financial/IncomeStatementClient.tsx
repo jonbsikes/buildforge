@@ -233,6 +233,7 @@ function ISSection({ title, lines, total, totalLabel, onDrill, colorClass }: {
       {lines.length === 0 ? (
         <p className="text-sm text-gray-400 py-2 pl-2">No entries for this period.</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full text-sm mb-2">
           <tbody>
             {lines.map(line => (
@@ -246,6 +247,7 @@ function ISSection({ title, lines, total, totalLabel, onDrill, colorClass }: {
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <div className="flex justify-between items-center border-t border-gray-200 pt-2">
         <span className="text-sm font-semibold text-gray-700">{totalLabel}</span>
@@ -267,6 +269,7 @@ function DrillModal({ line, onClose }: { line: AccountLine; onClose: () => void 
           <button onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={18} /></button>
         </div>
         <div className="overflow-auto flex-1">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
               <tr className="text-xs text-gray-500 uppercase tracking-wide">
@@ -287,6 +290,7 @@ function DrillModal({ line, onClose }: { line: AccountLine; onClose: () => void 
               ))}
             </tbody>
           </table>
+          </div>
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
           <span className="text-sm font-semibold text-gray-700">Total</span>

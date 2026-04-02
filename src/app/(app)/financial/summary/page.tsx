@@ -7,7 +7,7 @@ export default function FinancialSummaryPage() {
   return (
     <>
       <Header title="Financial Summary" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <FinancialSummaryClient />
       </main>
     </>

@@ -36,7 +36,7 @@ export default async function ContractsPage() {
   return (
     <>
       <Header title="Contracts" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-6xl mx-auto space-y-5">
           <div className="flex items-center justify-between">
             <div>
@@ -68,6 +68,7 @@ export default async function ContractsPage() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
@@ -125,6 +126,7 @@ export default async function ContractsPage() {
                   </tr>
                 </tfoot>
               </table>
+              </div>
             </div>
           )}
         </div>

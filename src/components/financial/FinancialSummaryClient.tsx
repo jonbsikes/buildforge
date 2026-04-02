@@ -131,6 +131,7 @@ export default function FinancialSummaryClient() {
             {data.projectRows.length === 0 ? (
               <div className="px-5 py-8 text-center text-sm text-gray-400">No projects found.</div>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
@@ -174,6 +175,7 @@ export default function FinancialSummaryClient() {
                   </tr>
                 </tfoot>
               </table>
+              </div>
             )}
           </div>
         </div>

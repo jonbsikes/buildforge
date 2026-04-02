@@ -123,6 +123,7 @@ export default function ReportsClient({
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-3">Project Summary</h2>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
@@ -166,6 +167,7 @@ export default function ReportsClient({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </section>
       )}
@@ -175,6 +177,7 @@ export default function ReportsClient({
         <section>
           <h2 className="text-base font-semibold text-gray-900 mb-3">Spend by Category</h2>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
@@ -213,6 +216,7 @@ export default function ReportsClient({
                 </tr>
               </tfoot>
             </table>
+            </div>
           </div>
         </section>
       )}

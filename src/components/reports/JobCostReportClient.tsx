@@ -168,6 +168,7 @@ export default function JobCostReportClient() {
         ) : rows.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">No cost codes for this project.</div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -219,6 +220,7 @@ export default function JobCostReportClient() {
               </tr>
             </tfoot>
           </table>
+          </div>
         )}
       </div>
     </div>

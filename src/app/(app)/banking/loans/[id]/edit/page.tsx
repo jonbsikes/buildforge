@@ -31,7 +31,7 @@ export default async function EditLoanPage({ params }: Props) {
   return (
     <>
       <Header title={`Edit Loan #${loan.loan_number}`} />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-5">
             <Link

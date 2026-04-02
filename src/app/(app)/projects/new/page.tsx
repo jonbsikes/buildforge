@@ -6,7 +6,7 @@ export default function NewProjectTypePage() {
   return (
     <>
       <Header title="New Project" />
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-4 lg:p-6">
         <div className="max-w-lg mx-auto">
           <p className="text-sm text-gray-500 mb-6">
             Select the type of project to create.

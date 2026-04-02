@@ -42,7 +42,7 @@ export default async function InvoicesPage() {
   return (
     <>
       <Header title="Accounts Payable" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         {/* Alerts */}
         {lowConfCount > 0 && (
           <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
@@ -73,6 +73,7 @@ export default async function InvoicesPage() {
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
@@ -164,6 +165,7 @@ export default async function InvoicesPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </main>

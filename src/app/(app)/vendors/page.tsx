@@ -54,7 +54,7 @@ export default async function VendorsPage() {
   return (
     <>
       <Header title="Vendors" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         {/* Compliance banner */}
         {(expired > 0 || expiring > 0) && (
           <div className="flex flex-wrap gap-3 mb-5">

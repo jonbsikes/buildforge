@@ -27,7 +27,7 @@ export default async function ProjectsPage() {
   return (
     <>
       <Header title="Projects" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="flex items-center justify-between mb-6">
           <p className="text-sm text-gray-500">
             {(projects ?? []).length} project{(projects ?? []).length !== 1 ? "s" : ""}

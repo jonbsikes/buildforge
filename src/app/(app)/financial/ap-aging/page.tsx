@@ -7,7 +7,7 @@ export default function APAgingPage() {
   return (
     <>
       <Header title="AP Aging" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <APAgingClient />
       </main>
     </>

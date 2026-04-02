@@ -98,7 +98,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
   return (
     <>
       <Header title={invoice.file_name ?? "Invoice"} />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-3xl mx-auto space-y-5">
           <Link
             href="/invoices"
@@ -231,6 +231,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
             {(lineItems ?? []).length === 0 ? (
               <p className="text-sm text-gray-400">No line items recorded.</p>
             ) : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100">
@@ -255,6 +256,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
                   </tr>
                 </tfoot>
               </table>
+              </div>
             )}
           </div>
 

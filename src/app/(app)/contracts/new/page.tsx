@@ -17,7 +17,7 @@ export default async function NewContractPage() {
   return (
     <>
       <Header title="New Contract" />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-2xl mx-auto space-y-4">
           <Link href="/contracts" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
             ← Contracts

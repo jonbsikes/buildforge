@@ -156,6 +156,7 @@ export default function BudgetVarianceReportClient() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">No data matching filters.</div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
@@ -199,6 +200,7 @@ export default function BudgetVarianceReportClient() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
