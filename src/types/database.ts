@@ -12,6 +12,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      bank_accounts: {
+        Row: {
+          id: string
+          bank_name: string
+          account_name: string
+          account_last_four: string
+          account_type: string
+          notes: string | null
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          bank_name: string
+          account_name: string
+          account_last_four: string
+          account_type?: string
+          notes?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          bank_name?: string
+          account_name?: string
+          account_last_four?: string
+          account_type?: string
+          notes?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
       build_stages: {
         Row: {
           actual_end_date: string | null
@@ -27,6 +60,7 @@ export type Database = {
           stage_name: string
           stage_number: number
           status: string
+          track: string | null
           updated_at: string
         }
         Insert: {
@@ -43,6 +77,7 @@ export type Database = {
           stage_name: string
           stage_number: number
           status?: string
+          track?: string | null
           updated_at?: string
         }
         Update: {
@@ -59,9 +94,18 @@ export type Database = {
           stage_name?: string
           stage_number?: number
           status?: string
+          track?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "build_stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       contacts: {
         Row: {
@@ -142,7 +186,29 @@ export type Database = {
           updated_at?: string
           vendor_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "contracts_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       cost_codes: {
         Row: {
@@ -235,7 +301,29 @@ export type Database = {
           updated_at?: string
           vendor?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "cost_items_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_items_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       documents: {
         Row: {
@@ -277,7 +365,22 @@ export type Database = {
           uploaded_by?: string | null
           vendor_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       draw_invoices: {
         Row: {
@@ -295,7 +398,22 @@ export type Database = {
           id?: string
           invoice_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "draw_invoices_draw_id_fkey"
+            columns: ["draw_id"]
+            isOneToOne: false
+            referencedRelation: "loan_draws"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "draw_invoices_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       field_logs: {
         Row: {
@@ -325,7 +443,15 @@ export type Database = {
           project_id?: string
           project_stage_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "field_logs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       field_todos: {
         Row: {
@@ -367,7 +493,22 @@ export type Database = {
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "field_todos_field_log_id_fkey"
+            columns: ["field_log_id"]
+            isOneToOne: false
+            referencedRelation: "field_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "field_todos_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       gl_entries: {
         Row: {
@@ -406,7 +547,57 @@ export type Database = {
           source_id?: string | null
           source_type?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "gl_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_line_items: {
+        Row: {
+          amount: number | null
+          cost_code: string | null
+          created_at: string
+          description: string | null
+          id: string
+          invoice_id: string
+        }
+        Insert: {
+          amount?: number | null
+          cost_code?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          invoice_id: string
+        }
+        Update: {
+          amount?: number | null
+          cost_code?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          invoice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_line_items_cost_code_fkey"
+            columns: ["cost_code"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "invoice_line_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invoices: {
         Row: {
@@ -418,20 +609,24 @@ export type Database = {
           cost_item_id: string | null
           created_at: string
           due_date: string | null
+          email_message_id: string | null
           extracted_data: Json | null
-          file_name: string
-          file_path: string
+          file_name: string | null
+          file_path: string | null
           id: string
           invoice_date: string | null
           invoice_number: string | null
+          manually_reviewed: boolean
           payment_date: string | null
           payment_method: string | null
+          pending_draw: boolean
           processed: boolean
-          project_id: string
+          project_id: string | null
           source: string
           status: string
           total_amount: number | null
           updated_at: string
+          user_id: string | null
           vendor: string | null
           vendor_id: string | null
         }
@@ -444,20 +639,24 @@ export type Database = {
           cost_item_id?: string | null
           created_at?: string
           due_date?: string | null
+          email_message_id?: string | null
           extracted_data?: Json | null
-          file_name: string
-          file_path: string
+          file_name?: string | null
+          file_path?: string | null
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          manually_reviewed?: boolean
           payment_date?: string | null
           payment_method?: string | null
+          pending_draw?: boolean
           processed?: boolean
-          project_id: string
+          project_id?: string | null
           source?: string
           status?: string
           total_amount?: number | null
           updated_at?: string
+          user_id?: string | null
           vendor?: string | null
           vendor_id?: string | null
         }
@@ -470,24 +669,64 @@ export type Database = {
           cost_item_id?: string | null
           created_at?: string
           due_date?: string | null
+          email_message_id?: string | null
           extracted_data?: Json | null
-          file_name?: string
-          file_path?: string
+          file_name?: string | null
+          file_path?: string | null
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          manually_reviewed?: boolean
           payment_date?: string | null
           payment_method?: string | null
+          pending_draw?: boolean
           processed?: boolean
-          project_id?: string
+          project_id?: string | null
           source?: string
           status?: string
           total_amount?: number | null
           updated_at?: string
+          user_id?: string | null
           vendor?: string | null
           vendor_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "invoices_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_cost_item_id_fkey"
+            columns: ["cost_item_id"]
+            isOneToOne: false
+            referencedRelation: "cost_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       loan_draws: {
         Row: {
@@ -496,8 +735,9 @@ export type Database = {
           draw_number: number
           id: string
           lender_id: string | null
+          loan_id: string | null
           notes: string | null
-          project_id: string
+          project_id: string | null
           status: string
           total_amount: number
           updated_at: string
@@ -508,8 +748,9 @@ export type Database = {
           draw_number: number
           id?: string
           lender_id?: string | null
+          loan_id?: string | null
           notes?: string | null
-          project_id: string
+          project_id?: string | null
           status?: string
           total_amount?: number
           updated_at?: string
@@ -520,13 +761,102 @@ export type Database = {
           draw_number?: number
           id?: string
           lender_id?: string | null
+          loan_id?: string | null
           notes?: string | null
-          project_id?: string
+          project_id?: string | null
           status?: string
           total_amount?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "loan_draws_lender_id_fkey"
+            columns: ["lender_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loan_draws_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loan_draws_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loans: {
+        Row: {
+          created_at: string
+          credit_limit: number | null
+          current_balance: number | null
+          id: string
+          interest_rate: number | null
+          lender_id: string
+          loan_amount: number
+          loan_number: string
+          loan_type: string
+          maturity_date: string | null
+          notes: string | null
+          origination_date: string | null
+          project_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          credit_limit?: number | null
+          current_balance?: number | null
+          id?: string
+          interest_rate?: number | null
+          lender_id: string
+          loan_amount: number
+          loan_number: string
+          loan_type?: string
+          maturity_date?: string | null
+          notes?: string | null
+          origination_date?: string | null
+          project_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          credit_limit?: number | null
+          current_balance?: number | null
+          id?: string
+          interest_rate?: number | null
+          lender_id?: string
+          loan_amount?: number
+          loan_number?: string
+          loan_type?: string
+          maturity_date?: string | null
+          notes?: string | null
+          origination_date?: string | null
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loans_lender_id_fkey"
+            columns: ["lender_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       milestones: {
         Row: {
@@ -565,7 +895,22 @@ export type Database = {
           stage_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "milestones_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notifications: {
         Row: {
@@ -600,16 +945,116 @@ export type Database = {
         }
         Relationships: []
       }
+      project_cost_codes: {
+        Row: {
+          budgeted_amount: number
+          cost_code_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          budgeted_amount?: number
+          cost_code_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          budgeted_amount?: number
+          cost_code_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cost_codes_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_cost_codes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_phases: {
+        Row: {
+          created_at: string
+          id: string
+          lots_sold: number
+          name: string | null
+          notes: string | null
+          number_of_lots: number | null
+          phase_number: number | null
+          project_id: string
+          size_acres: number | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lots_sold?: number
+          name?: string | null
+          notes?: string | null
+          number_of_lots?: number | null
+          phase_number?: number | null
+          project_id: string
+          size_acres?: number | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lots_sold?: number
+          name?: string | null
+          notes?: string | null
+          number_of_lots?: number | null
+          phase_number?: number | null
+          project_id?: string
+          size_acres?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_phases_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           address: string | null
+          block: string | null
           created_at: string
           description: string | null
           end_date: string | null
+          home_size_sf: number | null
           id: string
           lender_id: string | null
+          lot: string | null
+          lot_size_acres: number | null
           name: string
+          number_of_lots: number | null
+          number_of_phases: number | null
+          plan: string | null
           project_type: Database["public"]["Enums"]["project_type"]
+          size_acres: number | null
           start_date: string | null
           status: Database["public"]["Enums"]["project_status"]
           subdivision: string | null
@@ -619,13 +1064,21 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          block?: string | null
           created_at?: string
           description?: string | null
           end_date?: string | null
+          home_size_sf?: number | null
           id?: string
           lender_id?: string | null
+          lot?: string | null
+          lot_size_acres?: number | null
           name: string
+          number_of_lots?: number | null
+          number_of_phases?: number | null
+          plan?: string | null
           project_type?: Database["public"]["Enums"]["project_type"]
+          size_acres?: number | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["project_status"]
           subdivision?: string | null
@@ -635,13 +1088,21 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          block?: string | null
           created_at?: string
           description?: string | null
           end_date?: string | null
+          home_size_sf?: number | null
           id?: string
           lender_id?: string | null
+          lot?: string | null
+          lot_size_acres?: number | null
           name?: string
+          number_of_lots?: number | null
+          number_of_phases?: number | null
+          plan?: string | null
           project_type?: Database["public"]["Enums"]["project_type"]
+          size_acres?: number | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["project_status"]
           subdivision?: string | null
@@ -649,7 +1110,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "projects_lender_id_fkey"
+            columns: ["lender_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sales: {
         Row: {
@@ -703,7 +1172,15 @@ export type Database = {
           settlement_date?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "sales_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       selections: {
         Row: {
@@ -739,7 +1216,22 @@ export type Database = {
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "selections_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "selections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       stages: {
         Row: {
@@ -781,7 +1273,15 @@ export type Database = {
           status?: Database["public"]["Enums"]["stage_status"]
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vendors: {
         Row: {
@@ -836,7 +1336,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      generate_notifications: { Args: never; Returns: Json }
     }
     Enums: {
       cost_category:
@@ -881,21 +1381,162 @@ export type Database = {
 }
 
 export type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
-export type Tables<T extends keyof DefaultSchema["Tables"]> = DefaultSchema["Tables"][T]["Row"]
-export type TablesInsert<T extends keyof DefaultSchema["Tables"]> = DefaultSchema["Tables"][T]["Insert"]
-export type TablesUpdate<T extends keyof DefaultSchema["Tables"]> = DefaultSchema["Tables"][T]["Update"]
-export type Enums<T extends keyof DefaultSchema["Enums"]> = DefaultSchema["Enums"][T]
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof Database },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof Database },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
 
 export const Constants = {
   public: {
     Enums: {
-      cost_category: ["land","siteworks","foundation","framing","roofing","electrical","plumbing","hvac","insulation","drywall","flooring","cabinetry","painting","landscaping","permits","professional_fees","contingency","other"],
-      project_status: ["planning","active","on_hold","completed","cancelled"],
-      project_type: ["land_development","home_construction"],
-      sale_type: ["lot_sale","house_sale","progress_payment","deposit","variation","other"],
-      stage_status: ["not_started","in_progress","completed","blocked"],
+      cost_category: [
+        "land",
+        "siteworks",
+        "foundation",
+        "framing",
+        "roofing",
+        "electrical",
+        "plumbing",
+        "hvac",
+        "insulation",
+        "drywall",
+        "flooring",
+        "cabinetry",
+        "painting",
+        "landscaping",
+        "permits",
+        "professional_fees",
+        "contingency",
+        "other",
+      ],
+      project_status: [
+        "planning",
+        "active",
+        "on_hold",
+        "completed",
+        "cancelled",
+      ],
+      project_type: ["land_development", "home_construction"],
+      sale_type: [
+        "lot_sale",
+        "house_sale",
+        "progress_payment",
+        "deposit",
+        "variation",
+        "other",
+      ],
+      stage_status: ["not_started", "in_progress", "completed", "blocked"],
     },
   },
 } as const

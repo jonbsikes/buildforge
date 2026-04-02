@@ -1,14 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
-import ContactsClient from "./ContactsClient";
+import ContactsClient from "@/components/contacts/ContactsClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContactsPage() {
   const supabase = await createClient();
+
   const { data: contacts } = await supabase
     .from("contacts")
-    .select("*")
+    .select("id, name, type, email, phone")
     .order("name");
 
   return (

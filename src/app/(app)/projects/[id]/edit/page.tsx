@@ -1,30 +1,66 @@
-import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
-import EditProjectForm from "./EditProjectForm";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import EditProjectForm from "@/components/projects/EditProjectForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function EditProjectPage({ params }: { params: Promise<{ id: string }> }) {
+interface Props {
+  params: Promise<{ id: string }>;
+}
+
+export default async function EditProjectPage({ params }: Props) {
   const { id } = await params;
   const supabase = await createClient();
-  const { data: project } = await supabase.from("projects").select("*").eq("id", id).single();
 
-  if (!project) notFound();
+  const [projectResult, lendersResult, loansResult] = await Promise.all([
+    supabase
+      .from("projects")
+      .select(`
+        id, name, address, status, project_type,
+        subdivision, block, lot, lot_size_acres, plan, home_size_sf,
+        size_acres, number_of_lots, number_of_phases,
+        start_date, lender_id
+      `)
+      .eq("id", id)
+      .single(),
+
+    supabase
+      .from("contacts")
+      .select("id, name")
+      .eq("type", "lender")
+      .order("name"),
+
+    supabase
+      .from("loans")
+      .select("id, loan_number, loan_amount, status")
+      .eq("project_id", id)
+      .order("created_at"),
+  ]);
+
+  if (!projectResult.data) notFound();
+
+  const project = projectResult.data;
+  const lenders = lendersResult.data ?? [];
+  const loans = loansResult.data ?? [];
 
   return (
     <>
-      <Header title="Edit Project" />
+      <Header title={`Edit: ${project.name}`} />
       <main className="flex-1 p-6 overflow-auto">
-        <div className="max-w-xl">
-          <div className="mb-4">
-            <a href={`/projects/${id}`} className="text-sm text-gray-500 hover:text-gray-700">
-              ← Back to {project.name}
-            </a>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <EditProjectForm project={project} />
-          </div>
+        <div className="max-w-2xl mx-auto">
+          <Link
+            href={`/projects/${id}`}
+            className="text-sm text-gray-400 hover:text-gray-600 transition-colors mb-5 block"
+          >
+            ← {project.name}
+          </Link>
+          <EditProjectForm
+            project={project}
+            lenders={lenders}
+            existingLoans={loans}
+          />
         </div>
       </main>
     </>

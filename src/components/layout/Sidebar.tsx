@@ -1,74 +1,141 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
-  LayoutDashboard,
-  FolderOpen,
-  DollarSign,
-  FileText,
+  Building2,
   BarChart2,
-  Settings,
-  HardHat,
-  Truck,
-  CreditCard,
-  Layers,
   ClipboardList,
-  BookOpen,
+  TrendingUp,
+  Receipt,
+  Banknote,
+  Folder,
+  Truck,
   Users,
+  ChevronDown,
+  ChevronRight,
+  HardHat,
   LogOut,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 
-const navGroups = [
+type SubItem = { href: string; label: string };
+
+type NavLink = {
+  type: "link";
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+};
+
+type NavGroup = {
+  type: "group";
+  key: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  children: SubItem[];
+};
+
+type NavEntry = NavLink | NavGroup;
+
+type NavSection = {
+  title: string;
+  entries: NavEntry[];
+};
+
+const sections: NavSection[] = [
   {
-    label: "Overview",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/projects", label: "Projects", icon: FolderOpen },
+    title: "Project Management",
+    entries: [
+      { type: "link", href: "/projects", label: "Projects", icon: Building2 },
+      {
+        type: "group",
+        key: "project-reports",
+        label: "Project Reports",
+        icon: BarChart2,
+        children: [
+          { href: "/reports/stage-progress", label: "Stage Progress" },
+          { href: "/reports/field-logs", label: "Field Logs" },
+          { href: "/reports/job-cost", label: "Job Cost" },
+          { href: "/reports/budget-variance", label: "Budget Variance" },
+          { href: "/reports/selections", label: "Selections" },
+        ],
+      },
+      { type: "link", href: "/todos", label: "Project To-Do's", icon: ClipboardList },
     ],
   },
   {
-    label: "Financials",
-    items: [
-      { href: "/costs", label: "Cost Tracking", icon: DollarSign },
-      { href: "/invoices", label: "AP & Invoices", icon: FileText },
-      { href: "/draws", label: "Loans & Draws", icon: CreditCard },
+    title: "Financial",
+    entries: [
+      {
+        type: "group",
+        key: "financial-reports",
+        label: "Financial Reports",
+        icon: TrendingUp,
+        children: [
+          { href: "/financial/summary", label: "Summary" },
+          { href: "/financial/income-statement", label: "Income Statement" },
+          { href: "/financial/balance-sheet", label: "Balance Sheet" },
+          { href: "/financial/cash-flow", label: "Cash Flow Statement" },
+          { href: "/financial/ap-aging", label: "AP Aging" },
+        ],
+      },
+      { type: "link", href: "/invoices", label: "Accounts Payable", icon: Receipt },
+      {
+        type: "group",
+        key: "banking",
+        label: "Banking",
+        icon: Banknote,
+        children: [
+          { href: "/banking/accounts", label: "Bank Accounts" },
+          { href: "/banking/loans", label: "Loans" },
+          { href: "/draws", label: "Draw Requests" },
+        ],
+      },
     ],
   },
   {
-    label: "Field",
-    items: [
-      { href: "/field-logs", label: "Field Logs", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "Management",
-    items: [
-      { href: "/vendors", label: "Vendors", icon: Truck },
-      { href: "/contacts", label: "Contacts", icon: Users },
-      { href: "/documents", label: "Documents", icon: BookOpen },
-    ],
-  },
-  {
-    label: "Reporting",
-    items: [
-      { href: "/reports", label: "Reports", icon: BarChart2 },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { href: "/settings", label: "Settings", icon: Settings },
+    title: "Management",
+    entries: [
+      { type: "link", href: "/documents", label: "Documents", icon: Folder },
+      { type: "link", href: "/vendors", label: "Vendors", icon: Truck },
+      { type: "link", href: "/contacts", label: "Contacts", icon: Users },
     ],
   },
 ];
+
+function isLinkActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
+function isGroupActive(pathname: string, children: SubItem[]) {
+  return children.some((c) => isLinkActive(pathname, c.href));
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  // Auto-expand groups whose child matches the current path
+  useEffect(() => {
+    const autoOpen: Record<string, boolean> = {};
+    for (const section of sections) {
+      for (const entry of section.entries) {
+        if (entry.type === "group" && isGroupActive(pathname, entry.children)) {
+          autoOpen[entry.key] = true;
+        }
+      }
+    }
+    setOpenGroups((prev) => ({ ...prev, ...autoOpen }));
+  }, [pathname]);
+
+  function toggleGroup(key: string) {
+    setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -77,46 +144,101 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-64 bg-gray-900 min-h-screen flex flex-col">
-      <div className="px-6 py-5 border-b border-gray-800">
+    <aside className="w-60 bg-gray-900 min-h-screen flex flex-col flex-shrink-0">
+      {/* Logo */}
+      <div className="px-5 py-5 border-b border-gray-800">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: "#4272EF" }}>
             <HardHat size={16} className="text-white" />
           </div>
-          <span className="text-white font-bold text-lg">BuildForge</span>
+          <span className="text-white font-bold text-base">BuildForge</span>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
-        {navGroups.map((group) => (
-          <div key={group.label}>
-            <p className="px-3 mb-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              {group.label}
-            </p>
-            <div className="space-y-0.5">
-              {group.items.map(({ href, label, icon: Icon }) => {
-                const active = pathname === href || pathname.startsWith(href + "/");
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      active
-                        ? "text-white"
-                        : "text-gray-400 hover:text-white hover:bg-gray-800"
-                    }`}
-                    style={active ? { backgroundColor: "#4272EF" } : undefined}
-                  >
-                    <Icon size={17} />
-                    {label}
-                  </Link>
-                );
-              })}
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-4 overflow-y-auto">
+        <div className="space-y-5">
+          {sections.map((section) => (
+            <div key={section.title}>
+              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                {section.title}
+              </p>
+
+              <div className="space-y-0.5">
+                {section.entries.map((entry) => {
+                  if (entry.type === "link") {
+                    const active = isLinkActive(pathname, entry.href);
+                    const Icon = entry.icon;
+                    return (
+                      <Link
+                        key={entry.href}
+                        href={entry.href}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          active
+                            ? "bg-[#4272EF] text-white"
+                            : "text-gray-400 hover:text-white hover:bg-gray-800"
+                        }`}
+                      >
+                        <Icon size={16} />
+                        {entry.label}
+                      </Link>
+                    );
+                  }
+
+                  // Expandable group
+                  const groupActive = isGroupActive(pathname, entry.children);
+                  const isOpen = openGroups[entry.key] ?? false;
+                  const Icon = entry.icon;
+
+                  return (
+                    <div key={entry.key}>
+                      <button
+                        onClick={() => toggleGroup(entry.key)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          groupActive
+                            ? "text-white"
+                            : "text-gray-400 hover:text-white hover:bg-gray-800"
+                        }`}
+                      >
+                        <Icon size={16} />
+                        <span className="flex-1 text-left">{entry.label}</span>
+                        {isOpen ? (
+                          <ChevronDown size={13} className="text-gray-500" />
+                        ) : (
+                          <ChevronRight size={13} className="text-gray-500" />
+                        )}
+                      </button>
+
+                      {isOpen && (
+                        <div className="mt-0.5 ml-4 pl-3 border-l border-gray-700 space-y-0.5">
+                          {entry.children.map((child) => {
+                            const childActive = isLinkActive(pathname, child.href);
+                            return (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                  childActive
+                                    ? "text-[#4272EF] font-medium bg-gray-800"
+                                    : "text-gray-400 hover:text-white hover:bg-gray-800"
+                                }`}
+                              >
+                                {child.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </nav>
 
+      {/* Sign out */}
       <div className="px-3 py-4 border-t border-gray-800">
         <button
           onClick={handleSignOut}
