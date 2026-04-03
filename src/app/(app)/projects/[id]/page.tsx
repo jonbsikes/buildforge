@@ -96,7 +96,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       .from("invoices")
       .select("cost_code_id, amount, total_amount")
       .eq("project_id", id)
-      .in("status", ["approved", "paid"]),
+      .in("status", ["approved", "paid", "scheduled"]),
   ]);
 
   if (!projectResult.data) notFound();

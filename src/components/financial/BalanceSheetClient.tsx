@@ -29,26 +29,57 @@ interface DrillItem {
   entries: GLEntry[];
 }
 
-interface EquityLine {
+interface JELine {
+  id: string;
+  entry_date: string;
+  reference: string;
+  je_description: string;
+  line_description: string;
+  debit: number;
+  credit: number;
+}
+
+interface AccountBalance {
   account_number: string;
   name: string;
-  balance: number;
+  type: string;
+  subtype: string;
+  debit: number;
+  credit: number;
+  balance: number; // normal balance: debit-normal for assets/expenses, credit-normal for liabilities/equity/revenue
+  lines: JELine[]; // individual JE lines for drill-down
 }
 
 interface BalanceSheetData {
-  cashAccounts: { id: string; bank_name: string; account_last_four: string }[];
-  accountsReceivable: number;
-  constructionInProgress: number;
-  cipEntries: GLEntry[];
+  // Assets
+  currentAssets: AccountBalance[];
+  longTermAssets: AccountBalance[];
   totalAssets: number;
-  accountsPayable: number;
+  // Liabilities
+  currentLiabilities: AccountBalance[];
+  longTermLiabilities: AccountBalance[];
+  apFromInvoices: number;
   apInvoices: GLEntry[];
-  loansPayable: number;
-  loanEntries: GLEntry[];
   totalLiabilities: number;
-  equityLines: EquityLine[];
-  ownerEquity: number;
-  fromLedger: boolean;
+  // Equity
+  equityAccounts: AccountBalance[];
+  retainedEarnings: number;
+  totalEquity: number;
+}
+
+function acctToGLEntries(acct: AccountBalance): GLEntry[] {
+  return acct.lines
+    .filter(l => l.debit > 0 || l.credit > 0)
+    .sort((a, b) => a.entry_date.localeCompare(b.entry_date))
+    .map(l => ({
+      id: l.id,
+      entry_date: l.entry_date,
+      description: l.line_description || l.je_description,
+      amount: l.debit > 0 ? l.debit : -l.credit,
+      debit_account: l.reference,
+      credit_account: "",
+      source_type: "journal_entry",
+    }));
 }
 
 export default function BalanceSheetClient() {
@@ -62,66 +93,112 @@ export default function BalanceSheetClient() {
     setLoading(true);
     const supabase = createClient();
 
-    const [accountsRes, invoicesRes, drawsRes, projectsRes, costItemsRes, ledgerRes] = await Promise.all([
-      supabase.from("bank_accounts").select("id, bank_name, account_last_four").eq("is_active", true).order("bank_name"),
-      supabase.from("invoices").select("id, vendor, invoice_number, amount, due_date, invoice_date, status").in("status", ["pending_review", "approved", "scheduled"]).lte("invoice_date", asOf),
-      supabase.from("loan_draws").select("id, total_amount, draw_date, draw_number, status").eq("status", "funded").lte("draw_date", asOf),
-      supabase.from("projects").select("id, name, status"),
-      supabase.from("cost_items").select("actual_amount, project_id"),
+    // Fetch GL data and unpaid invoices in parallel
+    const [ledgerRes, invoicesRes] = await Promise.all([
       supabase.from("journal_entry_lines").select(`
-        debit, credit,
-        account:chart_of_accounts(account_number, name, type),
-        journal_entry:journal_entries(entry_date, status)
-      `).lte("journal_entries.entry_date", asOf).eq("journal_entries.status", "posted"),
+        id, debit, credit, description,
+        account:chart_of_accounts(account_number, name, type, subtype, is_active),
+        journal_entry:journal_entries(id, entry_date, status, description, reference)
+      `),
+      supabase.from("invoices")
+        .select("id, vendor, invoice_number, amount, due_date, invoice_date, status")
+        .in("status", ["pending_review", "approved", "scheduled"])
+        .lte("invoice_date", asOf),
     ]);
 
-    const bankAccounts = accountsRes.data ?? [];
-    const unpaidInvoices = invoicesRes.data ?? [];
-    const fundedDraws = drawsRes.data ?? [];
-    const projects = projectsRes.data ?? [];
-    const costItems = costItemsRes.data ?? [];
-    const ledgerLines = (ledgerRes.data ?? []).filter((l: any) => l.journal_entry?.status === "posted");
+    // Filter to posted entries within date range
+    const ledgerLines = (ledgerRes.data ?? []).filter((l: any) =>
+      l.journal_entry?.status === "posted" && l.journal_entry?.entry_date <= asOf
+    );
 
-    const apTotal = unpaidInvoices.reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
-    const apEntries: GLEntry[] = unpaidInvoices.map((i: any) => ({
-      id: i.id, entry_date: i.invoice_date ?? "",
-      description: `${i.vendor ?? "Unknown"} · #${i.invoice_number ?? "—"}`,
-      amount: i.amount ?? 0, debit_account: "Construction Costs",
-      credit_account: "Accounts Payable", source_type: "invoice",
-    }));
-
-    const loansPayable = fundedDraws.reduce((s: number, d: any) => s + d.total_amount, 0);
-    const loanEntries: GLEntry[] = fundedDraws.map((d: any) => ({
-      id: d.id, entry_date: d.draw_date, description: `Draw #${d.draw_number}`,
-      amount: d.total_amount, debit_account: "Cash",
-      credit_account: "Construction Loans Payable", source_type: "loan_draw",
-    }));
-
-    const activeProjectIds = new Set(projects.filter((p: any) => p.status === "active").map((p: any) => p.id));
-    const cip = costItems
-      .filter((ci: any) => ci.project_id && activeProjectIds.has(ci.project_id))
-      .reduce((s: number, ci: any) => s + (ci.actual_amount ?? 0), 0);
-
-    // Build equity from ledger (3xxx accounts)
-    const equityByAcct: Record<string, { account_number: string; name: string; debit: number; credit: number }> = {};
+    // Aggregate by account and collect individual lines
+    const acctMap: Record<string, AccountBalance> = {};
     for (const line of ledgerLines) {
-      const acc = line.account as { account_number: string; name: string; type: string };
-      if (!acc || acc.type !== "equity") continue;
-      if (!equityByAcct[acc.account_number]) equityByAcct[acc.account_number] = { account_number: acc.account_number, name: acc.name, debit: 0, credit: 0 };
-      equityByAcct[acc.account_number].debit += Number(line.debit);
-      equityByAcct[acc.account_number].credit += Number(line.credit);
+      const acc = line.account as any;
+      const je = line.journal_entry as any;
+      if (!acc || acc.is_active === false) continue;
+      const key = acc.account_number;
+      if (!acctMap[key]) {
+        acctMap[key] = {
+          account_number: acc.account_number,
+          name: acc.name,
+          type: acc.type ?? "",
+          subtype: acc.subtype ?? "",
+          debit: 0,
+          credit: 0,
+          balance: 0,
+          lines: [],
+        };
+      }
+      acctMap[key].debit += Number(line.debit ?? 0);
+      acctMap[key].credit += Number(line.credit ?? 0);
+      acctMap[key].lines.push({
+        id: line.id,
+        entry_date: je?.entry_date ?? "",
+        reference: je?.reference ?? "",
+        je_description: je?.description ?? "",
+        line_description: (line as any).description ?? "",
+        debit: Number(line.debit ?? 0),
+        credit: Number(line.credit ?? 0),
+      });
     }
-    const equityLines: EquityLine[] = Object.values(equityByAcct)
-      .map((e) => ({ account_number: e.account_number, name: e.name, balance: e.credit - e.debit }))
-      .sort((a, b) => a.account_number.localeCompare(b.account_number));
-    const fromLedger = equityLines.length > 0;
 
-    const totalAssets = cip; // cash tracked in banking module
-    const totalLiabilities = apTotal + loansPayable;
-    const ledgerEquity = equityLines.reduce((s, e) => s + e.balance, 0);
-    const ownerEquity = fromLedger ? ledgerEquity : (totalAssets - totalLiabilities);
+    // Compute normal balances
+    for (const acct of Object.values(acctMap)) {
+      if (acct.type === "asset" || acct.type === "expense" || acct.type === "cogs") {
+        acct.balance = acct.debit - acct.credit; // debit-normal
+      } else {
+        acct.balance = acct.credit - acct.debit; // credit-normal (liability, equity, revenue)
+      }
+    }
 
-    setData({ cashAccounts: bankAccounts, accountsReceivable: 0, constructionInProgress: cip, cipEntries: [], totalAssets, accountsPayable: apTotal, apInvoices: apEntries, loansPayable, loanEntries, totalLiabilities, equityLines, ownerEquity, fromLedger });
+    const accounts = Object.values(acctMap).sort((a, b) => a.account_number.localeCompare(b.account_number));
+
+    // Categorize accounts
+    const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200");
+    const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200");
+    const currentLiab = accounts.filter(a => a.type === "liability" && a.account_number < "2100");
+    const longTermLiab = accounts.filter(a => a.type === "liability" && a.account_number >= "2100");
+    const equityAccounts = accounts.filter(a => a.type === "equity");
+
+    // Revenue, COGS, Expenses -> Retained Earnings
+    const revenue = accounts.filter(a => a.type === "revenue").reduce((s, a) => s + a.balance, 0);
+    const cogs = accounts.filter(a => a.type === "cogs").reduce((s, a) => s + a.balance, 0);
+    const expenses = accounts.filter(a => a.type === "expense").reduce((s, a) => s + a.balance, 0);
+    const retainedEarnings = revenue - cogs - expenses; // net income flows to retained earnings
+
+    // AP from unpaid invoices (supplementary - not in GL yet)
+    const unpaidInvoices = invoicesRes.data ?? [];
+    const apFromInvoices = unpaidInvoices.reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
+    const apEntries: GLEntry[] = unpaidInvoices.map((i: any) => ({
+      id: i.id,
+      entry_date: i.invoice_date ?? "",
+      description: `${i.vendor ?? "Unknown"} · #${i.invoice_number ?? "—"}`,
+      amount: i.amount ?? 0,
+      debit_account: "Construction Costs",
+      credit_account: "Accounts Payable",
+      source_type: "invoice",
+    }));
+
+    // Totals
+    const totalAssets = currentAssets.reduce((s, a) => s + a.balance, 0) + longTermAssets.reduce((s, a) => s + a.balance, 0);
+    const totalLiabilities = currentLiab.reduce((s, a) => s + a.balance, 0) + longTermLiab.reduce((s, a) => s + a.balance, 0) + apFromInvoices;
+    const totalEquityFromGL = equityAccounts.reduce((s, a) => s + a.balance, 0);
+    const totalEquity = totalEquityFromGL + retainedEarnings;
+
+    setData({
+      currentAssets,
+      longTermAssets,
+      totalAssets,
+      currentLiabilities: currentLiab,
+      longTermLiabilities: longTermLiab,
+      apFromInvoices,
+      apInvoices: apEntries,
+      totalLiabilities,
+      equityAccounts,
+      retainedEarnings,
+      totalEquity,
+    });
     setLoading(false);
   }, [asOf]);
 
@@ -143,7 +220,7 @@ export default function BalanceSheetClient() {
         </div>
 
         {loading ? (
-          <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
+          <div className="text-center py-16 text-gray-400 text-sm">Loading...</div>
         ) : !data ? null : (
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 text-center" style={{ backgroundColor: "#4272EF" }}>
@@ -152,52 +229,104 @@ export default function BalanceSheetClient() {
             </div>
 
             <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+              {/* LEFT COLUMN - ASSETS */}
               <div className="p-6">
                 <BSSectionHeader title="Assets" />
-                <BSGroup label="Current Assets" items={[
-                  { label: "Cash — Bank Accounts", amount: 0, note: `${data.cashAccounts.length} active account${data.cashAccounts.length !== 1 ? "s" : ""} (balances tracked in Banking)`, drillable: false },
-                  { label: "Accounts Receivable", amount: data.accountsReceivable, drillable: data.accountsReceivable > 0, onDrill: () => setDrill({ label: "Accounts Receivable", amount: data.accountsReceivable, entries: [] }) },
-                ]} />
-                <BSGroup label="Long-Term Assets" items={[
-                  { label: "Construction in Progress", amount: data.constructionInProgress, drillable: data.constructionInProgress > 0, onDrill: () => setDrill({ label: "Construction in Progress", amount: data.constructionInProgress, entries: data.cipEntries }) },
-                ]} />
+
+                {data.currentAssets.length > 0 && (
+                  <BSGroup label="Current Assets" items={data.currentAssets.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  }))} />
+                )}
+
+                {data.longTermAssets.length > 0 && (
+                  <BSGroup label="Long-Term Assets" items={data.longTermAssets.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  }))} />
+                )}
+
                 <TotalRow label="Total Assets" amount={data.totalAssets} />
               </div>
 
+              {/* RIGHT COLUMN - LIABILITIES & EQUITY */}
               <div className="p-6">
                 <BSSectionHeader title="Liabilities" />
+
                 <BSGroup label="Current Liabilities" items={[
-                  { label: "Accounts Payable", amount: data.accountsPayable, drillable: data.accountsPayable > 0, onDrill: () => setDrill({ label: "Accounts Payable", amount: data.accountsPayable, entries: data.apInvoices }) },
+                  ...(data.apFromInvoices > 0 ? [{
+                    label: "Accounts Payable",
+                    amount: data.apFromInvoices,
+                    drillable: true,
+                    onDrill: () => setDrill({ label: "Accounts Payable", amount: data.apFromInvoices, entries: data.apInvoices }),
+                  }] : []),
+                  ...data.currentLiabilities.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  })),
                 ]} />
-                <BSGroup label="Long-Term Liabilities" items={[
-                  { label: "Construction Loans Payable", amount: data.loansPayable, drillable: data.loansPayable > 0, onDrill: () => setDrill({ label: "Construction Loans Payable", amount: data.loansPayable, entries: data.loanEntries }) },
-                ]} />
+
+                {data.longTermLiabilities.length > 0 && (
+                  <BSGroup label="Long-Term Liabilities" items={data.longTermLiabilities.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  }))} />
+                )}
+
                 <TotalRow label="Total Liabilities" amount={data.totalLiabilities} />
+
                 <div className="mt-6">
                   <BSSectionHeader title="Equity" />
-                  {!data.fromLedger ? (
-                    <>
-                      <div className="flex items-center gap-1.5 mb-2 text-xs text-yellow-600 bg-yellow-50 px-2 py-1.5 rounded">
-                        <BookOpen size={11} /> Post equity journal entries to see account detail
-                      </div>
-                      <BSGroup label="Calculated Equity" items={[
-                        { label: "Total Equity (Assets − Liabilities)", amount: data.ownerEquity, drillable: false },
-                      ]} />
-                    </>
-                  ) : (
-                    <BSGroup label="Equity Accounts" items={data.equityLines.map(e => ({
-                      label: `${e.account_number} · ${e.name}`,
+                  <BSGroup label="Equity Accounts" items={[
+                    ...data.equityAccounts.map(e => ({
+                      label: `${e.name}`,
                       amount: e.balance,
+                      drillable: e.lines.length > 0,
+                      onDrill: () => setDrill({
+                        label: e.name,
+                        amount: e.balance,
+                        entries: acctToGLEntries(e),
+                      }),
+                    })),
+                    ...(Math.abs(data.retainedEarnings) > 0.01 ? [{
+                      label: "Retained Earnings (Net Income)",
+                      amount: data.retainedEarnings,
                       drillable: false,
-                    }))} />
-                  )}
-                  <TotalRow label="Total Equity" amount={data.ownerEquity} />
-                  <TotalRow label="Total Liabilities + Equity" amount={data.totalLiabilities + data.ownerEquity} />
+                    }] : []),
+                  ]} />
+                  <TotalRow label="Total Equity" amount={data.totalEquity} />
+                  <TotalRow label="Total Liabilities + Equity" amount={data.totalLiabilities + data.totalEquity} />
                 </div>
-                <div className={`mt-4 px-3 py-2 rounded-lg text-xs font-medium text-center ${Math.abs(data.totalAssets - (data.totalLiabilities + data.ownerEquity)) < 1 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
-                  {Math.abs(data.totalAssets - (data.totalLiabilities + data.ownerEquity)) < 1
-                    ? "✓ Balance sheet is balanced"
-                    : `⚠ Difference: ${fmt(Math.abs(data.totalAssets - (data.totalLiabilities + data.ownerEquity)))}`}
+
+                <div className={`mt-4 px-3 py-2 rounded-lg text-xs font-medium text-center ${Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)) < 1 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
+                  {Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)) < 1
+                    ? "\u2713 Balance sheet is balanced"
+                    : `\u26A0 Difference: ${fmt(Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)))}`}
                 </div>
               </div>
             </div>
@@ -218,6 +347,7 @@ function BSGroup({ label, items }: {
   label: string;
   items: { label: string; amount: number; note?: string; drillable: boolean; onDrill?: () => void }[];
 }) {
+  if (items.length === 0) return null;
   return (
     <div className="mb-4">
       <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{label}</p>
@@ -228,7 +358,7 @@ function BSGroup({ label, items }: {
             {item.label}
             {item.note && <span className="text-gray-400 text-xs ml-2">({item.note})</span>}
           </span>
-          <span className="font-medium text-gray-800">{item.note && item.amount === 0 ? "—" : fmt(item.amount)}</span>
+          <span className="font-medium text-gray-800">{fmt(item.amount)}</span>
         </div>
       ))}
     </div>
@@ -245,44 +375,74 @@ function TotalRow({ label, amount }: { label: string; amount: number }) {
 }
 
 function BSdrillModal({ item, onClose }: { item: DrillItem; onClose: () => void }) {
+  const isGLDrill = item.entries.length > 0 && item.entries[0].source_type === "journal_entry";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100" style={{ backgroundColor: "#4272EF" }}>
           <div>
             <h3 className="font-semibold text-white">{item.label}</h3>
-            <p className="text-xs text-blue-100 mt-0.5">{item.entries.length} entries · Total: {fmtFull(item.amount)}</p>
+            <p className="text-xs text-blue-100 mt-0.5">{item.entries.length} entries · Balance: {fmtFull(item.amount)}</p>
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={18} /></button>
         </div>
         <div className="overflow-auto flex-1">
           {item.entries.length === 0 ? (
-            <div className="px-5 py-8 text-center text-sm text-gray-400">No GL entries found. Amount derived from cost items.</div>
+            <div className="px-5 py-8 text-center text-sm text-gray-400">No detail entries available.</div>
+          ) : isGLDrill ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
+                  <tr className="text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Ref</th>
+                    <th className="px-4 py-3 text-left">Description</th>
+                    <th className="px-4 py-3 text-right">Debit</th>
+                    <th className="px-4 py-3 text-right">Credit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {item.entries.map(e => {
+                    const debit = e.amount > 0 ? e.amount : 0;
+                    const credit = e.amount < 0 ? -e.amount : 0;
+                    return (
+                      <tr key={e.id} className="border-b border-gray-50">
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{e.entry_date}</td>
+                        <td className="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap">{e.debit_account}</td>
+                        <td className="px-4 py-2.5 text-gray-700">{e.description}</td>
+                        <td className="px-4 py-2.5 text-right font-medium text-gray-800">{debit > 0 ? fmtFull(debit) : ""}</td>
+                        <td className="px-4 py-2.5 text-right font-medium text-gray-800">{credit > 0 ? fmtFull(credit) : ""}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
-                <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                  <th className="px-5 py-3 text-left">Date</th>
-                  <th className="px-5 py-3 text-left">Description</th>
-                  <th className="px-5 py-3 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {item.entries.map(e => (
-                  <tr key={e.id} className="border-b border-gray-50">
-                    <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.entry_date}</td>
-                    <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
-                    <td className="px-5 py-2.5 text-right font-medium text-gray-800">{fmtFull(e.amount)}</td>
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
+                  <tr className="text-xs text-gray-500 uppercase tracking-wide">
+                    <th className="px-5 py-3 text-left">Date</th>
+                    <th className="px-5 py-3 text-left">Description</th>
+                    <th className="px-5 py-3 text-right">Amount</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {item.entries.map(e => (
+                    <tr key={e.id} className="border-b border-gray-50">
+                      <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.entry_date}</td>
+                      <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
+                      <td className="px-5 py-2.5 text-right font-medium text-gray-800">{fmtFull(e.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
-          <span className="text-sm font-semibold text-gray-700">Total</span>
+          <span className="text-sm font-semibold text-gray-700">Balance</span>
           <span className="text-sm font-semibold text-gray-900">{fmtFull(item.amount)}</span>
         </div>
       </div>

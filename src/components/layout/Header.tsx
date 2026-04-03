@@ -24,7 +24,7 @@ export default async function Header({ title }: { title: string }) {
     .slice(0, 2);
 
   return (
-    <header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-4 flex items-center justify-between">
+    <header data-header className="bg-white border-b border-gray-200 px-4 lg:px-6 py-4 flex items-center justify-between">
       <div className="flex items-center gap-2">
         <MobileMenuButton />
         <h1 className="text-lg lg:text-xl font-semibold text-gray-900">{title}</h1>

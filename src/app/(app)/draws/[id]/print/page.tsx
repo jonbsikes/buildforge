@@ -2,6 +2,7 @@ import React from "react";
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import { drawDisplayName } from "@/lib/draws";
+import DrawPrintClient from "@/components/draws/DrawPrintClient";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,12 @@ interface Props {
 }
 
 function fmt(n: number | null) {
-  if (n == null) return "—";
+  if (n == null) return "\u2014";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
 interface PrintRow {
-  address: string;
+  project: string;
   loanNumber: string;
   category: string;
   vendor: string;
@@ -40,7 +41,7 @@ export default async function DrawPrintPage({ params }: Props) {
     .select(`
       id,
       invoices (
-        id, vendor, invoice_number, amount,
+        id, vendor, invoice_number, amount, file_path, file_name,
         projects ( id, name, address ),
         cost_codes ( code, name )
       )
@@ -49,12 +50,13 @@ export default async function DrawPrintPage({ params }: Props) {
 
   const lender = draw.contacts as { id: string; name: string } | null;
 
-  // Extract typed invoice rows
   type RawInvoice = {
     id: string;
     vendor: string | null;
     invoice_number: string | null;
     amount: number | null;
+    file_path: string | null;
+    file_name: string | null;
     projects: { id: string; name: string; address: string | null } | null;
     cost_codes: { code: string; name: string } | null;
   };
@@ -78,7 +80,7 @@ export default async function DrawPrintPage({ params }: Props) {
     }
   }
 
-  // Fetch line items for all invoices (keyed by invoice_id)
+  // Fetch line items for all invoices
   const invoiceIds = invoiceRows.map((r) => r.id);
   const lineItemsByInvoice = new Map<string, { category: string; amount: number }[]>();
   if (invoiceIds.length > 0) {
@@ -88,41 +90,35 @@ export default async function DrawPrintPage({ params }: Props) {
       .in("invoice_id", invoiceIds);
     for (const li of lineItems ?? []) {
       const cc = li.cost_codes as { name: string } | null;
-      const entry = {
-        category: cc?.name ?? "Uncategorized",
-        amount: li.amount ?? 0,
-      };
-      if (!lineItemsByInvoice.has(li.invoice_id)) {
-        lineItemsByInvoice.set(li.invoice_id, []);
-      }
+      const entry = { category: cc?.name ?? "Uncategorized", amount: li.amount ?? 0 };
+      if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
       lineItemsByInvoice.get(li.invoice_id)!.push(entry);
     }
   }
 
-  // Build flat print rows — one per line item (or one per invoice if no line items)
+  // Build flat print rows in draw order
   const printRows: PrintRow[] = [];
   for (const inv of invoiceRows) {
     const proj = inv.projects;
-    const address = proj?.address ?? proj?.name ?? "—";
-    const loanNumber = proj?.id ? (loanByProject.get(proj.id) ?? "—") : "—";
-    const vendor = inv.vendor ?? "—";
-    const invoiceNumber = inv.invoice_number ?? "—";
+    const project = proj?.name ?? "\u2014";
+    const loanNumber = proj?.id ? (loanByProject.get(proj.id) ?? "\u2014") : "\u2014";
+    const vendor = inv.vendor ?? "\u2014";
+    const invoiceNumber = inv.invoice_number ?? "\u2014";
 
     const lineItems = lineItemsByInvoice.get(inv.id) ?? [];
     if (lineItems.length > 0) {
       for (const li of lineItems) {
-        printRows.push({ address, loanNumber, category: li.category, vendor, invoiceNumber, amount: li.amount });
+        printRows.push({ project, loanNumber, category: li.category, vendor, invoiceNumber, amount: li.amount });
       }
     } else {
-      const category = inv.cost_codes?.name ?? "—";
-      printRows.push({ address, loanNumber, category, vendor, invoiceNumber, amount: inv.amount ?? 0 });
+      const category = inv.cost_codes?.name ?? "\u2014";
+      printRows.push({ project, loanNumber, category, vendor, invoiceNumber, amount: inv.amount ?? 0 });
     }
   }
 
   // Sort by loan number, then group
   printRows.sort((a, b) => a.loanNumber.localeCompare(b.loanNumber));
 
-  // Build loan groups
   type LoanGroup = { loanNumber: string; rows: PrintRow[]; subtotal: number };
   const groupMap = new Map<string, LoanGroup>();
   for (const row of printRows) {
@@ -138,105 +134,60 @@ export default async function DrawPrintPage({ params }: Props) {
 
   const drawName = drawDisplayName(draw.draw_date);
 
-  return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <title>{drawName} – BuildForge</title>
-        <style>{`
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11pt; color: #1e293b; background: #fff; padding: 32px 40px; }
-          .print-btn { margin-bottom: 20px; }
-          .print-btn button { padding: 8px 16px; background: #4272EF; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
-          .doc-title { font-size: 18pt; font-weight: 700; margin-bottom: 6px; }
-          .doc-meta { display: flex; justify-content: space-between; font-size: 11pt; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #1e293b; }
-          .doc-meta span { font-weight: 500; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
-          th { text-align: left; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 6px 8px; border-bottom: 2px solid #e2e8f0; }
-          th.right { text-align: right; }
-          td { padding: 7px 8px; font-size: 10pt; border-bottom: 1px solid #f1f5f9; }
-          td.right { text-align: right; }
-          tr.subtotal td { font-weight: 700; border-top: 1.5px solid #cbd5e1; border-bottom: none; background: #f8fafc; }
-          tr.spacer td { border: none; height: 16px; }
-          tfoot tr td { font-weight: 700; font-size: 11pt; border-top: 2px solid #1e293b; border-bottom: none; padding-top: 10px; }
-          .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 9pt; color: #94a3b8; display: flex; justify-content: space-between; }
-          @media print {
-            body { padding: 0; }
-            .print-btn { display: none; }
-          }
-        `}</style>
-      </head>
-      <body>
-        <div className="print-btn">
-          <button id="print-btn">Print / Save as PDF</button>
-        </div>
+  // Build the HTML content for the table
+  const tableHtml = loanGroups.map((group, gi) => {
+    const rows = group.rows.map((row, ri) => (
+      <tr key={`${group.loanNumber}-${ri}`}>
+        <td>{row.project}</td>
+        <td>{row.loanNumber}</td>
+        <td>{row.category}</td>
+        <td>{row.vendor}</td>
+        <td>{row.invoiceNumber}</td>
+        <td style={{ textAlign: "right" }}>{fmt(row.amount)}</td>
+      </tr>
+    ));
 
-        <div className="doc-title">Construction Loan Draw Request</div>
-        <div className="doc-meta">
-          <span>Customer: Prairie Sky, LLC</span>
-          <span>Date: {draw.draw_date}</span>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Address</th>
-              <th>Loan #</th>
-              <th>Category</th>
-              <th>Vendor</th>
-              <th>Inv. #</th>
-              <th className="right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loanGroups.map((group, gi) => (
-              <React.Fragment key={group.loanNumber}>
-                {group.rows.map((row, ri) => (
-                  <tr key={`${group.loanNumber}-${ri}`}>
-                    <td>{row.address}</td>
-                    <td>{row.loanNumber}</td>
-                    <td>{row.category}</td>
-                    <td>{row.vendor}</td>
-                    <td>{row.invoiceNumber}</td>
-                    <td className="right">{fmt(row.amount)}</td>
-                  </tr>
-                ))}
-                <tr className="subtotal">
-                  <td colSpan={5}>TOTAL — Loan #{group.loanNumber}</td>
-                  <td className="right">{fmt(group.subtotal)}</td>
-                </tr>
-                {gi < loanGroups.length - 1 && (
-                  <tr className="spacer">
-                    <td colSpan={6} />
-                  </tr>
-                )}
-              </React.Fragment>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={5}>Grand Total</td>
-              <td className="right">{fmt(grandTotal)}</td>
-            </tr>
-          </tfoot>
-        </table>
-
-        {draw.notes && (
-          <div style={{ marginTop: 24, padding: "12px 16px", border: "1px solid #e2e8f0", borderRadius: 6 }}>
-            <p style={{ fontSize: "9pt", textTransform: "uppercase", letterSpacing: ".05em", color: "#94a3b8", marginBottom: 6 }}>Notes</p>
-            <p>{draw.notes}</p>
-          </div>
+    return (
+      <React.Fragment key={group.loanNumber}>
+        {rows}
+        <tr style={{ fontWeight: 700, borderTop: "1.5px solid #cbd5e1", background: "#f8fafc" }}>
+          <td colSpan={5}>TOTAL &mdash; Loan #{group.loanNumber}</td>
+          <td style={{ textAlign: "right" }}>{fmt(group.subtotal)}</td>
+        </tr>
+        {gi < loanGroups.length - 1 && (
+          <tr><td colSpan={6} style={{ border: "none", height: 16 }} /></tr>
         )}
+      </React.Fragment>
+    );
+  });
 
-        <div className="footer">
-          <span>{drawName} · {lender?.name ?? "—"}</span>
-          <span>Generated {draw.draw_date}</span>
-        </div>
-
-        <script dangerouslySetInnerHTML={{
-          __html: `document.getElementById('print-btn').addEventListener('click', function() { window.print(); });`
-        }} />
-      </body>
-    </html>
+  return (
+    <DrawPrintClient
+      drawId={id}
+      drawName={drawName}
+      drawDate={draw.draw_date}
+      lenderName={lender?.name ?? "\u2014"}
+      notes={draw.notes}
+    >
+      <table>
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Loan #</th>
+            <th>Category</th>
+            <th>Vendor</th>
+            <th>Inv. #</th>
+            <th style={{ textAlign: "right" }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>{tableHtml}</tbody>
+        <tfoot>
+          <tr style={{ fontWeight: 700, fontSize: "11pt", borderTop: "2px solid #1e293b", paddingTop: 10 }}>
+            <td colSpan={5}>Grand Total</td>
+            <td style={{ textAlign: "right" }}>{fmt(grandTotal)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </DrawPrintClient>
   );
 }

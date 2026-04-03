@@ -3,8 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { AlertTriangle, Mail, Trash2 } from "lucide-react";
-import InvoiceActions from "./InvoiceActions";
-import { deleteInvoice } from "@/app/actions/invoices";
+import { deleteInvoice, setInvoiceStatus, setPendingDraw } from "@/app/actions/invoices";
 
 const STATUS_COLORS: Record<string, string> = {
   pending_review: "bg-amber-100 text-amber-700",
@@ -38,6 +37,9 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [, startTransition] = useTransition();
+  // Optimistic local overrides for status/pending_draw while server updates
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
+  const [drawOverrides, setDrawOverrides] = useState<Record<string, boolean>>({});
 
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
@@ -108,7 +110,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                     />
                   </th>
                 )}
-                {["Vendor / Invoice", "Project", "Date", "Due", "Amount", "Status", ""].map((h) => (
+                {["Vendor / Invoice", "Project", "Date", "Due", "Amount", "Status", "Draw", ""].map((h) => (
                   <th
                     key={h}
                     className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider"
@@ -175,20 +177,52 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                         {fmt(inv.amount)}
                       </Link>
                     </td>
-                    <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[inv.status] ?? "bg-gray-100 text-gray-600"}`}>
-                          {inv.status.replace("_", " ")}
-                        </span>
-                      </Link>
+                    <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <select
+                        value={statusOverrides[inv.id] ?? inv.status}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setStatusOverrides((prev) => ({ ...prev, [inv.id]: next }));
+                          startTransition(async () => {
+                            await setInvoiceStatus(inv.id, next);
+                          });
+                        }}
+                        className={`text-xs border-0 rounded-lg px-2 py-1 font-medium focus:outline-none focus:ring-2 focus:ring-[#4272EF] cursor-pointer ${STATUS_COLORS[statusOverrides[inv.id] ?? inv.status] ?? "bg-gray-100 text-gray-600"}`}
+                      >
+                        <option value="pending_review">Pending Review</option>
+                        <option value="approved">Approved</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="paid">Paid</option>
+                        <option value="disputed">Disputed</option>
+                      </select>
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <InvoiceActions
-                        invoiceId={inv.id}
-                        status={inv.status}
-                        aiConfidence={inv.ai_confidence}
-                        manuallyReviewed={inv.manually_reviewed ?? false}
+                    <td className="px-4 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={drawOverrides[inv.id] ?? (inv.pending_draw ?? false)}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setDrawOverrides((prev) => ({ ...prev, [inv.id]: next }));
+                          startTransition(async () => {
+                            await setPendingDraw(inv.id, next);
+                          });
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF] cursor-pointer"
+                        title="Include in draw request"
                       />
+                    </td>
+                    <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => {
+                          if (confirm("Delete this invoice?")) {
+                            startTransition(async () => { await deleteInvoice(inv.id); });
+                          }
+                        }}
+                        className="text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                        aria-label="Delete invoice"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 );

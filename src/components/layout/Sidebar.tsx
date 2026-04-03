@@ -280,13 +280,13 @@ export default function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-60 bg-gray-900 min-h-screen flex-col flex-shrink-0">
+      <aside data-sidebar className="hidden lg:flex w-60 bg-gray-900 min-h-screen flex-col flex-shrink-0">
         {sidebarContent}
       </aside>
 
       {/* Mobile overlay */}
       {isOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
+        <div data-sidebar className="lg:hidden fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <div
             className="fixed inset-0 bg-black/50"

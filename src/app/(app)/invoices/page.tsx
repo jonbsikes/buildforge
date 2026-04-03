@@ -47,14 +47,7 @@ export default async function InvoicesPage() {
           <div className="flex items-center gap-3">
             <PollEmailButton />
             <Link
-              href="/invoices/upload?mode=batch"
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-            >
-              <Plus size={16} />
-              Batch Upload
-            </Link>
-            <Link
-              href="/invoices/new"
+              href="/invoices/upload"
               className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
             >
               <Plus size={16} />
@@ -66,7 +59,7 @@ export default async function InvoicesPage() {
         {rows.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
             No invoices yet.{" "}
-            <Link href="/invoices/new" className="text-[#4272EF] hover:underline">
+            <Link href="/invoices/upload" className="text-[#4272EF] hover:underline">
               Add one
             </Link>
           </div>

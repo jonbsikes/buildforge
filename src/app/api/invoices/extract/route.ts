@@ -41,19 +41,29 @@ Extract structured data from the provided invoice PDF and return ONLY valid JSON
 - Set "project_id" to the matching project's id
 - Only set project_id to null if the invoice is clearly for office/admin/overhead, OR if no address or job site reference of any kind appears on the invoice
 
+## Multiple invoices in one PDF
+- If the PDF contains multiple SEPARATE invoices (each with a distinct invoice number, or clearly separate billing sections with their own totals), extract EACH as a separate object in the "invoices" array
+- If the PDF shows work at multiple job sites but has ONE invoice number and ONE total, treat it as a SINGLE invoice — use line_items to capture the different cost codes/projects
+- If a single invoice covers multiple projects, set project_id to the best matching one and note the others in ai_notes
+- When in doubt, treat as one invoice
+
 ## Output format (return ONLY this JSON, no other text):
 {
-  "vendor": "string",
-  "invoice_number": "string",
-  "invoice_date": "YYYY-MM-DD",
-  "due_date": "YYYY-MM-DD",
-  "total_amount": 0.00,
-  "project_id": "uuid or null",
-  "line_items": [
-    { "cost_code": "string", "description": "string", "amount": 0.00 }
-  ],
-  "ai_confidence": "high" | "medium" | "low",
-  "ai_notes": "string"
+  "invoices": [
+    {
+      "vendor": "string",
+      "invoice_number": "string",
+      "invoice_date": "YYYY-MM-DD",
+      "due_date": "YYYY-MM-DD",
+      "total_amount": 0.00,
+      "project_id": "uuid or null",
+      "line_items": [
+        { "cost_code": "string", "description": "string", "amount": 0.00 }
+      ],
+      "ai_confidence": "high" | "medium" | "low",
+      "ai_notes": "string"
+    }
+  ]
 }`;
 
 export interface ExtractedInvoiceData {
@@ -66,6 +76,10 @@ export interface ExtractedInvoiceData {
   line_items: { cost_code: string; description: string; amount: number }[];
   ai_confidence: "high" | "medium" | "low";
   ai_notes: string;
+}
+
+export interface ExtractedInvoiceResponse {
+  invoices: ExtractedInvoiceData[];
 }
 
 export async function POST(req: NextRequest) {
@@ -105,7 +119,7 @@ export async function POST(req: NextRequest) {
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -135,20 +149,37 @@ export async function POST(req: NextRequest) {
     // Strip any markdown fences if present
     const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 
-    let parsed: ExtractedInvoiceData;
+    let raw: unknown;
     try {
-      parsed = JSON.parse(cleaned);
+      raw = JSON.parse(cleaned);
     } catch {
       return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
     }
 
-    // Validate required fields
-    if (!parsed.vendor || !parsed.total_amount) {
-      parsed.ai_confidence = "low";
-      parsed.ai_notes = (parsed.ai_notes ?? "") + " Key fields missing or unreadable.";
+    // Normalise: accept both new { invoices: [...] } format and legacy single-object format
+    let invoices: ExtractedInvoiceData[];
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && Array.isArray((raw as Record<string, unknown>).invoices)) {
+      invoices = (raw as { invoices: ExtractedInvoiceData[] }).invoices;
+    } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      // Legacy single-object response — wrap in array
+      invoices = [raw as ExtractedInvoiceData];
+    } else {
+      invoices = [];
     }
 
-    return NextResponse.json(parsed);
+    // Validate each invoice
+    invoices.forEach((inv) => {
+      if (!inv.vendor || !inv.total_amount) {
+        inv.ai_confidence = "low";
+        inv.ai_notes = ((inv.ai_notes ?? "") + " Key fields missing or unreadable.").trim();
+      }
+    });
+
+    if (!invoices.length) {
+      return NextResponse.json({ error: "No invoice data extracted" }, { status: 500 });
+    }
+
+    return NextResponse.json({ invoices } satisfies ExtractedInvoiceResponse);
   } catch (err) {
     console.error("Invoice extraction error:", err);
     return NextResponse.json({ error: "Extraction failed" }, { status: 500 });

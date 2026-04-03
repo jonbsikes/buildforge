@@ -1,16 +1,25 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import {
   ArrowLeft, Upload, FileText, Sparkles, Loader2,
-  CheckCircle2, XCircle, AlertTriangle, X,
+  CheckCircle2, XCircle, AlertTriangle, X, ChevronDown, ChevronUp,
 } from "lucide-react";
+import type { ExtractedInvoiceData } from "@/app/api/invoices/extract/route";
 
-interface CostCode { code: number; category: string; description: string; }
-interface Project { id: string; name: string; project_type: string; }
+interface CostCode { code: string; category: string; name: string; }
+interface Project {
+  id: string;
+  name: string;
+  project_type: string;
+  address?: string | null;
+  subdivision?: string | null;
+  block?: string | null;
+  lot?: string | null;
+}
 interface Props { projects: Project[]; costCodes: CostCode[]; hasAI: boolean; }
 
 type SingleStep = "upload" | "extracting" | "review";
@@ -20,20 +29,51 @@ interface BatchItem {
   file: File;
   status: BatchStatus;
   error?: string;
-  invoiceId?: string;
+  invoiceCount?: number;
 }
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-function isPDF(f: File) {
-  return f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf");
+interface InvoiceReviewItem {
+  project_id: string;
+  cost_code: string;          // primary code shown in review; written to line_items on save
+  vendor: string;
+  invoice_number: string;
+  invoice_date: string;
+  amount: string;
+  due_date: string;
+  ai_notes: string;
+  ai_confidence: "high" | "medium" | "low" | "";
+  line_items: { cost_code: string; description: string; amount: number }[];
 }
 
-function fileSizeOk(f: File) {
-  return f.size <= 20 * 1024 * 1024;
-}
+// ─── helpers ─────────────────────────────────────────────────────────────────
+
+function isPDF(f: File) { return f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf"); }
+function fileSizeOk(f: File) { return f.size <= 20 * 1024 * 1024; }
 
 const MULTI_PROJECT = "__multiple__";
+
+function emptyReviewItem(): InvoiceReviewItem {
+  return { project_id: "", cost_code: "", vendor: "", invoice_number: "", invoice_date: "", amount: "", due_date: "", ai_notes: "", ai_confidence: "", line_items: [] };
+}
+
+function extractedToReviewItem(inv: ExtractedInvoiceData): InvoiceReviewItem {
+  return {
+    project_id: inv.project_id ?? "",
+    cost_code: inv.line_items?.[0]?.cost_code ?? "",
+    vendor: inv.vendor ?? "",
+    invoice_number: inv.invoice_number ?? "",
+    invoice_date: inv.invoice_date ?? "",
+    amount: inv.total_amount != null ? String(inv.total_amount) : "",
+    due_date: inv.due_date ?? "",
+    ai_notes: inv.ai_notes ?? "",
+    ai_confidence: inv.ai_confidence ?? "",
+    line_items: (inv.line_items ?? []).map((li) => ({
+      cost_code: li.cost_code ?? "",
+      description: li.description ?? "",
+      amount: li.amount ?? 0,
+    })),
+  };
+}
 
 async function uploadAndExtract(
   supabase: ReturnType<typeof createClient>,
@@ -41,9 +81,8 @@ async function uploadAndExtract(
   projectId: string,
   hasAI: boolean,
   userId: string,
-  allProjects?: { id: string; name: string }[],
-) {
-  // 1. Upload to storage
+  allProjects?: Project[],
+): Promise<{ invoiceCount: number }> {
   const filePath = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
   const { error: uploadError } = await supabase.storage
     .from("invoices")
@@ -52,338 +91,199 @@ async function uploadAndExtract(
 
   const isMulti = projectId === MULTI_PROJECT;
 
-  // 2. Create invoice record (project_id filled in after extraction for multi-project mode)
-  const { data: invoice, error: insertError } = await supabase
-    .from("invoices")
-    .insert({
+  if (!hasAI) {
+    const { error } = await supabase.from("invoices").insert({
       project_id: isMulti ? null : (projectId || null),
+      user_id: userId,
       file_path: filePath,
       file_name: file.name,
       processed: false,
       status: "pending_review",
       source: "upload",
-    })
-    .select("id")
-    .single();
-  if (insertError || !invoice) throw new Error(`DB error: ${insertError?.message}`);
+    });
+    if (error) throw new Error(`DB error: ${error.message}`);
+    return { invoiceCount: 1 };
+  }
 
-  if (!hasAI) return { invoiceId: invoice.id, extracted: null };
-
-  // 3. AI extraction
   const fd = new FormData();
   fd.append("file", file);
-  if (isMulti && allProjects?.length) {
-    fd.append("projects", JSON.stringify(allProjects.map((p) => ({ id: p.id, name: p.name }))));
+  if (allProjects?.length) {
+    fd.append("projects", JSON.stringify(allProjects.map((p) => ({
+      id: p.id, name: p.name, type: p.project_type,
+      address: p.address ?? null, subdivision: p.subdivision ?? null,
+      block: p.block ?? null, lot: p.lot ?? null,
+    }))));
   }
   const res = await fetch("/api/invoices/extract", { method: "POST", body: fd });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
 
-  // 4. Update invoice with extracted data (use AI-assigned project_id in multi mode)
-  const resolvedProjectId = isMulti ? (data.project_id || null) : (projectId || null);
-  await supabase.from("invoices").update({
-    project_id: resolvedProjectId,
-    vendor: data.vendor || null,
-    invoice_number: data.invoice_number || null,
-    invoice_date: data.invoice_date || null,
-    due_date: data.due_date || null,
-    amount: data.total_amount || null,
-    total_amount: data.total_amount || null,
-    cost_code: data.line_items?.[0]?.cost_code ? parseInt(data.line_items[0].cost_code) : null,
-    ai_notes: data.ai_notes || null,
-    ai_confidence: data.ai_confidence || null,
-    processed: true,
-  }).eq("id", invoice.id);
+  const invoices: ExtractedInvoiceData[] = data.invoices ?? [];
+  if (!invoices.length) throw new Error("No invoice data extracted");
 
-  if (data.line_items?.length) {
-    await supabase.from("invoice_line_items").insert(
-      data.line_items.map((li: { cost_code: string; description: string; amount: number }) => ({
-        invoice_id: invoice.id,
-        cost_code: li.cost_code ? parseInt(li.cost_code) : null,
-        description: li.description || "",
-        amount: li.amount || 0,
-      }))
-    );
-  }
-
-  return { invoiceId: invoice.id, extracted: data };
-}
-
-// ─── Single-file upload flow ─────────────────────────────────────────────────
-
-function SingleUpload({ projects, costCodes, hasAI }: Props) {
-  const router = useRouter();
-  const supabase = createClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [step, setStep] = useState<SingleStep>("upload");
-  const [dragging, setDragging] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [invoiceId, setInvoiceId] = useState<string | null>(null);
-  const [lineItems, setLineItems] = useState<{ cost_code: number | null; description: string; amount: number }[]>([]);
-  const [form, setForm] = useState({
-    project_id: projects[0]?.id ?? "",
-    cost_code: "",
-    vendor: "",
-    invoice_number: "",
-    invoice_date: "",
-    amount: "",
-    due_date: "",
-    ai_notes: "",
-    ai_confidence: "",
-  });
-
-  function setField(field: string, value: string) {
-    setForm((f) => ({ ...f, [field]: value }));
-  }
-
-  const handleFile = useCallback((f: File) => {
-    if (!isPDF(f)) { setError("Only PDF files are supported."); return; }
-    if (!fileSizeOk(f)) { setError("File must be under 20MB."); return; }
-    setError(null);
-    setFile(f);
-  }, []);
-
-  async function handleUpload() {
-    if (!file || !form.project_id) return;
-    setUploading(true);
-    setError(null);
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push("/login"); return; }
-
-    const filePath = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-    const { error: uploadError } = await supabase.storage
-      .from("invoices")
-      .upload(filePath, file, { contentType: "application/pdf", upsert: false });
-    if (uploadError) { setError(`Upload failed: ${uploadError.message}`); setUploading(false); return; }
-
-    const { data: invoice, error: insertError } = await supabase
-      .from("invoices")
-      .insert({ project_id: form.project_id, file_path: filePath, file_name: file.name, processed: false, status: "pending_review", source: "upload" })
-      .select("id")
-      .single();
-    if (insertError || !invoice) { setError(`Database error: ${insertError?.message}`); setUploading(false); return; }
-
-    setInvoiceId(invoice.id);
-    setUploading(false);
-
-    if (hasAI) {
-      setStep("extracting");
-      try {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/invoices/extract", { method: "POST", body: fd });
-        const data = await res.json();
-        if (data && !data.error) {
-          setForm((f) => ({
-            ...f,
-            vendor: data.vendor ?? "",
-            invoice_number: data.invoice_number ?? "",
-            invoice_date: data.invoice_date ?? "",
-            due_date: data.due_date ?? "",
-            amount: data.total_amount != null ? String(data.total_amount) : "",
-            cost_code: data.line_items?.[0]?.cost_code ?? "",
-            ai_notes: data.ai_notes ?? "",
-            ai_confidence: data.ai_confidence ?? "",
-          }));
-          if (data.line_items?.length) setLineItems(data.line_items);
-          // Update the invoice record with extracted data
-          await supabase.from("invoices").update({
-            vendor: data.vendor || null,
-            invoice_number: data.invoice_number || null,
-            invoice_date: data.invoice_date || null,
-            due_date: data.due_date || null,
-            amount: data.total_amount || null,
-            total_amount: data.total_amount || null,
-            cost_code: data.line_items?.[0]?.cost_code ? parseInt(data.line_items[0].cost_code) : null,
-            ai_notes: data.ai_notes || null,
-            ai_confidence: data.ai_confidence || null,
-          }).eq("id", invoice.id);
-        }
-      } catch {
-        // extraction failed — proceed to manual review
-      }
-    }
-
-    setStep("review");
-  }
-
-  async function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!invoiceId) return;
-    setSaving(true);
-    await supabase.from("invoices").update({
-      vendor: form.vendor || null,
-      invoice_number: form.invoice_number || null,
-      invoice_date: form.invoice_date || null,
-      amount: parseFloat(form.amount) || null,
-      total_amount: parseFloat(form.amount) || null,
-      due_date: form.due_date || null,
-      cost_code: form.cost_code ? parseInt(form.cost_code) : null,
-      ai_notes: form.ai_notes || null,
-      ai_confidence: (form.ai_confidence as "high" | "medium" | "low") || null,
+  let created = 0;
+  for (const inv of invoices) {
+    const resolvedProjectId = isMulti ? (inv.project_id || null) : (projectId || null);
+    const { data: record, error: insertError } = await supabase.from("invoices").insert({
+      project_id: resolvedProjectId,
+      user_id: userId,
+      file_path: filePath,
+      file_name: file.name,
+      vendor: inv.vendor || null,
+      invoice_number: inv.invoice_number || null,
+      invoice_date: inv.invoice_date || null,
+      due_date: inv.due_date || null,
+      amount: inv.total_amount || null,
+      total_amount: inv.total_amount || null,
+      ai_notes: inv.ai_notes || null,
+      ai_confidence: inv.ai_confidence || null,
       processed: true,
       status: "pending_review",
-    }).eq("id", invoiceId);
-    if (lineItems.length > 0) {
-      await supabase.from("invoice_line_items").insert(
-        lineItems.map((li) => ({ invoice_id: invoiceId, cost_code: li.cost_code ? String(li.cost_code) : null, description: li.description || "", amount: li.amount || 0 }))
-      );
+      source: "upload",
+    }).select("id").single();
+
+    if (!insertError && record) {
+      created++;
+      const lineItems = inv.line_items?.length
+        ? inv.line_items
+        : inv.line_items?.[0]?.cost_code
+          ? [{ cost_code: inv.line_items[0].cost_code, description: inv.vendor || "Invoice", amount: inv.total_amount ?? 0 }]
+          : [];
+      if (lineItems.length) {
+        await supabase.from("invoice_line_items").insert(
+          lineItems.map((li) => ({
+            invoice_id: record.id,
+            cost_code: li.cost_code || null,
+            description: li.description || "",
+            amount: li.amount || 0,
+          }))
+        );
+      }
     }
-    router.push("/invoices");
   }
 
-  const landCodes = costCodes.filter((c) => c.code >= 1 && c.code <= 33);
-  const homeCodes = costCodes.filter((c) => c.code >= 34 && c.code <= 102);
-  const gaCodes = costCodes.filter((c) => c.code >= 103 && c.code <= 120);
+  return { invoiceCount: created };
+}
+
+// ─── Confidence badge ─────────────────────────────────────────────────────────
+
+function ConfidenceBadge({ confidence }: { confidence: string }) {
+  if (!confidence) return null;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+      confidence === "high" ? "text-green-700 bg-green-50" :
+      confidence === "medium" ? "text-amber-700 bg-amber-50" :
+      "text-red-700 bg-red-50"}`}>
+      <Sparkles size={11} /> AI {confidence} confidence
+    </span>
+  );
+}
+
+// ─── Single invoice review card ───────────────────────────────────────────────
+
+function InvoiceCard({
+  item, idx, total, projects, costCodes, expanded, onToggle, onChange,
+}: {
+  item: InvoiceReviewItem;
+  idx: number;
+  total: number;
+  projects: Project[];
+  costCodes: CostCode[];
+  expanded: boolean;
+  onToggle: () => void;
+  onChange: (field: keyof InvoiceReviewItem, value: string) => void;
+}) {
+  const landCodes = costCodes.filter((c) => { const n = parseInt(c.code); return n >= 1 && n <= 33; });
+  const homeCodes = costCodes.filter((c) => { const n = parseInt(c.code); return n >= 34 && n <= 102; });
+  const gaCodes   = costCodes.filter((c) => { const n = parseInt(c.code); return n >= 103 && n <= 120; });
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      {/* Steps */}
-      <div className="flex items-center gap-2 mb-6">
-        {(["upload", "extracting", "review"] as SingleStep[]).map((s, i) => {
-          const done = (step === "review" && s !== "review") || (step === "extracting" && s === "upload");
-          const active = step === s;
-          return (
-            <div key={s} className="flex items-center gap-2">
-              {i > 0 && <div className={`h-px w-8 ${done ? "bg-[#4272EF]" : "bg-gray-200"}`} />}
-              <div className={`flex items-center gap-1.5 text-xs font-medium ${active ? "text-[#4272EF]" : done ? "text-green-600" : "text-gray-400"}`}>
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${active ? "bg-[#4272EF] text-white" : done ? "bg-green-500 text-white" : "bg-gray-200 text-gray-400"}`}>
-                  {done ? <CheckCircle2 size={12} /> : i + 1}
-                </div>
-                {["Upload", "Extract", "Review"][i]}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+    <div className={`border rounded-xl overflow-hidden ${item.ai_confidence === "low" ? "border-red-300" : "border-gray-200"}`}>
+      <button type="button" onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
+        {total > 1 && (
+          <span className="text-xs font-semibold text-gray-500 uppercase shrink-0">Invoice {idx + 1} of {total}</span>
+        )}
+        <ConfidenceBadge confidence={item.ai_confidence} />
+        {item.vendor && <span className="text-sm font-medium text-gray-800 truncate">{item.vendor}</span>}
+        {item.invoice_number && <span className="text-xs text-gray-400">#{item.invoice_number}</span>}
+        {item.amount && (
+          <span className="ml-auto text-sm font-semibold text-gray-800 shrink-0">
+            ${parseFloat(item.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+          </span>
+        )}
+        <span className="text-gray-400 shrink-0 ml-2">{expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</span>
+      </button>
 
-      {step === "upload" && (
-        <div className="space-y-5">
-          <h2 className="text-lg font-semibold text-gray-900">Upload Invoice PDF</h2>
+      {expanded && (
+        <div className="p-4 space-y-4 border-t border-gray-100">
+          {item.ai_confidence === "low" && (
+            <div className="flex items-center gap-2 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg">
+              <AlertTriangle size={14} /> Low confidence — review all fields carefully before saving.
+            </div>
+          )}
+
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Project <span className="text-red-500">*</span></label>
-            <select value={form.project_id} onChange={(e) => setField("project_id", e.target.value)}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+            <select value={item.project_id} onChange={(e) => onChange("project_id", e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
-              <option value="">Select project…</option>
               <option value="">— G&A (no project) —</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${dragging ? "border-[#4272EF] bg-blue-50" : file ? "border-green-400 bg-green-50" : "border-gray-300 hover:border-gray-400"}`}
-          >
-            <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-            {file ? (
-              <div className="flex flex-col items-center gap-2">
-                <FileText size={36} className="text-green-500" />
-                <p className="font-medium text-gray-800">{file.name}</p>
-                <p className="text-sm text-gray-400">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <Upload size={36} className="text-gray-400" />
-                <p className="font-medium text-gray-700">Drop a PDF here, or click to browse</p>
-                <p className="text-sm text-gray-400">PDF up to 20MB</p>
-              </div>
-            )}
-          </div>
-          {hasAI && (
-            <div className="flex items-center gap-2 bg-blue-50 text-[#4272EF] text-sm px-4 py-2.5 rounded-lg">
-              <Sparkles size={15} />
-              AI will extract details and assign a cost code automatically.
-            </div>
-          )}
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-          <button onClick={handleUpload} disabled={!file || !form.project_id || uploading}
-            className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-            style={{ backgroundColor: "#4272EF" }}>
-            {uploading ? <><Loader2 size={16} className="animate-spin" /> Uploading…</> : "Upload & Continue"}
-          </button>
-        </div>
-      )}
 
-      {step === "extracting" && (
-        <div className="py-12 text-center">
-          <Loader2 size={40} className="animate-spin mx-auto mb-4" style={{ color: "#4272EF" }} />
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Reading invoice…</h2>
-          <p className="text-gray-500 text-sm">AI is extracting details and assigning a cost code.</p>
-        </div>
-      )}
-
-      {step === "review" && (
-        <form onSubmit={handleSave} className="space-y-5">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-gray-900">Review & Save</h2>
-            {form.ai_confidence && (
-              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                form.ai_confidence === "high" ? "text-green-700 bg-green-50" :
-                form.ai_confidence === "medium" ? "text-amber-700 bg-amber-50" :
-                "text-red-700 bg-red-50"}`}>
-                <Sparkles size={11} /> AI {form.ai_confidence} confidence
-              </span>
-            )}
-          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
-              <input type="text" value={form.vendor} onChange={(e) => setField("vendor", e.target.value)}
+              <input type="text" value={item.vendor} onChange={(e) => onChange("vendor", e.target.value)}
                 placeholder="e.g. ABC Concrete"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
-              <input type="text" value={form.invoice_number} onChange={(e) => setField("invoice_number", e.target.value)}
+              <input type="text" value={item.invoice_number} onChange={(e) => onChange("invoice_number", e.target.value)}
                 placeholder="e.g. INV-0042"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date</label>
-              <input type="date" value={form.invoice_date} onChange={(e) => setField("invoice_date", e.target.value)}
+              <input type="date" value={item.invoice_date} onChange={(e) => onChange("invoice_date", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
-              <input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setField("amount", e.target.value)}
+              <input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => onChange("amount", e.target.value)}
                 placeholder="0.00"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-              <input type="date" value={form.due_date} onChange={(e) => setField("due_date", e.target.value)}
+              <input type="date" value={item.due_date} onChange={(e) => onChange("due_date", e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             <div>
-              <label className={`block text-sm font-medium mb-1 ${form.ai_confidence === "low" ? "text-red-600" : "text-gray-700"}`}>
-                Cost Code {form.ai_confidence === "low" && "(⚠ review required)"}
+              <label className={`block text-sm font-medium mb-1 ${item.ai_confidence === "low" ? "text-red-600" : "text-gray-700"}`}>
+                Cost Code {item.ai_confidence === "low" && "(⚠ review required)"}
               </label>
-              <select value={form.cost_code} onChange={(e) => setField("cost_code", e.target.value)}
-                className={`w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] ${form.ai_confidence === "low" ? "border-red-400" : "border-gray-300"}`}>
+              <select value={item.cost_code} onChange={(e) => onChange("cost_code", e.target.value)}
+                className={`w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] ${item.ai_confidence === "low" ? "border-red-400" : "border-gray-300"}`}>
                 <option value="">— Select cost code —</option>
                 <optgroup label="Land Development (1–33)">
-                  {landCodes.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description}</option>)}
+                  {landCodes.map((c) => <option key={c.code} value={String(c.code)}>{c.code} — {c.name}</option>)}
                 </optgroup>
                 <optgroup label="Home Construction (34–102)">
-                  {homeCodes.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description}</option>)}
+                  {homeCodes.map((c) => <option key={c.code} value={String(c.code)}>{c.code} — {c.name}</option>)}
                 </optgroup>
                 <optgroup label="General & Administrative (103–120)">
-                  {gaCodes.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description}</option>)}
+                  {gaCodes.map((c) => <option key={c.code} value={String(c.code)}>{c.code} — {c.name}</option>)}
                 </optgroup>
               </select>
             </div>
           </div>
-          {lineItems.length > 1 && (
+
+          {item.line_items.length > 1 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Line Items ({lineItems.length})</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Line Items ({item.line_items.length})</label>
               <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
@@ -394,7 +294,7 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {lineItems.map((li, i) => (
+                    {item.line_items.map((li, i) => (
                       <tr key={i} className="border-t border-gray-100">
                         <td className="px-3 py-2 text-gray-800">{li.cost_code}</td>
                         <td className="px-3 py-2 text-gray-600">{li.description}</td>
@@ -406,29 +306,356 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
               </div>
             </div>
           )}
-          {form.ai_notes && (
+
+          {item.ai_notes && (
             <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-600">
-              <span className="font-medium text-gray-700">AI note: </span>{form.ai_notes}
+              <span className="font-medium text-gray-700">AI note: </span>{item.ai_notes}
             </div>
           )}
-          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex gap-3 pt-2">
-            <button type="submit" disabled={saving}
-              className="flex-1 py-2 px-4 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
-              style={{ backgroundColor: "#4272EF" }}>
-              {saving ? "Saving…" : "Save Invoice"}
-            </button>
-            <Link href="/invoices" className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-              Cancel
-            </Link>
-          </div>
-        </form>
+        </div>
       )}
     </div>
   );
 }
 
-// ─── Batch upload flow ───────────────────────────────────────────────────────
+// ─── PDF viewer ───────────────────────────────────────────────────────────────
+
+function PdfPane({ objectUrl, fileName }: { objectUrl: string; fileName: string }) {
+  return (
+    <div className="flex-1 min-w-0 sticky top-6">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex flex-col" style={{ height: "calc(100vh - 120px)" }}>
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 bg-gray-50 shrink-0">
+          <FileText size={14} className="text-gray-400" />
+          <span className="text-sm text-gray-700 truncate">{fileName}</span>
+        </div>
+        <iframe src={objectUrl} className="flex-1 w-full" title="Invoice PDF" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Single-file upload flow ──────────────────────────────────────────────────
+
+function SingleUpload({ projects, costCodes, hasAI }: Props) {
+  const router = useRouter();
+  const supabase = createClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
+
+  const [step, setStep] = useState<SingleStep>("upload");
+  const [dragging, setDragging] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [filePath, setFilePath] = useState<string>("");
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceReviewItem[]>([]);
+  const [expandedSet, setExpandedSet] = useState<Set<number>>(new Set([0]));
+
+  // Cleanup object URL on unmount
+  useEffect(() => {
+    return () => { if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current); };
+  }, []);
+
+  const handleFile = useCallback((f: File) => {
+    if (!isPDF(f)) { setError("Only PDF files are supported."); return; }
+    if (!fileSizeOk(f)) { setError("File must be under 20MB."); return; }
+    setError(null);
+    setFile(f);
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    const url = URL.createObjectURL(f);
+    objectUrlRef.current = url;
+    setObjectUrl(url);
+  }, []);
+
+  function toggleExpanded(idx: number) {
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
+  function setItemField(idx: number, field: keyof InvoiceReviewItem, value: string) {
+    setInvoiceItems((items) => items.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  }
+
+  async function handleUpload() {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push("/login"); return; }
+
+    // Upload file to storage
+    const fp = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const { error: uploadError } = await supabase.storage
+      .from("invoices")
+      .upload(fp, file, { contentType: "application/pdf", upsert: false });
+    if (uploadError) { setError(`Upload failed: ${uploadError.message}`); setUploading(false); return; }
+    setFilePath(fp);
+    setUploading(false);
+
+    let items: InvoiceReviewItem[] = [];
+    let extractionFailed = false;
+
+    if (hasAI) {
+      setStep("extracting");
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("projects", JSON.stringify(
+          projects.map((p) => ({
+            id: p.id, name: p.name, type: p.project_type,
+            address: p.address ?? null, subdivision: p.subdivision ?? null,
+            block: p.block ?? null, lot: p.lot ?? null,
+          }))
+        ));
+        const res = await fetch("/api/invoices/extract", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!data.error && data.invoices?.length) {
+          items = (data.invoices as ExtractedInvoiceData[]).map(extractedToReviewItem);
+        } else {
+          extractionFailed = true;
+        }
+      } catch {
+        extractionFailed = true;
+      }
+    }
+
+    if (!items.length) {
+      items = [emptyReviewItem()];
+      if (extractionFailed) {
+        items[0].ai_notes = "AI extraction failed — please fill in the details from the PDF on the right.";
+        items[0].ai_confidence = "low";
+      }
+    }
+
+    setInvoiceItems(items);
+    setExpandedSet(new Set(items.slice(0, 5).map((_, i) => i)));
+    setStep("review");
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!filePath || !file) return;
+    setSaving(true);
+    setError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push("/login"); return; }
+
+    const errors: string[] = [];
+
+    for (let i = 0; i < invoiceItems.length; i++) {
+      const item = invoiceItems[i];
+
+      const { data: invoice, error: insertError } = await supabase
+        .from("invoices")
+        .insert({
+          project_id: item.project_id || null,
+          user_id: user.id,
+          file_path: filePath,
+          file_name: file.name,
+          vendor: item.vendor || null,
+          invoice_number: item.invoice_number || null,
+          invoice_date: item.invoice_date || null,
+          due_date: item.due_date || null,
+          amount: parseFloat(item.amount) || null,
+          total_amount: parseFloat(item.amount) || null,
+          ai_notes: item.ai_notes || null,
+          ai_confidence: (item.ai_confidence as "high" | "medium" | "low") || null,
+          processed: true,
+          status: "pending_review",
+          source: "upload",
+        })
+        .select("id")
+        .single();
+
+      if (insertError || !invoice) {
+        errors.push(`Invoice ${i + 1}: ${insertError?.message ?? "Unknown error"}`);
+        continue;
+      }
+
+      // Build line items from line_items array, or fall back to primary cost_code
+      const lineItemsToSave: { cost_code: string | null; description: string; amount: number }[] = [];
+
+      if (item.line_items.length > 0) {
+        // Use extracted line items, ensuring cost_code is set (fall back to primary if missing)
+        item.line_items.forEach((li) => {
+          lineItemsToSave.push({
+            cost_code: li.cost_code || item.cost_code || null,
+            description: li.description || "",
+            amount: li.amount || 0,
+          });
+        });
+      } else if (item.cost_code || item.amount) {
+        // Single-line invoice
+        lineItemsToSave.push({
+          cost_code: item.cost_code || null,
+          description: item.vendor || "Invoice",
+          amount: parseFloat(item.amount) || 0,
+        });
+      }
+
+      if (lineItemsToSave.length > 0) {
+        await supabase.from("invoice_line_items").insert(
+          lineItemsToSave.map((li) => ({
+            invoice_id: invoice.id,
+            cost_code: li.cost_code,
+            description: li.description,
+            amount: li.amount,
+          }))
+        );
+      }
+    }
+
+    if (errors.length > 0) {
+      setError(`Save failed: ${errors.join("; ")}`);
+      setSaving(false);
+      return;
+    }
+
+    router.push("/invoices");
+  }
+
+  const showPdf = objectUrl && file;
+
+  return (
+    <div className={showPdf ? "flex gap-6 items-start" : ""}>
+      {/* Form panel */}
+      <div className={showPdf ? "w-[480px] shrink-0" : "w-full"}>
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          {/* Step indicators */}
+          <div className="flex items-center gap-2 mb-6">
+            {(["upload", "extracting", "review"] as SingleStep[]).map((s, i) => {
+              const done = (step === "review" && s !== "review") || (step === "extracting" && s === "upload");
+              const active = step === s;
+              return (
+                <div key={s} className="flex items-center gap-2">
+                  {i > 0 && <div className={`h-px w-8 ${done ? "bg-[#4272EF]" : "bg-gray-200"}`} />}
+                  <div className={`flex items-center gap-1.5 text-xs font-medium ${active ? "text-[#4272EF]" : done ? "text-green-600" : "text-gray-400"}`}>
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${active ? "bg-[#4272EF] text-white" : done ? "bg-green-500 text-white" : "bg-gray-200 text-gray-400"}`}>
+                      {done ? <CheckCircle2 size={12} /> : i + 1}
+                    </div>
+                    {["Upload", "Extract", "Review"][i]}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {step === "upload" && (
+            <div className="space-y-5">
+              <h2 className="text-lg font-semibold text-gray-900">Upload Invoice PDF</h2>
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${dragging ? "border-[#4272EF] bg-blue-50" : file ? "border-green-400 bg-green-50" : "border-gray-300 hover:border-gray-400"}`}
+              >
+                <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" className="hidden"
+                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+                {file ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <FileText size={36} className="text-green-500" />
+                    <p className="font-medium text-gray-800">{file.name}</p>
+                    <p className="text-sm text-gray-400">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload size={36} className="text-gray-400" />
+                    <p className="font-medium text-gray-700">Drop a PDF here, or click to browse</p>
+                    <p className="text-sm text-gray-400">Single or multi-page PDF up to 20MB</p>
+                  </div>
+                )}
+              </div>
+              {hasAI && (
+                <div className="flex items-center gap-2 bg-blue-50 text-[#4272EF] text-sm px-4 py-2.5 rounded-lg">
+                  <Sparkles size={15} />
+                  AI will extract details and assign cost codes. Multi-invoice PDFs are supported.
+                </div>
+              )}
+              {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+              <button onClick={handleUpload} disabled={!file || uploading}
+                className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                style={{ backgroundColor: "#4272EF" }}>
+                {uploading ? <><Loader2 size={16} className="animate-spin" /> Uploading…</> : "Upload & Continue"}
+              </button>
+            </div>
+          )}
+
+          {step === "extracting" && (
+            <div className="py-12 text-center">
+              <Loader2 size={40} className="animate-spin mx-auto mb-4" style={{ color: "#4272EF" }} />
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Reading invoice…</h2>
+              <p className="text-gray-500 text-sm">AI is extracting details. Multi-invoice PDFs will show each separately.</p>
+            </div>
+          )}
+
+          {step === "review" && (
+            <form onSubmit={handleSave} className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Review & Save
+                  {invoiceItems.length > 1 && (
+                    <span className="ml-2 text-sm font-normal text-gray-500">
+                      — {invoiceItems.length} invoices found
+                    </span>
+                  )}
+                </h2>
+              </div>
+
+              {invoiceItems.map((item, idx) => (
+                <InvoiceCard
+                  key={idx}
+                  item={item}
+                  idx={idx}
+                  total={invoiceItems.length}
+                  projects={projects}
+                  costCodes={costCodes}
+                  expanded={expandedSet.has(idx)}
+                  onToggle={() => toggleExpanded(idx)}
+                  onChange={(field, value) => setItemField(idx, field, value)}
+                />
+              ))}
+
+              {error && (
+                <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">
+                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                  {error}
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={saving}
+                  className="flex-1 py-2 px-4 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                  style={{ backgroundColor: "#4272EF" }}>
+                  {saving
+                    ? "Saving…"
+                    : invoiceItems.length > 1
+                      ? `Save All ${invoiceItems.length} Invoices`
+                      : "Save Invoice"}
+                </button>
+                <Link href="/invoices" className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                  Cancel
+                </Link>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+
+      {/* PDF viewer panel */}
+      {showPdf && <PdfPane objectUrl={objectUrl} fileName={file.name} />}
+    </div>
+  );
+}
+
+// ─── Batch upload flow ────────────────────────────────────────────────────────
 
 const STATUS_ICON: Record<BatchStatus, React.ReactNode> = {
   queued:     <div className="w-4 h-4 rounded-full border-2 border-gray-300" />,
@@ -439,11 +666,7 @@ const STATUS_ICON: Record<BatchStatus, React.ReactNode> = {
 };
 
 const STATUS_LABEL: Record<BatchStatus, string> = {
-  queued:     "Queued",
-  uploading:  "Uploading…",
-  extracting: "Extracting…",
-  done:       "Done",
-  error:      "Error",
+  queued: "Queued", uploading: "Uploading…", extracting: "Extracting…", done: "Done", error: "Error",
 };
 
 function BatchUpload({ projects, hasAI }: Props) {
@@ -466,15 +689,11 @@ function BatchUpload({ projects, hasAI }: Props) {
       else if (!fileSizeOk(f)) errs.push(`${f.name}: over 20MB`);
       else valid.push(f);
     });
-    if (errs.length) setError(errs.join("; "));
-    else setError(null);
+    if (errs.length) setError(errs.join("; ")); else setError(null);
     if (valid.length) setItems((prev) => [...prev, ...valid.map((f) => ({ file: f, status: "queued" as BatchStatus }))]);
   }
 
-  function removeItem(idx: number) {
-    setItems((prev) => prev.filter((_, i) => i !== idx));
-  }
-
+  function removeItem(idx: number) { setItems((prev) => prev.filter((_, i) => i !== idx)); }
   function updateItem(idx: number, patch: Partial<BatchItem>) {
     setItems((prev) => prev.map((item, i) => i === idx ? { ...item, ...patch } : item));
   }
@@ -483,35 +702,32 @@ function BatchUpload({ projects, hasAI }: Props) {
     if (!items.length) return;
     setRunning(true);
     setError(null);
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.status === "done") continue;
-
-      updateItem(i, { status: "uploading" });
+      updateItem(i, { status: hasAI ? "extracting" : "uploading" });
       try {
-        updateItem(i, { status: hasAI ? "extracting" : "uploading" });
-        const { invoiceId } = await uploadAndExtract(supabase, item.file, projectId, hasAI, user.id, projects);
-        updateItem(i, { status: "done", invoiceId });
+        const { invoiceCount } = await uploadAndExtract(supabase, item.file, projectId, hasAI, user.id, projects);
+        updateItem(i, { status: "done", invoiceCount });
       } catch (err) {
         updateItem(i, { status: "error", error: (err as Error).message });
       }
     }
-
     setRunning(false);
     setDone(true);
   }
 
   const allDone = items.length > 0 && items.every((it) => it.status === "done" || it.status === "error");
   const doneCount = items.filter((it) => it.status === "done").length;
+  const totalInvoices = items.filter((it) => it.status === "done").reduce((sum, it) => sum + (it.invoiceCount ?? 1), 0);
   const errorCount = items.filter((it) => it.status === "error").length;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-      <h2 className="text-lg font-semibold text-gray-900">Batch Upload</h2>
+      <h2 className="text-lg font-semibold text-gray-900">Multiple Files</h2>
 
       {!running && !done && (
         <>
@@ -550,7 +766,7 @@ function BatchUpload({ projects, hasAI }: Props) {
                     <FileText size={16} className="text-gray-400 shrink-0" />
                     <span className="flex-1 text-sm text-gray-800 truncate">{item.file.name}</span>
                     <span className="text-xs text-gray-400">{(item.file.size / 1024).toFixed(0)} KB</span>
-                    <button onClick={() => removeItem(i)} className="text-gray-300 hover:text-red-400 transition-colors">
+                    <button type="button" onClick={() => removeItem(i)} className="text-gray-300 hover:text-red-400 transition-colors">
                       <X size={14} />
                     </button>
                   </div>
@@ -563,15 +779,15 @@ function BatchUpload({ projects, hasAI }: Props) {
             <div className="flex items-center gap-2 bg-blue-50 text-[#4272EF] text-sm px-4 py-2.5 rounded-lg">
               <Sparkles size={15} />
               {projectId === MULTI_PROJECT
-                ? "AI will extract details and attempt to assign each invoice to the correct project."
-                : "AI will extract details from each invoice automatically. Review them on the AP page after upload."}
+                ? "AI will assign each invoice to the correct project. Multi-invoice PDFs produce separate records."
+                : "AI will extract details from each file automatically."}
             </div>
           )}
 
           <button onClick={handleRun} disabled={items.length === 0}
-            className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
             style={{ backgroundColor: "#4272EF" }}>
-            Upload {items.length > 0 ? `${items.length} Invoice${items.length !== 1 ? "s" : ""}` : "Invoices"}
+            Upload {items.length > 0 ? `${items.length} File${items.length !== 1 ? "s" : ""}` : "Files"}
           </button>
         </>
       )}
@@ -583,12 +799,11 @@ function BatchUpload({ projects, hasAI }: Props) {
               <div key={i} className="flex items-center gap-3 px-3 py-2.5">
                 <div className="shrink-0">{STATUS_ICON[item.status]}</div>
                 <span className="flex-1 text-sm text-gray-800 truncate">{item.file.name}</span>
-                <span className={`text-xs font-medium ${
-                  item.status === "done" ? "text-green-600" :
-                  item.status === "error" ? "text-red-500" :
-                  item.status === "queued" ? "text-gray-400" :
-                  "text-[#4272EF]"
-                }`}>{STATUS_LABEL[item.status]}</span>
+                <span className={`text-xs font-medium ${item.status === "done" ? "text-green-600" : item.status === "error" ? "text-red-500" : item.status === "queued" ? "text-gray-400" : "text-[#4272EF]"}`}>
+                  {item.status === "done" && item.invoiceCount && item.invoiceCount > 1
+                    ? `Done (${item.invoiceCount} invoices)`
+                    : STATUS_LABEL[item.status]}
+                </span>
                 {item.status === "error" && item.error && (
                   <span className="text-xs text-red-400 max-w-[160px] truncate" title={item.error}>{item.error}</span>
                 )}
@@ -599,7 +814,9 @@ function BatchUpload({ projects, hasAI }: Props) {
           {allDone && (
             <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm ${errorCount > 0 ? "bg-amber-50 text-amber-800" : "bg-green-50 text-green-800"}`}>
               {errorCount > 0 ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-              {doneCount} uploaded successfully{errorCount > 0 ? `, ${errorCount} failed` : ""}.
+              {doneCount} file{doneCount !== 1 ? "s" : ""} processed
+              {totalInvoices !== doneCount ? ` → ${totalInvoices} invoices created` : " successfully"}
+              {errorCount > 0 ? `, ${errorCount} failed` : ""}.
             </div>
           )}
 
@@ -614,9 +831,7 @@ function BatchUpload({ projects, hasAI }: Props) {
           {!allDone && (
             <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
               <Loader2 size={14} className="animate-spin" />
-              Processing {items.filter((it) => it.status === "uploading" || it.status === "extracting").length > 0
-                ? items.find((it) => it.status === "uploading" || it.status === "extracting")?.file.name
-                : ""}…
+              Processing {items.find((it) => it.status === "uploading" || it.status === "extracting")?.file.name ?? ""}…
             </div>
           )}
         </div>
@@ -625,7 +840,7 @@ function BatchUpload({ projects, hasAI }: Props) {
   );
 }
 
-// ─── Main export ─────────────────────────────────────────────────────────────
+// ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function InvoiceUploadForm(props: Props) {
   const searchParams = useSearchParams();
@@ -635,24 +850,19 @@ export default function InvoiceUploadForm(props: Props) {
 
   return (
     <main className="flex-1 p-6 overflow-auto">
-      <div className="max-w-2xl mx-auto">
+      <div className="mx-auto" style={{ maxWidth: mode === "batch" ? "42rem" : "none" }}>
         <Link href="/invoices" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6">
           <ArrowLeft size={15} /> Accounts Payable
         </Link>
 
-        {/* Mode toggle */}
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
-          <button
-            onClick={() => setMode("single")}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "single" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-          >
-            Single Invoice
+          <button onClick={() => setMode("single")}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "single" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+            Upload PDF
           </button>
-          <button
-            onClick={() => setMode("batch")}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "batch" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
-          >
-            Batch Upload
+          <button onClick={() => setMode("batch")}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "batch" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+            Multiple Files
           </button>
         </div>
 

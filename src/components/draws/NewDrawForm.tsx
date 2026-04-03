@@ -33,6 +33,7 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [selectedLenderId, setSelectedLenderId] = useState<string>("");
+  const [excludedInvoiceIds, setExcludedInvoiceIds] = useState<Set<string>>(new Set());
 
   const lenderLoans = useMemo(
     () => loans.filter((l) => l.lender_id === selectedLenderId),
@@ -49,12 +50,36 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
     return invoices.filter((inv) => inv.project?.id && lenderProjectIds.has(inv.project.id));
   }, [invoices, selectedLenderId, lenderProjectIds]);
 
-  const total = filteredInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
+  const selectedInvoices = useMemo(
+    () => filteredInvoices.filter((inv) => !excludedInvoiceIds.has(inv.id)),
+    [filteredInvoices, excludedInvoiceIds]
+  );
 
-  // Loan breakdown for summary
+  const total = selectedInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
+
+  function toggleInvoice(id: string) {
+    setExcludedInvoiceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (excludedInvoiceIds.size === 0) {
+      // Exclude all
+      setExcludedInvoiceIds(new Set(filteredInvoices.map((inv) => inv.id)));
+    } else {
+      // Include all
+      setExcludedInvoiceIds(new Set());
+    }
+  }
+
+  // Loan breakdown for summary (only selected invoices)
   const byLoan = useMemo(() => {
     const map = new Map<string, { loanNum: string; total: number; count: number }>();
-    for (const inv of filteredInvoices) {
+    for (const inv of selectedInvoices) {
       const key = inv.loan_number ?? "No Loan";
       const existing = map.get(key);
       if (existing) {
@@ -65,14 +90,14 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
       }
     }
     return Array.from(map.values());
-  }, [filteredInvoices]);
+  }, [selectedInvoices]);
 
   function handleSubmit() {
     setError(null);
     if (!selectedLenderId) { setError("Please select a lender"); return; }
-    if (filteredInvoices.length === 0) { setError("No qualifying invoices for this lender"); return; }
+    if (selectedInvoices.length === 0) { setError("Select at least one invoice for this draw"); return; }
     startTransition(async () => {
-      const result = await createDraw(selectedLenderId);
+      const result = await createDraw(selectedLenderId, selectedInvoices.map((inv) => inv.id));
       if (result.error) {
         setError(result.error);
       } else {
@@ -81,8 +106,8 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
     });
   }
 
-  const pastDueCount = filteredInvoices.filter((i) => dueDateStatus(i.due_date) === "past_due").length;
-  const dueSoonCount = filteredInvoices.filter((i) => dueDateStatus(i.due_date) === "due_soon").length;
+  const pastDueCount = selectedInvoices.filter((i) => dueDateStatus(i.due_date) === "past_due").length;
+  const dueSoonCount = selectedInvoices.filter((i) => dueDateStatus(i.due_date) === "due_soon").length;
 
   return (
     <div className="space-y-5">
@@ -93,7 +118,7 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
         </label>
         <select
           value={selectedLenderId}
-          onChange={(e) => { setSelectedLenderId(e.target.value); setError(null); }}
+          onChange={(e) => { setSelectedLenderId(e.target.value); setError(null); setExcludedInvoiceIds(new Set()); }}
           className="w-full max-w-lg px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
         >
           <option value="">— Select lender —</option>
@@ -145,7 +170,7 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">
-              Invoices to include ({filteredInvoices.length})
+              Invoices ({selectedInvoices.length} of {filteredInvoices.length} selected)
             </h3>
             <span className="text-xs">
               {pastDueCount > 0 && (
@@ -160,6 +185,15 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="w-10 px-4 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={excludedInvoiceIds.size === 0 && filteredInvoices.length > 0}
+                    onChange={toggleAll}
+                    className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                    title="Select / deselect all"
+                  />
+                </th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Vendor / Invoice</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Project</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Loan #</th>
@@ -172,11 +206,20 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
                 const status = dueDateStatus(inv.due_date);
                 const isPastDue = status === "past_due";
                 const isDueSoon = status === "due_soon";
+                const isExcluded = excludedInvoiceIds.has(inv.id);
                 return (
                   <tr
                     key={inv.id}
-                    className={isPastDue ? "bg-red-50/40" : isDueSoon ? "bg-amber-50/40" : ""}
+                    className={`${isExcluded ? "opacity-50" : ""} ${isPastDue ? "bg-red-50/40" : isDueSoon ? "bg-amber-50/40" : ""}`}
                   >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={!isExcluded}
+                        onChange={() => toggleInvoice(inv.id)}
+                        className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900 flex items-center gap-1.5">
                         {isPastDue && <AlertTriangle size={12} className="text-red-500 flex-shrink-0" />}
@@ -214,7 +257,7 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
             <div className="space-y-3 flex-1">
               <div>
                 <p className="text-sm text-gray-500">
-                  {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? "s" : ""} will be included
+                  {selectedInvoices.length} invoice{selectedInvoices.length !== 1 ? "s" : ""} will be included
                 </p>
                 <p className="text-xl font-semibold text-gray-900 mt-0.5">{fmt(total)}</p>
               </div>

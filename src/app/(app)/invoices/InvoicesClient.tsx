@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useTransition } from "react";
 import { FileText, Plus, Trash2, CheckCircle2, Clock, AlertCircle, CreditCard, XCircle, Bot } from "lucide-react";
-import { createInvoice, updateInvoiceStatus, deleteInvoice } from "./actions";
+import { createInvoice, updateInvoiceStatus, updatePendingDraw, deleteInvoice } from "./actions";
 import type { Database } from "@/types/database";
 
 type Invoice = Database["public"]["Tables"]["invoices"]["Row"];
@@ -370,8 +370,8 @@ export default function InvoicesClient({
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Vendor</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Due</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Amount</th>
-                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-xs font-medium text-gray-500 uppercase">Action</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Draw</th>
                 <th className="px-2 py-3"></th>
               </tr>
             </thead>
@@ -430,45 +430,38 @@ export default function InvoicesClient({
                         {isPastDue && " ⚠"}
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-gray-900">{fmt(inv.total_amount)}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${status.color}`}>
-                          {status.icon} {status.label}
-                        </span>
-                      </td>
                       <td className="px-4 py-3">
-                        {nextAction && !isLowConfidence && inv.status !== "paid" && (
-                          nextAction.next === "paid" ? (
-                            <button
-                              onClick={() => setMarkingPaidId(markingPaidId === inv.id ? null : inv.id)}
-                              className="text-xs text-white bg-[#4272EF] hover:bg-[#3461de] px-2 py-1 rounded-lg"
-                            >
-                              {nextAction.action}
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() =>
-                                startTransition(async () => {
-                                  await updateInvoiceStatus(inv.id, nextAction.next);
-                                })
-                              }
-                              className="text-xs text-white bg-[#4272EF] hover:bg-[#3461de] px-2 py-1 rounded-lg"
-                            >
-                              {nextAction.action}
-                            </button>
-                          )
-                        )}
-                        {inv.status === "approved" && (
-                          <button
-                            onClick={() =>
+                        <select
+                          value={inv.status}
+                          onChange={(e) => {
+                            const newStatus = e.target.value;
+                            if (newStatus === "paid") {
+                              setMarkingPaidId(markingPaidId === inv.id ? null : inv.id);
+                            } else {
                               startTransition(async () => {
-                                await updateInvoiceStatus(inv.id, "disputed");
-                              })
+                                await updateInvoiceStatus(inv.id, newStatus);
+                              });
                             }
-                            className="ml-1 text-xs text-gray-400 hover:text-red-500 px-2 py-1 rounded-lg border border-gray-200"
-                          >
-                            Dispute
-                          </button>
-                        )}
+                          }}
+                          className={`text-xs border rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#4272EF] ${status.color}`}
+                        >
+                          {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                            <option key={k} value={k}>{v.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={inv.pending_draw ?? false}
+                          onChange={(e) => {
+                            startTransition(async () => {
+                              await updatePendingDraw(inv.id, e.target.checked);
+                            });
+                          }}
+                          className="w-4 h-4 rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF] cursor-pointer"
+                          title="Include in draw request"
+                        />
                       </td>
                       <td className="px-2 py-3 text-right">
                         <button
@@ -486,7 +479,7 @@ export default function InvoicesClient({
                     </tr>
                     {markingPaidId === inv.id && (
                       <tr key={`${inv.id}-paid`}>
-                        <td colSpan={selectMode ? 9 : 8} className="px-4 pb-3">
+                        <td colSpan={selectMode ? 9 : 8} className="px-4 pb-3" style={{paddingTop: 0}}>
                           <MarkPaidForm invoice={inv} onDone={() => setMarkingPaidId(null)} />
                         </td>
                       </tr>

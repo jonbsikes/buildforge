@@ -31,6 +31,10 @@ export interface SaveInvoiceInput {
 
   // Derived from line items
   project_name: string; // for display name, "Company" if G&A
+
+  // User-selected at creation
+  status?: "pending_review" | "approved" | "scheduled" | "paid" | "disputed";
+  pending_draw?: boolean;
 }
 
 export async function saveInvoice(
@@ -104,14 +108,14 @@ export async function saveInvoice(
       due_date: dueDate,
       amount: totalAmount,
       total_amount: totalAmount,
-      status: "pending_review",
+      status: input.status ?? "pending_review",
       ai_confidence: input.ai_confidence,
       ai_notes: input.ai_notes || null,
       source: input.source,
       file_path: input.file_path || null,
       file_name: displayName,
       cost_code_id: dominantCode?.id ?? null,
-      pending_draw: false,
+      pending_draw: input.pending_draw ?? false,
       manually_reviewed: false,
     })
     .select("id")
@@ -193,6 +197,24 @@ export async function setPendingDraw(
 
   if (error) return { error: error.message };
 
+  revalidatePath("/invoices");
+  return {};
+}
+
+export async function setInvoiceStatus(
+  invoiceId: string,
+  status: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("invoices")
+    .update({ status })
+    .eq("id", invoiceId);
+
+  if (error) return { error: error.message };
   revalidatePath("/invoices");
   return {};
 }

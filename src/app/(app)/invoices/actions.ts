@@ -68,3 +68,9 @@ export async function deleteInvoice(id: string) {
   await supabase.from("invoices").delete().eq("id", id);
   revalidatePath("/invoices");
 }
+
+export async function updatePendingDraw(id: string, pending_draw: boolean) {
+  const supabase = await createClient();
+  await supabase.from("invoices").update({ pending_draw }).eq("id", id);
+  revalidatePath("/invoices");
+}

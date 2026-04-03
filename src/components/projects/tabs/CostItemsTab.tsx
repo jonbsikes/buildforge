@@ -228,18 +228,20 @@ function RemoveCodeButton({
 // Main component
 // ---------------------------------------------------------------------------
 export default function CostItemsTab({
-  projectId, isHome, costCodes, availableCostCodes, phases,
+  projectId, isHome, costCodes, availableCostCodes, phases, actualByCostCodeId,
 }: {
   projectId: string;
   isHome: boolean;
   costCodes: CostCode[];
   availableCostCodes: AvailableCostCode[];
   phases: Phase[];
+  actualByCostCodeId: Record<string, number>;
 }) {
   const [activeCodes, setActiveCodes] = useState(costCodes);
   const [available, setAvailable] = useState(availableCostCodes);
 
-  const totalBudget = activeCodes.reduce((s, c) => s + (c.budgeted_amount ?? 0), 0);
+  const totalBudget = activeCodes.reduce((s, c) => s + (c.budgeted_amount ?? 0), 0); // kept for future use
+  const totalActual = activeCodes.reduce((s, c) => s + (actualByCostCodeId[c.id] ?? 0), 0);
 
   function handleAdded(cc: AvailableCostCode) {
     // Optimistically move from available → active (budgeted_amount will be 0 until page refresh)
@@ -306,11 +308,8 @@ export default function CostItemsTab({
         <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
           <div>
             <h3 className="text-sm font-semibold text-gray-700">
-              Cost Items — {isHome ? "Home Construction" : "Land Development"}
+              Job Costs — {isHome ? "Home Construction" : "Land Development"}
             </h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Total budget: <span className="font-semibold text-gray-700">{fmt(totalBudget)}</span>
-            </p>
           </div>
           {available.length > 0 && (
             <AddCostCodePanel
@@ -333,8 +332,7 @@ export default function CostItemsTab({
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Code</th>
                   <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Description</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Category</th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Budget</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Actual Costs</th>
                   <th className="w-8"></th>
                 </tr>
               </thead>
@@ -343,9 +341,10 @@ export default function CostItemsTab({
                   <tr key={cc.pccId || cc.code} className="hover:bg-gray-50 transition-colors group">
                     <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{cc.code}</td>
                     <td className="px-4 py-2.5 text-gray-900">{cc.name}</td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500">{CATEGORY_LABEL(cc.category)}</td>
                     <td className="px-4 py-2.5 text-right text-gray-800 font-medium">
-                      {cc.budgeted_amount > 0 ? fmt(cc.budgeted_amount) : <span className="text-gray-300">—</span>}
+                      {(actualByCostCodeId[cc.id] ?? 0) > 0
+                        ? fmt(actualByCostCodeId[cc.id])
+                        : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                       {cc.pccId && (
@@ -361,8 +360,8 @@ export default function CostItemsTab({
               </tbody>
               <tfoot>
                 <tr className="border-t border-gray-200 bg-gray-50">
-                  <td colSpan={3} className="px-4 py-3 text-xs font-semibold text-gray-600">Total</td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{fmt(totalBudget)}</td>
+                  <td colSpan={2} className="px-4 py-3 text-xs font-semibold text-gray-600">Total</td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{fmt(totalActual)}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -374,3 +373,4 @@ export default function CostItemsTab({
     </div>
   );
 }
+                                                                                                                                                          

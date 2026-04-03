@@ -44,6 +44,7 @@ interface Props {
     ach_account_type: string | null;
   };
   prefillName?: string; // pre-populated from invoice "Create new vendor"
+  returnTo?: string; // "invoice" → redirect back to new invoice with vendor pre-selected
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +225,7 @@ function ic() {
 // Main form
 // ---------------------------------------------------------------------------
 
-export default function VendorForm({ costCodes, initialData, prefillName }: Props) {
+export default function VendorForm({ costCodes, initialData, prefillName, returnTo }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -342,7 +343,11 @@ export default function VendorForm({ costCodes, initialData, prefillName }: Prop
       } else {
         const result = await createVendor(data);
         if (result.error) setError(result.error);
-        else router.push("/vendors");
+        else if (returnTo === "invoice" && result.vendorId) {
+          router.push(`/invoices/new?vendorId=${result.vendorId}`);
+        } else {
+          router.push("/vendors");
+        }
       }
     });
   }
@@ -531,7 +536,7 @@ export default function VendorForm({ costCodes, initialData, prefillName }: Prop
       <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={() => router.push("/vendors")}
+          onClick={() => router.push(returnTo === "invoice" ? "/invoices/new" : "/vendors")}
           className="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
         >
           Cancel

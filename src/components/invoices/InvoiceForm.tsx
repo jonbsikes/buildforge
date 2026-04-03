@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { saveInvoice } from "@/app/actions/invoices";
-import type { ExtractedInvoiceData } from "@/app/api/invoices/extract/route";
+import type { ExtractedInvoiceData, ExtractedInvoiceResponse } from "@/app/api/invoices/extract/route";
 import { createClient } from "@/lib/supabase/client";
 
 interface Vendor {
@@ -99,6 +99,8 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [status, setStatus] = useState<"pending_review" | "approved" | "scheduled" | "paid" | "disputed">("pending_review");
+  const [pendingDraw, setPendingDraw] = useState(false);
 
   // Line items
   const [lineItems, setLineItems] = useState<LineItem[]>([{ ...EMPTY_LINE }]);
@@ -110,6 +112,31 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewUrl]);
+
+  // Restore form state when returning from vendor creation
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const returnedVendorId = params.get("vendorId");
+    const saved = sessionStorage.getItem("invoice_draft");
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        if (draft.projectId) setProjectId(draft.projectId);
+        if (draft.vendorName) setVendorName(draft.vendorName);
+        if (draft.invoiceNumber) setInvoiceNumber(draft.invoiceNumber);
+        if (draft.invoiceDate) setInvoiceDate(draft.invoiceDate);
+        if (draft.dueDate) setDueDate(draft.dueDate);
+        if (draft.lineItems?.length) setLineItems(draft.lineItems);
+        if (draft.aiConfidence) setAiConfidence(draft.aiConfidence);
+        if (draft.aiNotes) setAiNotes(draft.aiNotes);
+      } catch {}
+      sessionStorage.removeItem("invoice_draft");
+    }
+    if (returnedVendorId) {
+      setVendorId(returnedVendorId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Derived context
   const selectedProject = projects.find((p) => p.id === projectId) ?? null;
@@ -142,7 +169,9 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     if (!manuallyEdited) setManuallyEdited(true);
   }
 
-  // PDF upload handler
+  const ACCEPTED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"];
+
+  // PDF / image upload handler
   async function handleFileSelect(file: File) {
     setUploadedFile(file);
     setExtractionError(null);
@@ -172,7 +201,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
 
       const [uploadResult, extractRes] = await Promise.allSettled([
         supabase.storage.from("invoices").upload(storagePath, file, { contentType: file.type }),
-        fetch("/api/invoices/extract", { method: "POST", body: fd }).then((r) => r.json() as Promise<ExtractedInvoiceData & { error?: string }>),
+        fetch("/api/invoices/extract", { method: "POST", body: fd }).then((r) => r.json() as Promise<(ExtractedInvoiceResponse & { error?: string }) | { error: string }>),
       ]);
 
       // Save file path if upload succeeded
@@ -180,30 +209,42 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         setUploadedFilePath(uploadResult.value.data.path);
       }
 
-      // Handle extraction
+      // Handle extraction — if it fails, the file is still uploaded and the form is usable
       if (extractRes.status === "rejected") {
-        setExtractionError("Could not reach extraction service");
+        setExtractionError("AI extraction unavailable — file uploaded. Fill in the details manually.");
         return;
       }
       const data = extractRes.value;
       if (data.error) {
-        setExtractionError(data.error ?? "Extraction failed");
+        setExtractionError(`AI extraction failed: ${data.error ?? "Unknown error"}. File uploaded — fill in the details manually.`);
         return;
       }
 
+      // Use first invoice from the array response
+      const inv: ExtractedInvoiceData | undefined = "invoices" in data ? data.invoices?.[0] : undefined;
+      if (!inv) {
+        setExtractionError("AI extraction returned no data. File uploaded — fill in the details manually.");
+        return;
+      }
+
+      // Warn if PDF had multiple invoices (use the upload page to import all)
+      if ("invoices" in data && data.invoices.length > 1) {
+        setAiNotes(`Note: this PDF contained ${data.invoices.length} invoices. Only the first was pre-filled here. Use the Upload page to import all of them.`);
+      }
+
       // Pre-fill form
-      setVendorName(data.vendor ?? "");
-      setInvoiceNumber(data.invoice_number ?? "");
-      setInvoiceDate(data.invoice_date ?? "");
-      setDueDate(data.due_date ?? "");
-      setAiConfidence(data.ai_confidence ?? "low");
-      setAiNotes(data.ai_notes ?? "");
-      if (data.project_id) setProjectId(data.project_id);
+      setVendorName(inv.vendor ?? "");
+      setInvoiceNumber(inv.invoice_number ?? "");
+      setInvoiceDate(inv.invoice_date ?? "");
+      setDueDate(inv.due_date ?? "");
+      setAiConfidence(inv.ai_confidence ?? "low");
+      if (!("invoices" in data && data.invoices.length > 1)) setAiNotes(inv.ai_notes ?? "");
+      if (inv.project_id) setProjectId(inv.project_id);
 
       // Pre-fill line items
-      if (data.line_items?.length > 0) {
+      if (inv.line_items?.length > 0) {
         setLineItems(
-          data.line_items.map((li) => ({
+          inv.line_items.map((li) => ({
             cost_code: li.cost_code ?? "",
             description: li.description ?? "",
             amount: li.amount != null ? String(li.amount) : "",
@@ -213,20 +254,41 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
 
       // Match vendor by name if possible
       const matchedVendor = vendors.find(
-        (v) => v.name.toLowerCase() === (data.vendor ?? "").toLowerCase()
+        (v) => v.name.toLowerCase() === (inv.vendor ?? "").toLowerCase()
       );
       if (matchedVendor) setVendorId(matchedVendor.id);
     } catch {
-      setExtractionError("Could not reach extraction service");
+      setExtractionError("AI extraction unavailable — file uploaded. Fill in the details manually.");
     } finally {
       setIsExtracting(false);
     }
   }
 
+  // Drag-and-drop state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropError, setDropError] = useState<string | null>(null);
+
   function handleFileDrop(e: React.DragEvent) {
     e.preventDefault();
+    setIsDragging(false);
+    setDropError(null);
     const file = e.dataTransfer.files[0];
-    if (file?.type === "application/pdf") handleFileSelect(file);
+    if (!file) return;
+    if (ACCEPTED_TYPES.includes(file.type)) {
+      handleFileSelect(file);
+    } else {
+      setDropError("Unsupported file type. Please use PDF, PNG, JPG, or WebP.");
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(false);
   }
 
   // Line item handlers
@@ -289,6 +351,8 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         ai_notes: aiNotes,
         line_items: parsedItems,
         project_name: selectedProject?.name ?? "Company",
+        status,
+        pending_draw: pendingDraw,
       });
 
       if (result.error) {
@@ -331,17 +395,25 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         {!uploadedFile ? (
           <div
             onDrop={handleFileDrop}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center cursor-pointer hover:border-[#4272EF] hover:bg-blue-50/30 transition-colors"
+            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+              isDragging
+                ? "border-[#4272EF] bg-blue-50/50 ring-2 ring-[#4272EF]/20"
+                : "border-gray-200 hover:border-[#4272EF] hover:bg-blue-50/30"
+            }`}
           >
-            <Upload size={24} className="text-gray-400 mx-auto mb-2" />
-            <p className="text-sm text-gray-500">Drop a PDF here or click to browse</p>
-            <p className="text-xs text-gray-400 mt-1">AI will extract all fields automatically</p>
+            <Upload size={24} className={`mx-auto mb-2 ${isDragging ? "text-[#4272EF]" : "text-gray-400"}`} />
+            <p className="text-sm text-gray-500">
+              {isDragging ? "Drop file here" : "Drag & drop a file here, or click to browse"}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">PDF or image — AI will extract all fields automatically</p>
+            {dropError && <p className="text-xs text-red-600 mt-2">{dropError}</p>}
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/pdf"
+              accept="application/pdf,image/png,image/jpeg,image/webp"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -391,7 +463,10 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
           </div>
         )}
         {extractionError && (
-          <p className="mt-2 text-xs text-red-600">{extractionError}</p>
+          <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-amber-500" />
+            <p className="text-xs text-amber-700">{extractionError}</p>
+          </div>
         )}
       </section>
 
@@ -430,12 +505,22 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
                 </option>
               ))}
             </select>
-            <a
-              href={`/vendors/new${vendorName ? `?name=${encodeURIComponent(vendorName)}` : ""}`}
+            <button
+              type="button"
+              onClick={() => {
+                sessionStorage.setItem("invoice_draft", JSON.stringify({
+                  projectId, vendorName, invoiceNumber, invoiceDate, dueDate,
+                  lineItems, aiConfidence, aiNotes,
+                }));
+                const params = new URLSearchParams();
+                if (vendorName) params.set("name", vendorName);
+                params.set("returnTo", "invoice");
+                router.push(`/vendors/new?${params.toString()}`);
+              }}
               className="inline-block mt-1 text-xs text-[#4272EF] hover:underline"
             >
               + Create new vendor
-            </a>
+            </button>
           </Field>
         </div>
 
@@ -477,6 +562,32 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               className={inputClass(false)}
             />
           </Field>
+        </div>
+
+        <div className="flex items-end gap-6">
+          <Field label="Status">
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as typeof status)}
+              className={inputClass(false)}
+            >
+              <option value="pending_review">Pending Review</option>
+              <option value="approved">Approved</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="paid">Paid</option>
+              <option value="disputed">Disputed</option>
+            </select>
+          </Field>
+
+          <label className="flex items-center gap-2 pb-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={pendingDraw}
+              onChange={(e) => setPendingDraw(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+            />
+            <span className="text-sm text-gray-700 font-medium">Include in draw request</span>
+          </label>
         </div>
       </section>
 
@@ -596,12 +707,21 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               Open in new tab ↗
             </a>
           </div>
-          <iframe
-            src={previewUrl}
-            title={uploadedFile.name}
-            className="w-full border-0"
-            style={{ height: 900 }}
-          />
+          {uploadedFile.type === "application/pdf" ? (
+            <iframe
+              src={previewUrl}
+              title={uploadedFile.name}
+              className="w-full border-0"
+              style={{ height: 900 }}
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={previewUrl}
+              alt={uploadedFile.name}
+              className="w-full max-h-[900px] object-contain p-4"
+            />
+          )}
         </div>
       )}
     </div>

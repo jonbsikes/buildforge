@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { AlertTriangle, Clock, Printer } from "lucide-react";
 import DrawActions from "@/components/draws/DrawActions";
 import RemoveInvoiceButton from "@/components/draws/RemoveInvoiceButton";
+import VendorPaymentsPanel from "@/components/draws/VendorPaymentsPanel";
 import React from "react";
 import { drawDisplayName } from "@/lib/draws";
 
@@ -70,6 +71,15 @@ export default async function DrawDetailPage({ params }: Props) {
 
   const lender = draw.contacts as { id: string; name: string } | null;
   const canEdit = draw.status !== "paid";
+
+  // Check whether vendor payment records exist for this draw so we know
+  // whether to show the legacy bulk "Mark as Paid" button or the new
+  // per-vendor check remittance workflow.
+  const { count: vpCount } = await supabase
+    .from("vendor_payments")
+    .select("id", { count: "exact", head: true })
+    .eq("draw_id", id);
+  const hasVendorPayments = (vpCount ?? 0) > 0;
 
   // Build typed invoice rows
   const rawRows = (drawInvoices ?? []).map((di) => {
@@ -209,6 +219,11 @@ export default async function DrawDetailPage({ params }: Props) {
             </div>
           )}
 
+          {/* Check Remittances — shown when funded and vendor payment records exist */}
+          {draw.status === "funded" && hasVendorPayments && (
+            <VendorPaymentsPanel drawId={id} />
+          )}
+
           {/* Invoice table grouped by loan */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
@@ -326,7 +341,7 @@ export default async function DrawDetailPage({ params }: Props) {
           </div>
 
           {/* Actions */}
-          <DrawActions drawId={id} status={draw.status} />
+          <DrawActions drawId={id} status={draw.status} hasVendorPayments={hasVendorPayments} />
         </div>
       </main>
     </>

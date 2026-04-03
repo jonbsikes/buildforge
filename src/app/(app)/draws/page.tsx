@@ -1,18 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
-import { Plus, FileText } from "lucide-react";
+import { Plus } from "lucide-react";
 import { getDrawableInvoices } from "@/app/actions/draws";
-import { drawDisplayName } from "@/lib/draws";
+import DrawsTableClient from "@/components/draws/DrawsTableClient";
 
 export const dynamic = "force-dynamic";
-
-const STATUS_COLORS: Record<string, string> = {
-  draft:     "bg-gray-100 text-gray-600",
-  submitted: "bg-amber-100 text-amber-700",
-  funded:    "bg-blue-100 text-blue-700",
-  paid:      "bg-green-100 text-green-700",
-};
 
 function fmt(n: number | null) {
   if (n == null) return "—";
@@ -30,7 +23,14 @@ export default async function DrawsPage() {
     getDrawableInvoices(),
   ]);
 
-  const draws = drawsResult.data ?? [];
+  const rawDraws = drawsResult.data ?? [];
+  const draws = rawDraws.map((d) => ({
+    id: d.id,
+    draw_date: d.draw_date,
+    total_amount: d.total_amount,
+    status: d.status,
+    lenderName: (d.contacts as { name: string } | null)?.name ?? null,
+  }));
   const eligibleInvoices = eligibleResult.invoices ?? [];
   const eligibleTotal = eligibleInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
 
@@ -88,57 +88,7 @@ export default async function DrawsPage() {
             )}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  {["Draw", "Date", "Lender", "Total", "Status", ""].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {draws.map((draw) => {
-                  const lender = draw.contacts as { name: string } | null;
-                  return (
-                    <tr key={draw.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        {drawDisplayName(draw.draw_date)}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{draw.draw_date}</td>
-                      <td className="px-4 py-3 text-gray-700">{lender?.name ?? "—"}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{fmt(draw.total_amount)}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                            STATUS_COLORS[draw.status] ?? "bg-gray-100 text-gray-600"
-                          }`}
-                        >
-                          {draw.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/draws/${draw.id}`}
-                          className="flex items-center gap-1.5 text-xs text-[#4272EF] hover:text-[#3461de] font-medium transition-colors"
-                        >
-                          <FileText size={13} />
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            </div>
-          </div>
+          <DrawsTableClient draws={draws} />
         )}
       </main>
     </>

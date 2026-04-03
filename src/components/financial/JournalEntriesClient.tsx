@@ -3,11 +3,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, HardHat, Home, DollarSign } from "lucide-react";
+import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, HardHat, Home, DollarSign, Landmark, Percent } from "lucide-react";
 import { createJournalEntry, voidJournalEntry, type JournalLineInput } from "@/app/actions/journal-entries";
 
 type Account = { id: string; account_number: string; name: string; type: string; subtype: string | null };
 type Project = { id: string; name: string };
+type Loan = { id: string; loan_number: string; project_id: string; loan_type: string; project?: { name: string } | null };
 
 type JournalLine = {
   id: string;
@@ -27,12 +28,14 @@ type JournalEntry = {
   description: string;
   status: "draft" | "posted" | "voided";
   source_type: string | null;
+  loan_id: string | null;
+  loan?: { loan_number: string } | null;
   created_at: string;
   total_debits: number;
   lines?: JournalLine[];
 };
 
-type EntryType = "general" | "wip_costs" | "home_closing" | "capitalized_interest";
+type EntryType = "general" | "wip_costs" | "home_closing" | "capitalized_interest" | "loan_draw" | "loan_interest";
 
 const EMPTY_LINE = (): JournalLineInput & { _key: number } => ({
   _key: Date.now() + Math.random(),
@@ -48,6 +51,8 @@ const ENTRY_TYPES: { value: EntryType; label: string; icon: React.ReactNode; des
   { value: "wip_costs",           label: "Construction WIP",     icon: <HardHat size={13} />,    description: "Capitalize costs to balance sheet" },
   { value: "home_closing",        label: "Home Closing",         icon: <Home size={13} />,       description: "Transfer WIP to COGS + record sale" },
   { value: "capitalized_interest",label: "Capitalized Interest", icon: <DollarSign size={13} />, description: "Capitalize loan interest to WIP" },
+  { value: "loan_draw",           label: "Loan Draw",             icon: <Landmark size={13} />,   description: "Record funded draw — cash in, loan payable up" },
+  { value: "loan_interest",       label: "Loan Interest Payment", icon: <Percent size={13} />,    description: "Record interest payment on construction loan" },
 ];
 
 function fmt(n: number) {
@@ -59,6 +64,7 @@ export default function JournalEntriesClient() {
   const [entries, setEntries]     = useState<JournalEntry[]>([]);
   const [accounts, setAccounts]   = useState<Account[]>([]);
   const [projects, setProjects]   = useState<Project[]>([]);
+  const [loans, setLoans]         = useState<Loan[]>([]);
   const [loading, setLoading]     = useState(true);
   const [showForm, setShowForm]   = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -66,6 +72,7 @@ export default function JournalEntriesClient() {
   const [formError, setFormError] = useState("");
 
   // Form state
+  const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [entryType, setEntryType] = useState<EntryType>("general");
   const [entryDate, setEntryDate] = useState(new Date().toISOString().split("T")[0]);
   const [reference, setReference] = useState("");
@@ -76,10 +83,11 @@ export default function JournalEntriesClient() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: entriesData }, { data: accsData }, { data: projData }] = await Promise.all([
-      supabase.from("journal_entries").select("id, entry_date, reference, description, status, source_type, created_at").order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
+    const [{ data: entriesData }, { data: accsData }, { data: projData }, { data: loansData }] = await Promise.all([
+      supabase.from("journal_entries").select("id, entry_date, reference, description, status, source_type, loan_id, loan:loans(loan_number), created_at").order("entry_date", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("chart_of_accounts").select("id, account_number, name, type, subtype").eq("is_active", true).order("account_number"),
       supabase.from("projects").select("id, name").order("name"),
+      supabase.from("loans").select("id, loan_number, project_id, loan_type, project:projects(name)").order("loan_number"),
     ]);
     const enriched: JournalEntry[] = [];
     for (const e of entriesData ?? []) {
@@ -90,6 +98,7 @@ export default function JournalEntriesClient() {
     setEntries(enriched);
     setAccounts(accsData ?? []);
     setProjects(projData ?? []);
+    setLoans((loansData as unknown as Loan[]) ?? []);
     setLoading(false);
   }, []);
 
@@ -135,6 +144,20 @@ export default function JournalEntriesClient() {
       setLines([
         { ...EMPTY_LINE(), account_id: getAccountId("1220"), description: "Interest capitalized" },
         { ...EMPTY_LINE(), account_id: getAccountId("2110"), description: "Accrued interest — construction loan" },
+      ]);
+    } else if (type === "loan_draw") {
+      setDescription("Construction loan draw — funded");
+      setSelectedLoanId(null);
+      setLines([
+        { ...EMPTY_LINE(), account_id: getAccountId("1000"), description: "Draw proceeds deposited" },
+        { ...EMPTY_LINE(), account_id: getAccountId("2100"), description: "Construction loan payable" },
+      ]);
+    } else if (type === "loan_interest") {
+      setDescription("Construction loan interest payment");
+      setSelectedLoanId(null);
+      setLines([
+        { ...EMPTY_LINE(), account_id: getAccountId("1220"), description: "Interest capitalized to project" },
+        { ...EMPTY_LINE(), account_id: getAccountId("1000"), description: "Cash — interest payment" },
       ]);
     } else {
       setLines([EMPTY_LINE(), EMPTY_LINE()]);
@@ -195,6 +218,7 @@ export default function JournalEntriesClient() {
     setLines([EMPTY_LINE(), EMPTY_LINE()]);
     setFormError("");
     setProjectWipBalance(null);
+    setSelectedLoanId(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -206,7 +230,16 @@ export default function JournalEntriesClient() {
     if (!balanced) { setFormError(`Entry does not balance. Debits: $${totalDebits.toFixed(2)}, Credits: $${totalCredits.toFixed(2)}`); return; }
     setSaving(true);
     try {
-      await createJournalEntry({ entry_date: entryDate, reference, description, status, lines: filledLines });
+      const loanSourceType = entryType === "loan_draw" ? "loan_draw" : entryType === "loan_interest" ? "loan_interest" : undefined;
+      await createJournalEntry({
+        entry_date: entryDate,
+        reference,
+        description,
+        status,
+        loan_id: selectedLoanId,
+        source_type: loanSourceType,
+        lines: filledLines.map((l) => ({ ...l, loan_id: selectedLoanId })),
+      });
       setShowForm(false);
       resetForm();
       load();
@@ -237,10 +270,35 @@ export default function JournalEntriesClient() {
   }, {});
 
   const showProjectControl = entryType !== "general";
+  const showLoanControl = entryType === "loan_draw" || entryType === "loan_interest";
   const sharedProject = showProjectControl ? (lines[0]?.project_id ?? null) : null;
+
+  function handleLoanSelect(loanId: string | null) {
+    setSelectedLoanId(loanId);
+    if (loanId) {
+      const loan = loans.find((l) => l.id === loanId);
+      if (loan?.project_id) setAllProject(loan.project_id);
+    }
+  }
 
   const wipBanner: Record<EntryType, React.ReactNode> = {
     general: null,
+    loan_draw: (
+      <div className="flex items-start gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700 mb-4">
+        <Landmark size={14} className="flex-shrink-0 mt-0.5 text-indigo-500" />
+        <div>
+          <strong>Loan Draw:</strong> Debit <strong>1000 Cash</strong> (draw proceeds deposited) · Credit <strong>2100 Construction Loan Payable</strong>. Select the loan above to auto-link the project. The draw amount increases the outstanding loan balance.
+        </div>
+      </div>
+    ),
+    loan_interest: (
+      <div className="flex items-start gap-2 p-3 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-700 mb-4">
+        <Percent size={14} className="flex-shrink-0 mt-0.5 text-purple-500" />
+        <div>
+          <strong>Interest Payment:</strong> Debit <strong>1220 Capitalized Interest</strong> (adds to project cost on balance sheet) · Credit <strong>1000 Cash</strong>. Per GAAP, construction loan interest is capitalized during active construction — not expensed to 6710.
+        </div>
+      </div>
+    ),
     wip_costs: (
       <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 mb-4">
         <Info size={14} className="flex-shrink-0 mt-0.5 text-blue-500" />
@@ -304,7 +362,7 @@ export default function JournalEntriesClient() {
           {/* Entry Type */}
           <div className="mb-5">
             <label className="block text-xs text-gray-500 font-medium mb-2">Entry Type</label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {ENTRY_TYPES.map((et) => (
                 <button
                   key={et.value}
@@ -342,6 +400,15 @@ export default function JournalEntriesClient() {
                   <option value="draft">Draft</option>
                 </select>
               </div>
+              {showLoanControl && (
+                <div>
+                  <label className="block text-xs text-gray-500 font-medium mb-1">Loan</label>
+                  <select value={selectedLoanId ?? ""} onChange={(e) => handleLoanSelect(e.target.value || null)} className={selectCls}>
+                    <option value="">— Select loan —</option>
+                    {loans.map((l) => <option key={l.id} value={l.id}>#{l.loan_number} — {l.project?.name ?? "Unlinked"}</option>)}
+                  </select>
+                </div>
+              )}
               {showProjectControl && (
                 <div>
                   <label className="block text-xs text-gray-500 font-medium mb-1">Project (all lines)</label>
@@ -452,20 +519,26 @@ export default function JournalEntriesClient() {
 
       {/* WIP reference cards */}
       {!showForm && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {[
-            { icon: <HardHat size={13} />, label: "During Construction", color: "blue",  lines: ["DR 1210 WIP", "CR 2000 Accounts Payable"] },
-            { icon: <DollarSign size={13} />, label: "Loan Interest",    color: "amber", lines: ["DR 1220 Capitalized Interest", "CR 2110 Accrued Interest"] },
-            { icon: <Home size={13} />,    label: "At Home Closing",     color: "green", lines: ["DR 5000 Cost of Sales  ·  CR 1210 WIP", "DR 1100 A/R  ·  CR 4000 Revenue"] },
+            { icon: <HardHat size={13} />,    label: "Construction WIP",   color: "blue",   lines: ["DR 1210 WIP", "CR 2000 Accounts Payable"] },
+            { icon: <Landmark size={13} />,   label: "Loan Draw",          color: "indigo", lines: ["DR 1000 Cash", "CR 2100 Constr Loan Payable"] },
+            { icon: <Percent size={13} />,    label: "Interest Payment",   color: "purple", lines: ["DR 1220 Capitalized Interest", "CR 1000 Cash"] },
+            { icon: <DollarSign size={13} />, label: "Capitalize Interest",color: "amber",  lines: ["DR 1220 Cap Interest", "CR 2110 Accrued Interest"] },
+            { icon: <Home size={13} />,       label: "Home Closing",       color: "green",  lines: ["DR 5000 COGS · CR 1210 WIP", "DR 1100 A/R · CR 4000 Revenue"] },
           ].map((card) => (
             <div key={card.label} className={`px-4 py-3 rounded-lg border text-sm ${
-              card.color === "blue"  ? "border-blue-200 bg-blue-50" :
-              card.color === "amber" ? "border-amber-200 bg-amber-50" :
-                                       "border-green-200 bg-green-50"
+              card.color === "blue"   ? "border-blue-200 bg-blue-50" :
+              card.color === "indigo" ? "border-indigo-200 bg-indigo-50" :
+              card.color === "purple" ? "border-purple-200 bg-purple-50" :
+              card.color === "amber"  ? "border-amber-200 bg-amber-50" :
+                                        "border-green-200 bg-green-50"
             }`}>
               <p className={`flex items-center gap-1.5 text-xs font-semibold mb-2 ${
-                card.color === "blue"  ? "text-blue-700" :
-                card.color === "amber" ? "text-amber-700" : "text-green-700"
+                card.color === "blue"   ? "text-blue-700" :
+                card.color === "indigo" ? "text-indigo-700" :
+                card.color === "purple" ? "text-purple-700" :
+                card.color === "amber"  ? "text-amber-700" : "text-green-700"
               }`}>{card.icon}{card.label}</p>
               {card.lines.map((l) => (
                 <p key={l} className="text-[11px] text-gray-600 font-mono">{l}</p>
@@ -513,7 +586,14 @@ export default function JournalEntriesClient() {
                     <td className="px-4 py-3 text-gray-400">{expandedId === entry.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</td>
                     <td className="px-2 py-3 text-gray-600 whitespace-nowrap text-xs">{entry.entry_date}</td>
                     <td className="px-2 py-3 text-gray-400 font-mono text-xs">{entry.reference ?? "—"}</td>
-                    <td className="px-2 py-3 text-gray-800 font-medium">{entry.description}</td>
+                    <td className="px-2 py-3 text-gray-800 font-medium">
+                      {entry.description}
+                      {entry.loan && (
+                        <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 text-[10px] font-medium">
+                          <Landmark size={9} /> #{entry.loan.loan_number}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-2 py-3 text-gray-400 text-xs capitalize">{entry.source_type ?? "manual"}</td>
                     <td className="px-2 py-3 text-right text-gray-800 font-medium">${fmt(entry.total_debits)}</td>
                     <td className="px-2 py-3">{statusBadge(entry.status)}</td>

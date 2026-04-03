@@ -334,7 +334,7 @@ export default async function DashboardPage() {
               </div>
               <div className="divide-y divide-gray-50">
                 {[
-                  { href: "/invoices/new",  label: "New Invoice",    icon: <FileText size={15} /> },
+                  { href: "/invoices/upload",  label: "New Invoice",    icon: <FileText size={15} /> },
                   { href: "/invoices",      label: "AP & Invoices",  icon: <FileText size={15} /> },
                   { href: "/field-logs",    label: "Field Logs",     icon: <ClipboardList size={15} /> },
                   { href: "/draws",         label: "Loans & Draws",  icon: <CreditCard size={15} /> },

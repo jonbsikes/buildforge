@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 export interface JournalLineInput {
   account_id: string;
   project_id: string | null;
+  loan_id?: string | null;
   description: string;
   debit: number;
   credit: number;
@@ -16,6 +17,8 @@ export interface JournalEntryInput {
   reference: string;
   description: string;
   status: "draft" | "posted";
+  loan_id?: string | null;
+  source_type?: string;
   lines: JournalLineInput[];
 }
 
@@ -37,7 +40,8 @@ export async function createJournalEntry(input: JournalEntryInput) {
       reference: input.reference || null,
       description: input.description,
       status: input.status,
-      source_type: "manual",
+      source_type: input.source_type || "manual",
+      loan_id: input.loan_id || null,
       user_id: user.id,
     })
     .select("id")
@@ -49,6 +53,7 @@ export async function createJournalEntry(input: JournalEntryInput) {
     journal_entry_id: entry.id,
     account_id: l.account_id,
     project_id: l.project_id || null,
+    loan_id: l.loan_id || null,
     description: l.description || null,
     debit: l.debit,
     credit: l.credit,
@@ -77,9 +82,10 @@ export async function voidJournalEntry(id: string) {
   const { error } = await supabase
     .from("journal_entries")
     .update({ status: "voided" })
-    .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("id", id);
 
   if (error) throw new Error(error.message);
+
   revalidatePath("/financial/journal-entries");
+  return { success: true };
 }

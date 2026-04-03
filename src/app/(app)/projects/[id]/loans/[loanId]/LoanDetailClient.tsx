@@ -362,7 +362,7 @@ export default function LoanDetailClient({ projectId, loan, draws: initialDraws,
               {payments.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-5 py-3 text-gray-600">{fmtDate(p.payment_date)}</td>
-                  <td className="px-5 py-3 text-gray-500 capitalize text-xs">{p.payment_type.replace("_", " ")}</td>
+                  <td className="px-5 py-3 text-gray-700 capitalize">{(p.payment_type ?? "").replace("_", " ")}</td>
                   <td className="px-5 py-3 text-right font-medium text-gray-900">{fmt(p.amount)}</td>
                   <td className="px-5 py-3 text-gray-400 text-xs">{p.notes ?? "—"}</td>
                 </tr>
@@ -371,6 +371,88 @@ export default function LoanDetailClient({ projectId, loan, draws: initialDraws,
           </table>
         )}
       </div>
+
+      {/* Linked Journal Entries */}
+      <LinkedJournalEntries loanId={loan.id} />
+    </div>
+  );
+}
+
+function LinkedJournalEntries({ loanId }: { loanId: string }) {
+  const supabase = createClient();
+  const [entries, setEntries] = useState<{ id: string; entry_date: string; reference: string | null; description: string; status: string; source_type: string | null; total: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useState; // trigger re-render on mount
+  // biome-ignore lint: fetch on mount
+  // eslint-disable-next-line
+  const [_init] = useState(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("journal_entries")
+        .select("id, entry_date, reference, description, status, source_type, journal_entry_lines(debit)")
+        .eq("loan_id", loanId)
+        .order("entry_date", { ascending: false });
+      const mapped = (data ?? []).map((e: any) => ({
+        id: e.id,
+        entry_date: e.entry_date,
+        reference: e.reference,
+        description: e.description,
+        status: e.status,
+        source_type: e.source_type,
+        total: (e.journal_entry_lines ?? []).reduce((s: number, l: { debit: number }) => s + Number(l.debit), 0),
+      }));
+      setEntries(mapped);
+      setLoading(false);
+    })();
+    return null;
+  });
+
+  const fmtCurrency = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200">
+      <div className="px-5 py-4 border-b border-gray-100">
+        <h2 className="font-semibold text-gray-900">Linked Journal Entries</h2>
+      </div>
+      {loading ? (
+        <div className="px-5 py-8 text-center text-gray-400 text-sm">Loading…</div>
+      ) : entries.length === 0 ? (
+        <div className="px-5 py-8 text-center text-gray-400 text-sm">
+          No journal entries linked to this loan yet. Create one from the <a href="/financial/journal-entries" className="text-[#4272EF] hover:underline">Journal Entries</a> page using the Loan Draw or Loan Interest entry types.
+        </div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="text-left px-5 py-3 text-xs font-medium text-gray-400">Date</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-gray-400">Reference</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-gray-400">Description</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-gray-400">Type</th>
+              <th className="text-right px-5 py-3 text-xs font-medium text-gray-400">Amount</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-gray-400">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {entries.map((e) => (
+              <tr key={e.id} className="hover:bg-gray-50">
+                <td className="px-5 py-3 text-gray-600 text-xs whitespace-nowrap">{e.entry_date}</td>
+                <td className="px-5 py-3 text-gray-400 font-mono text-xs">{e.reference ?? "—"}</td>
+                <td className="px-5 py-3 text-gray-800 font-medium">{e.description}</td>
+                <td className="px-5 py-3 text-gray-400 text-xs capitalize">{(e.source_type ?? "manual").replace("_", " ")}</td>
+                <td className="px-5 py-3 text-right font-medium text-gray-900">{fmtCurrency(e.total)}</td>
+                <td className="px-5 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    e.status === "posted" ? "bg-green-100 text-green-700" :
+                    e.status === "draft" ? "bg-yellow-100 text-yellow-700" :
+                    "bg-gray-100 text-gray-500"
+                  }`}>{e.status.charAt(0).toUpperCase() + e.status.slice(1)}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

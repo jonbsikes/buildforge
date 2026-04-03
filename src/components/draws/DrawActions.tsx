@@ -2,17 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { submitDraw, fundDraw, markDrawPaid } from "@/app/actions/draws";
+import { submitDraw, fundDraw, markDrawPaid, deleteDraw } from "@/app/actions/draws";
+import { Trash2 } from "lucide-react";
 
 interface Props {
   drawId: string;
   status: string;
+  /** True when vendor_payment records exist for this draw (new check workflow). */
+  hasVendorPayments?: boolean;
 }
 
-export default function DrawActions({ drawId, status }: Props) {
+export default function DrawActions({ drawId, status, hasVendorPayments = false }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   if (status === "paid") return null;
 
@@ -39,7 +43,41 @@ export default function DrawActions({ drawId, status }: Props) {
             >
               {isPending ? "Saving…" : "Submit to Bank"}
             </button>
-            <p className="text-xs text-gray-400">Submit when ready to send to the lender.</p>
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isPending}
+                className="flex items-center gap-1.5 px-4 py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-60"
+              >
+                <Trash2 size={14} />
+                Delete Draw
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-red-600">Delete this draft?</span>
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    startTransition(async () => {
+                      const result = await deleteDraw(drawId);
+                      if (result.error) setError(result.error);
+                      else router.push("/draws");
+                    });
+                  }}
+                  disabled={isPending}
+                  className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition-colors disabled:opacity-60"
+                >
+                  {isPending ? "Deleting…" : "Yes, Delete"}
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-3 py-1.5 border border-gray-300 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-gray-400 w-full">Submit when ready to send to the lender.</p>
           </>
         )}
 
@@ -56,7 +94,13 @@ export default function DrawActions({ drawId, status }: Props) {
           </>
         )}
 
-        {status === "funded" && (
+        {status === "funded" && hasVendorPayments && (
+          <p className="text-xs text-gray-400">
+            Write checks using the remittance list above. The draw closes automatically once all vendors are paid.
+          </p>
+        )}
+
+        {status === "funded" && !hasVendorPayments && (
           <>
             <button
               onClick={() => run(() => markDrawPaid(drawId))}

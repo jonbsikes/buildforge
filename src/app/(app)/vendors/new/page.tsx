@@ -6,12 +6,12 @@ import VendorForm, { type CostCodeOption } from "@/components/vendors/VendorForm
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ name?: string }>;
+  searchParams: Promise<{ name?: string; returnTo?: string }>;
 }
 
 export default async function NewVendorPage({ searchParams }: Props) {
   const supabase = await createClient();
-  const { name: prefillName } = await searchParams;
+  const { name: prefillName, returnTo } = await searchParams;
 
   const { data: codes } = await supabase
     .from("cost_codes")
@@ -32,12 +32,12 @@ export default async function NewVendorPage({ searchParams }: Props) {
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-2xl mx-auto">
           <Link
-            href="/vendors"
+            href={returnTo === "invoice" ? "/invoices/new" : "/vendors"}
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors mb-5 block"
           >
-            ← Vendors
+            {returnTo === "invoice" ? "← Back to Invoice" : "← Vendors"}
           </Link>
-          <VendorForm costCodes={costCodes} prefillName={prefillName} />
+          <VendorForm costCodes={costCodes} prefillName={prefillName} returnTo={returnTo} />
         </div>
       </main>
     </>
