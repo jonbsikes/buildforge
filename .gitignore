@@ -36,3 +36,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Financial documents (local only)
+*.xlsx
+*.docx
+*.pdf
+.~lock.*
+
+# Claude Code local settings
+.claude/settings.local.json
+.claude/worktrees/

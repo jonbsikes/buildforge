@@ -940,6 +940,7 @@ export type Database = {
       }
       loans: {
         Row: {
+          coa_account_id: string | null
           created_at: string
           credit_limit: number | null
           current_balance: number | null
@@ -956,6 +957,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          coa_account_id?: string | null
           created_at?: string
           credit_limit?: number | null
           current_balance?: number | null
@@ -972,6 +974,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          coa_account_id?: string | null
           created_at?: string
           credit_limit?: number | null
           current_balance?: number | null
