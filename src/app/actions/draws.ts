@@ -474,10 +474,13 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const { data: accounts } = await supabase
     .from("chart_of_accounts")
     .select("id, account_number")
-    .in("account_number", ["1000", "1120"]);
+    .in("account_number", ["1000", "1120", "1210", "1230", "2000"]);
 
   const acct1000 = accounts?.find(a => a.account_number === "1000")?.id;
   const acct1120 = accounts?.find(a => a.account_number === "1120")?.id;
+  const acct1210 = accounts?.find(a => a.account_number === "1210")?.id;
+  const acct1230 = accounts?.find(a => a.account_number === "1230")?.id;
+  const acct2000 = accounts?.find(a => a.account_number === "2000")?.id;
 
   if (acct1000 && acct1120) {
     const { data: je, error: jeErr } = await supabase
@@ -516,6 +519,88 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     ]);
 
     if (lineErr) return { error: `Draw funded but JE lines failed: ${lineErr.message}` };
+  }
+
+  // Step 3b: Post WIP/AP JEs — one DR line per invoice (1210 WIP or 1230 CIP-Land),
+  // single CR to AP (2000).  This establishes the liability so vendor payment
+  // entries (DR AP / CR Cash) balance correctly.
+  if (acct1210 && acct1230 && acct2000) {
+    const { data: drawInvoiceDetails } = await supabase
+      .from("draw_invoices")
+      .select(`
+        invoice_id,
+        invoices (
+          id, amount, vendor, invoice_number, project_id,
+          projects ( project_type )
+        )
+      `)
+      .eq("draw_id", drawId);
+
+    const wipLines: {
+      journal_entry_id: string;
+      account_id: string;
+      project_id: string | null;
+      description: string;
+      debit: number;
+      credit: number;
+    }[] = [];
+    let totalWip = 0;
+
+    for (const di of drawInvoiceDetails ?? []) {
+      const inv = di.invoices as {
+        id: string;
+        amount: number | null;
+        vendor: string | null;
+        invoice_number: string | null;
+        project_id: string | null;
+        projects: { project_type: string } | null;
+      } | null;
+      if (!inv || !inv.amount) continue;
+
+      const isLandDev = inv.projects?.project_type === "land_development";
+      const wipAcctId = isLandDev ? acct1230 : acct1210;
+      const invLabel = [inv.vendor, inv.invoice_number].filter(Boolean).join(" — Inv #");
+
+      wipLines.push({
+        journal_entry_id: "", // filled in after JE insert
+        account_id: wipAcctId,
+        project_id: inv.project_id ?? null,
+        description: invLabel || "Construction cost",
+        debit: inv.amount,
+        credit: 0,
+      });
+      totalWip += inv.amount;
+    }
+
+    if (wipLines.length > 0 && totalWip > 0) {
+      const { data: wipJe } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: new Date().toISOString().split("T")[0],
+          reference: `DRAW-WIP-${drawId.slice(0, 8)}`,
+          description: `Construction costs — ${displayName} — ${lenderName}`,
+          status: "posted",
+          source_type: "loan_draw",
+          source_id: draw.id,
+          user_id: user!.id,
+        })
+        .select("id")
+        .single();
+
+      if (wipJe) {
+        const lines = wipLines.map(l => ({ ...l, journal_entry_id: wipJe.id }));
+        // Single AP credit for the draw total
+        lines.push({
+          journal_entry_id: wipJe.id,
+          account_id: acct2000,
+          project_id: null,
+          description: `Accounts Payable — ${displayName} — ${lenderName}`,
+          debit: 0,
+          credit: totalWip,
+        });
+        await supabase.from("journal_entry_lines").insert(lines);
+      }
+    }
   }
 
   // Also post to legacy gl_entries for backward compatibility
