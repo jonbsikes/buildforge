@@ -1,6 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "mcp__Claude_Preview__preview_start",
-      "mcp__7efbb875-36e4-4fcc-a1ae-72734cf729d6__execute_sql"
-    ]
