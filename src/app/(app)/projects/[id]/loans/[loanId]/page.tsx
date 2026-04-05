@@ -18,7 +18,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
     supabase.from("loan_draws").select("*, loan_draw_items(*)").eq("loan_id", loanId).order("draw_number"),
     supabase.from("loan_payments").select("*").eq("loan_id", loanId).order("payment_date"),
     supabase.from("invoices").select("id, invoice_number, vendor, amount, total_amount, cost_code, status")
-      .eq("project_id", id).in("status", ["approved", "scheduled", "paid"]),
+      .eq("project_id", id).in("status", ["approved", "scheduled", "released", "cleared"]),
     supabase.from("cost_codes").select("code, description").order("code"),
     supabase.from("contacts").select("id, name"),
   ]);
@@ -46,4 +46,4 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
       </main>
     </>
   );
-}
+}

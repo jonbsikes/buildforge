@@ -43,7 +43,7 @@ export default function WIPClient() {
         supabase.from("projects").select("id, name, project_type, status").order("name"),
         supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
         supabase.from("contracts").select("project_id, amount"),
-        supabase.from("invoices").select("project_id, amount, total_amount").in("status", ["approved", "paid"]),
+        supabase.from("invoices").select("project_id, amount, total_amount").in("status", ["approved", "released", "cleared"]),
         supabase.from("loans").select("project_id, loan_amount"),
         supabase.from("chart_of_accounts").select("id, account_number").in("account_number", ["1210", "1220"]),
       ]);

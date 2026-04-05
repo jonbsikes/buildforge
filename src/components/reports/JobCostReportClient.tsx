@@ -60,7 +60,7 @@ export default function JobCostReportClient() {
         .from("invoices")
         .select("cost_code_id, amount, total_amount")
         .eq("project_id", selectedProject)
-        .in("status", ["approved", "paid"]),
+        .in("status", ["approved", "released", "cleared"]),
     ]).then(([pccRes, contractRes, invRes]) => {
       const committedMap: Record<string, number> = {};
       for (const c of contractRes.data ?? []) {

@@ -34,7 +34,7 @@ export async function syncProjectActualsFromGL(
       .from("invoices")
       .select("id, cost_code_id, amount, total_amount")
       .eq("project_id", projectId)
-      .in("status", ["approved", "scheduled", "paid"]);
+      .in("status", ["approved", "scheduled", "released", "cleared"]);
 
     if (invoicesError) {
       return { error: `Failed to query invoices: ${invoicesError.message}` };

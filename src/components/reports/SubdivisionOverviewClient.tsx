@@ -55,7 +55,7 @@ export default function SubdivisionOverviewClient() {
           .order("subdivision")
           .order("name"),
         supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
-        supabase.from("invoices").select("project_id, amount, total_amount").in("status", ["approved", "paid"]),
+        supabase.from("invoices").select("project_id, amount, total_amount").in("status", ["approved", "released", "cleared"]),
         supabase.from("build_stages").select("project_id, status, stage_name").order("stage_number"),
         supabase.from("field_logs").select("project_id, log_date, notes").order("log_date", { ascending: false }),
         supabase.from("field_todos").select("project_id, status").eq("status", "open"),

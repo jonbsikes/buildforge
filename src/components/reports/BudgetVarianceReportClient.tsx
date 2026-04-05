@@ -34,7 +34,7 @@ export default function BudgetVarianceReportClient() {
     Promise.all([
       supabase.from("projects").select("id, name").order("name"),
       supabase.from("project_cost_codes").select("id, budgeted_amount, project_id, cost_codes ( id, code, name )"),
-      supabase.from("invoices").select("cost_code_id, project_id, amount, total_amount").in("status", ["approved", "paid"]),
+      supabase.from("invoices").select("cost_code_id, project_id, amount, total_amount").in("status", ["approved", "released", "cleared"]),
     ]).then(([projRes, pccRes, invRes]) => {
       setProjects(projRes.data ?? []);
 

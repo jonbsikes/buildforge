@@ -40,7 +40,7 @@ export default function VendorSpendClient() {
         supabase
           .from("invoices")
           .select("vendor, project_id, cost_code_id, amount, total_amount, invoice_date, status, projects(name), cost_codes(code, name)")
-          .in("status", ["approved", "paid"])
+          .in("status", ["approved", "released", "cleared"])
           .order("vendor"),
         supabase.from("projects").select("id, name").order("name"),
       ]);
