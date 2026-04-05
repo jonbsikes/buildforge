@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 import type { CostCode, Phase, AvailableCostCode } from "@/components/projects/ProjectTabs";
-import { updatePhaseLotsSold, addProjectCostCode, removeProjectCostCode } from "@/app/actions/projects";
+import { Search } from "lucide-react";
+import { updatePhaseLotsSold, addProjectCostCodes, removeProjectCostCode } from "@/app/actions/projects";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -118,7 +119,7 @@ function PhaseRow({ phase, projectId }: { phase: Phase; projectId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Add Cost Code panel
+// Add Cost Code panel — multi-select with search
 // ---------------------------------------------------------------------------
 function AddCostCodePanel({
   projectId,
@@ -127,25 +128,54 @@ function AddCostCodePanel({
 }: {
   projectId: string;
   available: AvailableCostCode[];
-  onAdded: (cc: AvailableCostCode) => void;
+  onAdded: (added: AvailableCostCode[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState("");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  const filtered = available.filter((cc) => {
+    const q = search.toLowerCase();
+    return !q || cc.name.toLowerCase().includes(q) || cc.code.includes(q);
+  });
+
+  // Group by category
+  const grouped = filtered.reduce<Record<string, AvailableCostCode[]>>((acc, cc) => {
+    const key = cc.category ?? "other";
+    (acc[key] = acc[key] ?? []).push(cc);
+    return acc;
+  }, {});
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelected(new Set(filtered.map((cc) => cc.id)));
+  }
+
+  function clearAll() {
+    setSelected(new Set());
+  }
+
   function handleAdd() {
-    if (!selected) return;
-    const cc = available.find((c) => c.code === selected);
-    if (!cc) return;
+    if (!selected.size) return;
     setError(null);
+    const toAdd = available.filter((cc) => selected.has(cc.id));
     startTransition(async () => {
-      const result = await addProjectCostCode(projectId, cc.id);
+      const result = await addProjectCostCodes(projectId, Array.from(selected));
       if (result.error) {
         setError(result.error);
       } else {
-        onAdded(cc);
-        setSelected("");
+        onAdded(toAdd);
+        setSelected(new Set());
+        setSearch("");
         setOpen(false);
       }
     });
@@ -164,33 +194,83 @@ function AddCostCodePanel({
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <select
-        value={selected}
-        onChange={(e) => setSelected(e.target.value)}
-        className="flex-1 min-w-48 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] bg-white"
-      >
-        <option value="">— Select a cost code —</option>
-        {available.map((cc) => (
-          <option key={cc.code} value={cc.code}>
-            {cc.code} — {cc.name}
-          </option>
-        ))}
-      </select>
-      <button
-        onClick={handleAdd}
-        disabled={isPending || !selected}
-        className="px-3 py-1.5 bg-[#4272EF] text-white rounded-lg text-xs font-medium hover:bg-[#3461de] transition-colors disabled:opacity-50"
-      >
-        {isPending ? "Adding…" : "Add"}
-      </button>
-      <button
-        onClick={() => { setOpen(false); setSelected(""); setError(null); }}
-        className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
-      >
-        <X size={14} />
-      </button>
-      {error && <p className="text-xs text-red-500 w-full">{error}</p>}
+    <div className="absolute right-0 top-8 z-20 w-80 bg-white border border-gray-200 rounded-xl shadow-lg flex flex-col" style={{ maxHeight: 420 }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <span className="text-sm font-semibold text-gray-800">Add Cost Codes</span>
+        <button onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); setError(null); }}
+          className="text-gray-400 hover:text-gray-600 transition-colors">
+          <X size={15} />
+        </button>
+      </div>
+
+      {/* Search */}
+      <div className="px-3 py-2 border-b border-gray-100">
+        <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg border border-gray-200">
+          <Search size={13} className="text-gray-400 shrink-0" />
+          <input
+            autoFocus
+            type="text"
+            placeholder="Search cost codes…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 text-sm bg-transparent outline-none text-gray-700 placeholder-gray-400"
+          />
+        </div>
+      </div>
+
+      {/* Select all / clear */}
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-50">
+        <span className="text-xs text-gray-400">{selected.size} selected</span>
+        <div className="flex gap-3">
+          <button onClick={selectAll} className="text-xs text-[#4272EF] hover:underline">All</button>
+          <button onClick={clearAll} className="text-xs text-gray-400 hover:underline">None</button>
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="overflow-y-auto flex-1 px-2 py-2">
+        {filtered.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">No cost codes match your search.</p>
+        ) : (
+          Object.entries(grouped).map(([cat, codes]) => (
+            <div key={cat} className="mb-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 px-2 mb-1">
+                {cat.replace(/_/g, " ")}
+              </p>
+              {codes.map((cc) => (
+                <label key={cc.id}
+                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(cc.id)}
+                    onChange={() => toggle(cc.id)}
+                    className="accent-[#4272EF] w-3.5 h-3.5 shrink-0"
+                  />
+                  <span className="text-xs text-gray-500 w-6 shrink-0">{cc.code}</span>
+                  <span className="text-sm text-gray-700 leading-tight">{cc.name}</span>
+                </label>
+              ))}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-2">
+        {error && <p className="text-xs text-red-500 flex-1">{error}</p>}
+        <button onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); }}
+          className="ml-auto text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
+          Cancel
+        </button>
+        <button
+          onClick={handleAdd}
+          disabled={isPending || selected.size === 0}
+          className="px-3 py-1.5 bg-[#4272EF] text-white rounded-lg text-xs font-medium hover:bg-[#3461de] transition-colors disabled:opacity-50"
+        >
+          {isPending ? "Adding…" : `Add${selected.size > 0 ? ` (${selected.size})` : ""}`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -243,12 +323,12 @@ export default function CostItemsTab({
   const totalBudget = activeCodes.reduce((s, c) => s + (c.budgeted_amount ?? 0), 0); // kept for future use
   const totalActual = activeCodes.reduce((s, c) => s + (actualByCostCodeId[c.id] ?? 0), 0);
 
-  function handleAdded(cc: AvailableCostCode) {
-    // Optimistically move from available → active (budgeted_amount will be 0 until page refresh)
-    setAvailable((prev) => prev.filter((c) => c.code !== cc.code));
+  function handleAdded(added: AvailableCostCode[]) {
+    const addedIds = new Set(added.map((c) => c.id));
+    setAvailable((prev) => prev.filter((c) => !addedIds.has(c.id)));
     setActiveCodes((prev) => [
       ...prev,
-      {
+      ...added.map((cc) => ({
         id: cc.id,
         pccId: "",
         budgeted_amount: 0,
@@ -256,7 +336,7 @@ export default function CostItemsTab({
         name: cc.name,
         category: cc.category,
         sort_order: cc.sort_order,
-      },
+      })),
     ].sort((a, b) => (a.sort_order ?? 999) - (b.sort_order ?? 999)));
   }
 
@@ -312,11 +392,13 @@ export default function CostItemsTab({
             </h3>
           </div>
           {available.length > 0 && (
-            <AddCostCodePanel
-              projectId={projectId}
-              available={available}
-              onAdded={handleAdded}
-            />
+            <div className="relative">
+              <AddCostCodePanel
+                projectId={projectId}
+                available={available}
+                onAdded={handleAdded}
+              />
+            </div>
           )}
         </div>
 

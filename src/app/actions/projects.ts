@@ -196,6 +196,26 @@ export async function addProjectCostCode(
 }
 
 // ---------------------------------------------------------------------------
+// addProjectCostCodes — bulk-add multiple cost codes to a project
+// ---------------------------------------------------------------------------
+export async function addProjectCostCodes(
+  projectId: string,
+  costCodeIds: string[]
+): Promise<{ error?: string }> {
+  if (!costCodeIds.length) return {};
+  const supabase = await createClient();
+  const rows = costCodeIds.map((costCodeId) => ({
+    project_id: projectId,
+    cost_code_id: costCodeId,
+    budgeted_amount: 0,
+  }));
+  const { error } = await supabase.from("project_cost_codes").insert(rows);
+  if (error) return { error: error.message };
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
 // updateCostCodeBudget — edit the budgeted_amount for a project cost code
 // ---------------------------------------------------------------------------
 export async function updateCostCodeBudget(
