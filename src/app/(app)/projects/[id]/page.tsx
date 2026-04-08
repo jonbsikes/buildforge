@@ -43,6 +43,7 @@ export default async function ProjectDetailPage({ params }: Props) {
     allMasterCodesResult,
     contractsResult,
     invoicesResult,
+    jeLinesResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -94,9 +95,18 @@ export default async function ProjectDetailPage({ params }: Props) {
 
     supabase
       .from("invoices")
-      .select("cost_code_id, amount, total_amount")
+      .select("id, cost_code_id, amount, total_amount")
       .eq("project_id", id)
       .in("status", ["approved", "scheduled", "released", "cleared"]),
+
+    // JE-based costs: manual JEs, lot costs, etc. tagged with cost_code_id
+    // These capture owner equity contributions, land purchases, and other
+    // costs entered as journal entries without an invoice record.
+    supabase
+      .from("journal_entry_lines")
+      .select("cost_code_id, debit, credit, journal_entries!inner ( status, source_type )")
+      .eq("project_id", id)
+      .not("cost_code_id", "is", null),
   ]);
 
   if (!projectResult.data) notFound();
@@ -158,11 +168,26 @@ export default async function ProjectDetailPage({ params }: Props) {
       committedByCostCodeId[c.cost_code_id] = (committedByCostCodeId[c.cost_code_id] ?? 0) + (c.amount ?? 0);
     }
   }
+  // Aggregate actual costs from invoices (single-line: use cost_code_id on invoice)
   const actualByCostCodeId: Record<string, number> = {};
   for (const inv of invoicesResult.data ?? []) {
     if (inv.cost_code_id) {
       const amt = inv.total_amount ?? inv.amount ?? 0;
       actualByCostCodeId[inv.cost_code_id] = (actualByCostCodeId[inv.cost_code_id] ?? 0) + amt;
+    }
+  }
+
+  // Also include JE-based costs (manual JEs, lot costs, owner equity, etc.)
+  // Skip invoice_approval/invoice_payment to avoid double-counting with invoices above.
+  for (const line of jeLinesResult.data ?? []) {
+    const je = line.journal_entries as { status: string; source_type: string } | null;
+    if (!je || je.status !== "posted") continue;
+    if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
+    const ccId = line.cost_code_id as string;
+    if (!ccId) continue;
+    const amt = (line.debit ?? 0) - (line.credit ?? 0);
+    if (amt !== 0) {
+      actualByCostCodeId[ccId] = (actualByCostCodeId[ccId] ?? 0) + amt;
     }
   }
 

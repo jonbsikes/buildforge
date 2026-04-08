@@ -29,7 +29,24 @@ export async function syncProjectActualsFromGL(
   }
 
   try {
-    // Step 1: Fetch all qualifying invoices for this project
+    // ── Step 1: Build cost_code code→id lookup ────────────────────────────
+    // invoice_line_items.cost_code stores the code NUMBER as text (e.g. "11")
+    // but project_cost_codes.cost_code_id stores a UUID (cost_codes.id).
+    // We need this map to bridge the two.
+    const { data: allCostCodes, error: ccError } = await supabase
+      .from("cost_codes")
+      .select("id, code");
+
+    if (ccError) {
+      return { error: `Failed to fetch cost codes: ${ccError.message}` };
+    }
+
+    const codeToUuid = new Map<string, string>();
+    for (const cc of allCostCodes ?? []) {
+      codeToUuid.set(cc.code, cc.id);
+    }
+
+    // ── Step 2: Invoice-based costs ───────────────────────────────────────
     const { data: invoices, error: invoicesError } = await supabase
       .from("invoices")
       .select("id, cost_code_id, amount, total_amount")
@@ -43,7 +60,6 @@ export async function syncProjectActualsFromGL(
     const invoiceList = invoices ?? [];
     const invoiceIds = invoiceList.map((inv) => inv.id);
 
-    // Step 2: Fetch all line items for those invoices
     type LineItem = { invoice_id: string; cost_code: string; amount: number };
     let lineItems: LineItem[] = [];
     if (invoiceIds.length > 0) {
@@ -58,38 +74,86 @@ export async function syncProjectActualsFromGL(
       lineItems = (items ?? []) as LineItem[];
     }
 
-    // Step 3: Determine which invoices have line items
     const invoiceIdsWithLineItems = new Set(
       lineItems.map((li) => li.invoice_id)
     );
 
-    // Step 4: Build cost_code_id -> total amount map
-    // cost_code_id is a UUID string referencing cost_codes.id
     const costCodeTotals = new Map<string, number>();
 
-    // Multi-line invoices: sum from line items
-    // invoice_line_items.cost_code is actually a UUID FK to cost_codes.id
+    // Multi-line invoices: convert cost_code text number → UUID via lookup
     for (const item of lineItems) {
-      const ccId = item.cost_code; // UUID string
+      // cost_code may be a code number ("11") or a UUID — handle both
+      const ccId = codeToUuid.get(item.cost_code) ?? item.cost_code;
       const amount = (item.amount as number) || 0;
-      if (ccId && amount > 0) {
+      if (ccId && amount !== 0) {
         const current = costCodeTotals.get(ccId) || 0;
         costCodeTotals.set(ccId, current + amount);
       }
     }
 
-    // Single-line invoices (no line items): use invoices.cost_code_id
+    // Single-line invoices (no line items): use invoices.cost_code_id (already UUID)
     for (const invoice of invoiceList) {
       if (invoiceIdsWithLineItems.has(invoice.id)) continue;
       const amount = ((invoice.total_amount ?? invoice.amount ?? 0) as number);
       const ccId = invoice.cost_code_id as string | null;
-      if (ccId && amount > 0) {
+      if (ccId && amount !== 0) {
         const current = costCodeTotals.get(ccId) || 0;
         costCodeTotals.set(ccId, current + amount);
       }
     }
 
-    // Step 5: Fetch all project_cost_codes for this project
+    // ── Step 3: Journal-entry-based costs (manual JEs, lot costs, etc.) ──
+    // These capture owner equity contributions, land purchases, and other
+    // project costs entered as JEs without an invoice — like QuickBooks
+    // job-costing from any GL transaction tagged to a project.
+    // We skip invoice_approval / invoice_payment source types to avoid
+    // double-counting costs already captured from invoice_line_items above.
+    const { data: jeLines, error: jeLinesError } = await supabase
+      .from("journal_entry_lines")
+      .select(
+        "cost_code_id, debit, credit, journal_entry_id"
+      )
+      .eq("project_id", projectId)
+      .not("cost_code_id", "is", null);
+
+    if (jeLinesError) {
+      return { error: `Failed to query JE lines: ${jeLinesError.message}` };
+    }
+
+    if (jeLines && jeLines.length > 0) {
+      // Fetch the parent JEs to check status and source_type
+      const jeIds = [...new Set(jeLines.map((l) => l.journal_entry_id))];
+      const { data: parentJEs } = await supabase
+        .from("journal_entries")
+        .select("id, status, source_type")
+        .in("id", jeIds);
+
+      const jeMap = new Map(
+        (parentJEs ?? []).map((je) => [je.id, je])
+      );
+
+      for (const line of jeLines) {
+        const je = jeMap.get(line.journal_entry_id);
+        if (!je || je.status !== "posted") continue;
+
+        // Skip invoice-related JEs — those costs are already in invoice_line_items
+        if (
+          je.source_type === "invoice_approval" ||
+          je.source_type === "invoice_payment"
+        ) {
+          continue;
+        }
+
+        // Net amount: debits are costs, credits are returns/adjustments
+        const amount = (line.debit || 0) - (line.credit || 0);
+        if (line.cost_code_id && amount !== 0) {
+          const current = costCodeTotals.get(line.cost_code_id) || 0;
+          costCodeTotals.set(line.cost_code_id, current + amount);
+        }
+      }
+    }
+
+    // ── Step 4: Update project_cost_codes ─────────────────────────────────
     const { data: projectCostCodes, error: pccError } = await supabase
       .from("project_cost_codes")
       .select("id, cost_code_id")
@@ -103,7 +167,6 @@ export async function syncProjectActualsFromGL(
       return { updated: 0 };
     }
 
-    // Step 6: Update each project_cost_code with the computed actual_amount
     let updateCount = 0;
     for (const pcc of projectCostCodes) {
       const actualAmount = costCodeTotals.get(pcc.cost_code_id) || 0;
