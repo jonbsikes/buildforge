@@ -106,7 +106,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       .from("journal_entry_lines")
       .select("cost_code_id, debit, credit, journal_entries!inner ( status, source_type )")
       .eq("project_id", id)
-      .not("cost_code_id", "is", null),
+      .not("cost_code_id", "is", null) as unknown as Promise<{ data: { cost_code_id: string | null; debit: number; credit: number; journal_entries: { status: string; source_type: string } }[] | null; error: unknown }>,
   ]);
 
   if (!projectResult.data) notFound();
@@ -180,7 +180,7 @@ export default async function ProjectDetailPage({ params }: Props) {
   // Also include JE-based costs (manual JEs, lot costs, owner equity, etc.)
   // Skip invoice_approval/invoice_payment to avoid double-counting with invoices above.
   for (const line of jeLinesResult.data ?? []) {
-    const je = line.journal_entries as { status: string; source_type: string } | null;
+    const je = line.journal_entries as { status: string; source_type: string } | null | undefined;
     if (!je || je.status !== "posted") continue;
     if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
     const ccId = line.cost_code_id as string;
