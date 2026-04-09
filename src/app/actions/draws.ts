@@ -361,72 +361,25 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
 
   if (error) return { error: error.message };
 
-  // Post JE: Debit Due from Lender (1120), Credit each loan's specific liability account
-  // Group draw invoice amounts by project → look up each project's loan → use its COA account
+  // Post JE: DR Due from Lender (1120) / CR Draws Pending Funding (2060)
+  //
+  // The loan balance must NOT increase at submission — the money hasn't arrived yet.
+  // We credit the transitory "Draws Pending Funding" (2060) account instead.
+  // When the draw is funded, a second JE clears 2060 into per-loan Loan Payable (220x),
+  // which is when the loan balance legitimately increases.
   const lender = draw.contacts as { name: string } | null;
   const lenderName = lender?.name ?? "Unknown Lender";
   const displayName = drawDisplayName(draw.draw_date);
 
-  // Step 1: get all invoices in this draw with their project_ids + amounts
-  const { data: drawInvRows } = await supabase
-    .from("draw_invoices")
-    .select("invoice_id, invoices ( amount, project_id )")
-    .eq("draw_id", drawId);
-
-  // Step 2: accumulate amount per project_id
-  const projectAmounts = new Map<string, number>();
-  for (const di of drawInvRows ?? []) {
-    const inv = di.invoices as { amount: number | null; project_id: string | null } | null;
-    if (!inv?.project_id || !inv?.amount) continue;
-    projectAmounts.set(inv.project_id, (projectAmounts.get(inv.project_id) ?? 0) + inv.amount);
-  }
-
-  // Step 3: look up loans for these projects from this lender
-  const projectIds = [...projectAmounts.keys()];
-  const loanCOAMap = new Map<string, string>(); // project_id → coa_account_id
-  if (projectIds.length > 0 && draw.lender_id) {
-    const { data: loanRows } = await supabase
-      .from("loans")
-      .select("project_id, coa_account_id")
-      .eq("lender_id", draw.lender_id)
-      .in("project_id", projectIds)
-      .eq("status", "active");
-    for (const loan of loanRows ?? []) {
-      if (loan.project_id && loan.coa_account_id) {
-        loanCOAMap.set(loan.project_id, loan.coa_account_id);
-      }
-    }
-  }
-
-  // Step 4: group amounts by COA account (some projects may share a COA; unmapped → fall back to 2100)
   const { data: accounts } = await supabase
     .from("chart_of_accounts")
     .select("id, account_number")
-    .in("account_number", ["1120", "2100"]);
+    .in("account_number", ["1120", "2060"]);
 
   const acct1120 = accounts?.find(a => a.account_number === "1120")?.id;
-  const fallbackCoaId = accounts?.find(a => a.account_number === "2100")?.id;
+  const acct2060 = accounts?.find(a => a.account_number === "2060")?.id;
 
-  const coaAmounts = new Map<string, number>(); // coa_account_id → credit amount
-  let unmappedTotal = 0;
-  for (const [projectId, amount] of projectAmounts) {
-    const coaId = loanCOAMap.get(projectId);
-    if (coaId) {
-      coaAmounts.set(coaId, (coaAmounts.get(coaId) ?? 0) + amount);
-    } else {
-      unmappedTotal += amount;
-    }
-  }
-  // Any amounts not tied to a specific loan COA → generic construction loan payable
-  if (unmappedTotal > 0 && fallbackCoaId) {
-    coaAmounts.set(fallbackCoaId, (coaAmounts.get(fallbackCoaId) ?? 0) + unmappedTotal);
-  }
-  // Edge case: no invoices in draw yet, fall back to draw.total_amount on generic account
-  if (coaAmounts.size === 0 && fallbackCoaId && draw.total_amount > 0) {
-    coaAmounts.set(fallbackCoaId, draw.total_amount);
-  }
-
-  if (acct1120 && coaAmounts.size > 0) {
+  if (acct1120 && acct2060 && draw.total_amount > 0) {
     const { data: je } = await supabase
       .from("journal_entries")
       .insert({
@@ -442,15 +395,7 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
       .single();
 
     if (je) {
-      const jeLines: {
-        journal_entry_id: string;
-        account_id: string;
-        project_id: string | null;
-        description: string;
-        debit: number;
-        credit: number;
-      }[] = [
-        // Single debit: Due from Lender (1120) for full draw total
+      await supabase.from("journal_entry_lines").insert([
         {
           journal_entry_id: je.id,
           account_id: acct1120,
@@ -459,21 +404,15 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
           debit: draw.total_amount,
           credit: 0,
         },
-      ];
-
-      // Per-loan credits to each specific liability account
-      for (const [coaId, creditAmount] of coaAmounts) {
-        jeLines.push({
+        {
           journal_entry_id: je.id,
-          account_id: coaId,
+          account_id: acct2060,
           project_id: null,
-          description: `Loan Payable — ${displayName} — ${lenderName}`,
+          description: `Draws Pending Funding — ${displayName} — ${lenderName}`,
           debit: 0,
-          credit: creditAmount,
-        });
-      }
-
-      await supabase.from("journal_entry_lines").insert(jeLines);
+          credit: draw.total_amount,
+        },
+      ]);
     }
   }
 
@@ -531,8 +470,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     if (lockErr) return { error: `Failed to lock invoices: ${lockErr.message}` };
   }
 
-  // Step 3: Post JE — Debit Cash (1000), Credit Due from Lender (1120)
-  // (Loan payable was already booked at submission)
+  // Step 3: Post JEs for funding event:
+  //   (a) DR Cash (1000) / CR Due from Lender (1120)  — cash arrived, receivable cleared
+  //   (b) DR Draws Pending Funding (2060) / CR per-loan Loan Payable (220x) — loan balance
+  //       increases NOW (not at submission)
   const lender = draw.contacts as { name: string } | null;
   const lenderName = lender?.name ?? "Unknown Lender";
   const displayName = drawDisplayName(draw.draw_date);
@@ -541,13 +482,15 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const { data: accounts } = await supabase
     .from("chart_of_accounts")
     .select("id, account_number")
-    .in("account_number", ["1000", "1120", "1210", "1230", "2000"]);
+    .in("account_number", ["1000", "1120", "1210", "1230", "2000", "2060", "2100"]);
 
   const acct1000 = accounts?.find(a => a.account_number === "1000")?.id;
   const acct1120 = accounts?.find(a => a.account_number === "1120")?.id;
   const acct1210 = accounts?.find(a => a.account_number === "1210")?.id;
   const acct1230 = accounts?.find(a => a.account_number === "1230")?.id;
   const acct2000 = accounts?.find(a => a.account_number === "2000")?.id;
+  const acct2060 = accounts?.find(a => a.account_number === "2060")?.id;
+  const fallbackLoanPayableId = accounts?.find(a => a.account_number === "2100")?.id;
 
   // Load all invoices in this draw (needed for both WIP/AP and loan balance update)
   const { data: drawInvoiceDetails } = await supabase
@@ -601,7 +544,104 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     if (lineErr) return { error: `Draw funded but JE lines failed: ${lineErr.message}` };
   }
 
-  // Step 3b: Post WIP/AP JEs — skip invoices that already had WIP/AP posted at approval
+  // Step 3b: Clear Draws Pending Funding (2060) → per-loan Loan Payable (220x)
+  // Group invoice amounts by project → look up each project's active loan from this lender
+  // → credit its specific COA account. This is when the loan balance legitimately increases.
+  if (acct2060 && drawInvoiceDetails && drawInvoiceDetails.length > 0) {
+    // Accumulate amount per project
+    const projectAmountsForLoan = new Map<string, number>();
+    for (const di of drawInvoiceDetails) {
+      const inv = di.invoices as { project_id: string | null; amount: number | null } | null;
+      if (!inv?.project_id || !inv?.amount) continue;
+      projectAmountsForLoan.set(
+        inv.project_id,
+        (projectAmountsForLoan.get(inv.project_id) ?? 0) + inv.amount
+      );
+    }
+
+    // Look up per-loan COA accounts for these projects
+    const pIds = [...projectAmountsForLoan.keys()];
+    const loanCOAMap = new Map<string, string>(); // project_id → coa_account_id
+    if (pIds.length > 0 && draw.lender_id) {
+      const { data: loanRows } = await supabase
+        .from("loans")
+        .select("project_id, coa_account_id")
+        .eq("lender_id", draw.lender_id)
+        .in("project_id", pIds)
+        .eq("status", "active");
+      for (const loan of loanRows ?? []) {
+        if (loan.project_id && loan.coa_account_id) {
+          loanCOAMap.set(loan.project_id, loan.coa_account_id);
+        }
+      }
+    }
+
+    // Group credited amounts by COA account (unmapped → fallback 2100)
+    const coaAmounts = new Map<string, number>();
+    let unmapped = 0;
+    for (const [pId, amt] of projectAmountsForLoan) {
+      const coaId = loanCOAMap.get(pId);
+      if (coaId) {
+        coaAmounts.set(coaId, (coaAmounts.get(coaId) ?? 0) + amt);
+      } else {
+        unmapped += amt;
+      }
+    }
+    if (unmapped > 0 && fallbackLoanPayableId) {
+      coaAmounts.set(fallbackLoanPayableId, (coaAmounts.get(fallbackLoanPayableId) ?? 0) + unmapped);
+    }
+
+    if (coaAmounts.size > 0) {
+      const { data: loanJe } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: today,
+          reference: `DRAW-LOAN-${drawId.slice(0, 8)}`,
+          description: `Loan balance recognized — ${displayName} — ${lenderName}`,
+          status: "posted",
+          source_type: "loan_draw",
+          source_id: draw.id,
+          user_id: user!.id,
+        })
+        .select("id")
+        .single();
+
+      if (loanJe) {
+        const loanJeLines: {
+          journal_entry_id: string;
+          account_id: string;
+          project_id: string | null;
+          description: string;
+          debit: number;
+          credit: number;
+        }[] = [
+          // Single debit: clear the Draws Pending Funding account
+          {
+            journal_entry_id: loanJe.id,
+            account_id: acct2060,
+            project_id: null,
+            description: `Clear Draws Pending Funding — ${displayName} — ${lenderName}`,
+            debit: draw.total_amount,
+            credit: 0,
+          },
+        ];
+        // Per-loan credits to each specific loan payable account
+        for (const [coaId, creditAmount] of coaAmounts) {
+          loanJeLines.push({
+            journal_entry_id: loanJe.id,
+            account_id: coaId,
+            project_id: null,
+            description: `Loan Payable — ${displayName} — ${lenderName}`,
+            debit: 0,
+            credit: creditAmount,
+          });
+        }
+        await supabase.from("journal_entry_lines").insert(loanJeLines);
+      }
+    }
+  }
+
+  // Step 3d: Post WIP/AP JEs — skip invoices that already had WIP/AP posted at approval
   // (wip_ap_posted = true means approveInvoice already handled it).
   if (acct1210 && acct1230 && acct2000) {
     type InvDetail = {
@@ -685,7 +725,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     }
   }
 
-  // Step 3c: Update each loan's current_balance by the funded amount per project
+  // Step 3e: Update each loan's current_balance by the funded amount per project
   if (draw.lender_id && drawInvoiceDetails && drawInvoiceDetails.length > 0) {
     // Accumulate funded amount per project
     const projectAmounts = new Map<string, number>();

@@ -331,6 +331,42 @@ export async function deletePhase(
 }
 
 // ---------------------------------------------------------------------------
+// getInvoicesForCostCode
+// Returns invoices for a specific project + cost code, used for the cost items
+// drill-down in the Cost Items tab.
+// ---------------------------------------------------------------------------
+export interface CostCodeInvoice {
+  id: string;
+  invoice_number: string | null;
+  vendor: string | null;
+  invoice_date: string | null;
+  due_date: string | null;
+  amount: number | null;
+  status: string | null;
+  pending_draw: boolean | null;
+}
+
+export async function getInvoicesForCostCode(
+  projectId: string,
+  costCodeId: string
+): Promise<{ error?: string; invoices?: CostCodeInvoice[] }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data, error } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, vendor, invoice_date, due_date, amount, status, pending_draw")
+    .eq("project_id", projectId)
+    .eq("cost_code_id", costCodeId)
+    .not("status", "in", "(void,disputed)")
+    .order("invoice_date", { ascending: false });
+
+  if (error) return { error: error.message };
+  return { invoices: (data ?? []) as CostCodeInvoice[] };
+}
+
+// ---------------------------------------------------------------------------
 // deleteDocument
 // ---------------------------------------------------------------------------
 export async function deleteDocument(

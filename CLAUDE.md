@@ -733,10 +733,12 @@ All journal entries are posted automatically by server actions. **Never manually
 
 | Event | Action file | JE posted |
 |---|---|---|
-| Draw submitted | `submitDraw()` | DR Due from Lender (1120) / CR per-loan Loan Payable (220x) |
-| Draw funded | `fundDraw()` | (1) DR Cash (1000) / CR Due from Lender (1120); (2) DR WIP / CR AP for any invoices with `wip_ap_posted = false` — skips invoices already posted at approval. Also increments `loans.current_balance` per project |
+| Draw submitted | `submitDraw()` | DR Due from Lender (1120) / CR Draws Pending Funding (2060) |
+| Draw funded | `fundDraw()` | (1) DR Cash (1000) / CR Due from Lender (1120); (2) DR Draws Pending Funding (2060) / CR per-loan Loan Payable (220x) — **this is when the loan balance increases**; (3) DR WIP / CR AP for any invoices with `wip_ap_posted = false`. Also increments `loans.current_balance` per project |
 | Vendor payment recorded | `markVendorPaymentPaid()` | DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050). Invoice status → `released` |
 | Check cleared bank | `advanceInvoiceStatus(id, 'cleared', date)` | DR Checks Issued - Outstanding (2050) / CR Cash (1000). Invoice status → `cleared` |
+
+> **Draws Pending Funding (2060)** is a current liability that acts as a transitory holding account. It is debited at draw submission (DR 1120 / CR 2060) and cleared at funding (DR 2060 / CR Loan Payable). The Loan Payable balance only increases when cash is actually received — never at submission. This prevents premature inflation of the loan balance on the balance sheet.
 
 ### Key accounts
 
@@ -748,6 +750,7 @@ All journal entries are posted automatically by server actions. **Never manually
 | CIP — Land Improvements | 1230 | Asset |
 | Accounts Payable | 2000 | Liability |
 | Checks Issued - Outstanding | 2050 | Liability |
+| Draws Pending Funding | 2060 | Liability |
 | Construction Loan Payable (per loan) | 2201–229x | Liability |
 | G&A / Misc Operating Expense | 6900 | Expense |
 

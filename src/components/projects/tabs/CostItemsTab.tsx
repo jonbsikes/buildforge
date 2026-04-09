@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Plus, X } from "lucide-react";
+import React, { useState, useTransition } from "react";
+import { Plus, X, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import type { CostCode, Phase, AvailableCostCode } from "@/components/projects/ProjectTabs";
 import { Search } from "lucide-react";
-import { updatePhaseLotsSold, addProjectCostCodes, removeProjectCostCode } from "@/app/actions/projects";
+import { updatePhaseLotsSold, addProjectCostCodes, removeProjectCostCode, getInvoicesForCostCode } from "@/app/actions/projects";
+import type { CostCodeInvoice } from "@/app/actions/projects";
+import Link from "next/link";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -291,6 +293,128 @@ function AddCostCodePanel({
 }
 
 // ---------------------------------------------------------------------------
+// Invoice status badge
+// ---------------------------------------------------------------------------
+function StatusBadge({ status }: { status: string | null }) {
+  const s = status ?? "";
+  const styles: Record<string, string> = {
+    pending_review: "bg-yellow-50 text-yellow-700 border border-yellow-200",
+    approved:       "bg-blue-50 text-blue-700 border border-blue-200",
+    released:       "bg-purple-50 text-purple-700 border border-purple-200",
+    cleared:        "bg-green-50 text-green-700 border border-green-200",
+    disputed:       "bg-red-50 text-red-700 border border-red-200",
+    void:           "bg-gray-50 text-gray-400 border border-gray-200",
+  };
+  const labels: Record<string, string> = {
+    pending_review: "Pending Review",
+    approved: "Approved",
+    released: "Released",
+    cleared: "Cleared",
+    disputed: "Disputed",
+    void: "Void",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${styles[s] ?? "bg-gray-50 text-gray-500 border border-gray-200"}`}>
+      {labels[s] ?? s}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Expanded invoice rows (rendered as a <tr> inside the parent table)
+// ---------------------------------------------------------------------------
+function InvoiceSubRow({
+  invoices,
+  loading,
+  error,
+  colSpan,
+}: {
+  invoices: CostCodeInvoice[];
+  loading: boolean;
+  error: string | null;
+  colSpan: number;
+}) {
+  const fmtDate = (d: string | null) =>
+    d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+
+  return (
+    <tr>
+      <td colSpan={colSpan} className="p-0">
+        <div className="bg-blue-50/50 border-t border-b border-blue-100 px-6 py-3">
+          {loading && (
+            <div className="flex items-center gap-2 py-2 text-sm text-gray-400">
+              <Loader2 size={14} className="animate-spin" />
+              Loading invoices…
+            </div>
+          )}
+          {error && !loading && (
+            <p className="text-sm text-red-500 py-2">{error}</p>
+          )}
+          {!loading && !error && invoices.length === 0 && (
+            <p className="text-sm text-gray-400 py-2">No invoices found for this cost code.</p>
+          )}
+          {!loading && !error && invoices.length > 0 && (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-400 uppercase tracking-wider">
+                  <th className="text-left pb-2 font-medium">Invoice #</th>
+                  <th className="text-left pb-2 font-medium">Vendor</th>
+                  <th className="text-left pb-2 font-medium">Date</th>
+                  <th className="text-left pb-2 font-medium">Status</th>
+                  <th className="text-right pb-2 font-medium">Amount</th>
+                  <th className="w-6"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-blue-100">
+                {invoices.map((inv) => (
+                  <tr key={inv.id} className="hover:bg-blue-100/40 transition-colors">
+                    <td className="py-2 font-mono text-gray-600 pr-4">
+                      {inv.invoice_number ?? <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="py-2 text-gray-700 pr-4">
+                      {inv.vendor ?? <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="py-2 text-gray-500 pr-4 whitespace-nowrap">
+                      {fmtDate(inv.invoice_date)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <StatusBadge status={inv.status} />
+                    </td>
+                    <td className="py-2 text-right font-medium text-gray-800 pr-4">
+                      {inv.amount != null ? fmt(inv.amount) : "—"}
+                    </td>
+                    <td className="py-2 text-right">
+                      <Link
+                        href={`/invoices/${inv.id}`}
+                        className="text-[#4272EF] hover:underline font-medium"
+                        title="View invoice"
+                      >
+                        View →
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-blue-200">
+                  <td colSpan={4} className="pt-2 text-gray-400 font-medium">
+                    {invoices.length} invoice{invoices.length !== 1 ? "s" : ""}
+                  </td>
+                  <td className="pt-2 text-right font-semibold text-gray-700 pr-4">
+                    {fmt(invoices.reduce((s, i) => s + (i.amount ?? 0), 0))}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Remove cost code button (inline)
 // ---------------------------------------------------------------------------
 function RemoveCodeButton({
@@ -334,6 +458,38 @@ export default function CostItemsTab({
 }) {
   const [activeCodes, setActiveCodes] = useState(costCodes);
   const [available, setAvailable] = useState(availableCostCodes);
+
+  // Drill-down state
+  const [expandedCodeId, setExpandedCodeId] = useState<string | null>(null);
+  const [invoiceCache, setInvoiceCache] = useState<Record<string, CostCodeInvoice[]>>({});
+  const [loadingCodeId, setLoadingCodeId] = useState<string | null>(null);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+
+  async function handleRowClick(cc: CostCode) {
+    const hasActual = (actualByCostCodeId[cc.id] ?? 0) > 0;
+    if (!hasActual) return;
+
+    // Toggle collapse
+    if (expandedCodeId === cc.id) {
+      setExpandedCodeId(null);
+      return;
+    }
+
+    setExpandedCodeId(cc.id);
+    setInvoiceError(null);
+
+    // Serve from cache if already loaded
+    if (invoiceCache[cc.id]) return;
+
+    setLoadingCodeId(cc.id);
+    const result = await getInvoicesForCostCode(projectId, cc.id);
+    setLoadingCodeId(null);
+    if (result.error) {
+      setInvoiceError(result.error);
+    } else {
+      setInvoiceCache((prev) => ({ ...prev, [cc.id]: result.invoices ?? [] }));
+    }
+  }
 
   const totalBudget = activeCodes.reduce((s, c) => s + (c.budgeted_amount ?? 0), 0); // kept for future use
   const totalActual = activeCodes.reduce((s, c) => s + (actualByCostCodeId[c.id] ?? 0), 0);
@@ -420,6 +576,7 @@ export default function CostItemsTab({
             No cost codes are enabled for this project. Use "Add Cost Code" to add one.
           </p>
         ) : (
+          <>
           <div className="rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -432,26 +589,51 @@ export default function CostItemsTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {activeCodes.map((cc) => (
-                  <tr key={cc.pccId || cc.code} className="hover:bg-gray-50 transition-colors group">
-                    <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{cc.code}</td>
-                    <td className="px-4 py-2.5 text-gray-900">{cc.name}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-800 font-medium">
-                      {(actualByCostCodeId[cc.id] ?? 0) > 0
-                        ? fmt(actualByCostCodeId[cc.id])
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                      {cc.pccId && (
-                        <RemoveCodeButton
-                          pccId={cc.pccId}
-                          projectId={projectId}
-                          onRemoved={() => handleRemoved(cc.pccId)}
+                {activeCodes.map((cc) => {
+                  const hasActual = (actualByCostCodeId[cc.id] ?? 0) > 0;
+                  const isExpanded = expandedCodeId === cc.id;
+                  return (
+                    <React.Fragment key={cc.pccId || cc.code}>
+                      <tr
+                        className={`transition-colors group ${hasActual ? "cursor-pointer hover:bg-blue-50/50" : "hover:bg-gray-50"} ${isExpanded ? "bg-blue-50/40" : ""}`}
+                        onClick={() => handleRowClick(cc)}
+                      >
+                        <td className="px-4 py-2.5 text-xs font-mono text-gray-500">
+                          <div className="flex items-center gap-1.5">
+                            {hasActual
+                              ? (isExpanded ? <ChevronDown size={12} className="text-[#4272EF] shrink-0" /> : <ChevronRight size={12} className="text-gray-400 shrink-0" />)
+                              : <span className="w-[18px]" />
+                            }
+                            {cc.code}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-900">{cc.name}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-800 font-medium">
+                          {hasActual
+                            ? <span className={isExpanded ? "text-[#4272EF]" : ""}>{fmt(actualByCostCodeId[cc.id])}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                          {cc.pccId && (
+                            <RemoveCodeButton
+                              pccId={cc.pccId}
+                              projectId={projectId}
+                              onRemoved={() => handleRemoved(cc.pccId)}
+                            />
+                          )}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <InvoiceSubRow
+                          invoices={invoiceCache[cc.id] ?? []}
+                          loading={loadingCodeId === cc.id}
+                          error={loadingCodeId === cc.id ? null : (expandedCodeId === cc.id ? invoiceError : null)}
+                          colSpan={4}
                         />
                       )}
-                    </td>
-                  </tr>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t border-gray-200 bg-gray-50">
@@ -463,6 +645,8 @@ export default function CostItemsTab({
             </table>
             </div>
           </div>
+          <p className="text-xs text-gray-400 mt-1.5">Click a cost code row with actual costs to see the associated invoices.</p>
+          </>
         )}
       </div>
     </div>
