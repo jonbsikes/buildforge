@@ -3,8 +3,8 @@
 
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, HardHat, Home, DollarSign, Landmark, Percent, Tag } from "lucide-react";
-import { createJournalEntry, voidJournalEntry, type JournalLineInput } from "@/app/actions/journal-entries";
+import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, HardHat, Home, DollarSign, Landmark, Percent, Tag, RotateCcw } from "lucide-react";
+import { createJournalEntry, voidJournalEntry, reverseJournalEntry, type JournalLineInput } from "@/app/actions/journal-entries";
 
 type Account  = { id: string; account_number: string; name: string; type: string; subtype: string | null };
 type CostCode = { id: string; code: number; description: string; category: string };
@@ -306,6 +306,19 @@ export default function JournalEntriesClient() {
     if (!confirm("Void this journal entry? This cannot be undone.")) return;
     await voidJournalEntry(id);
     load();
+  }
+
+  async function handleReverse(id: string) {
+    const today = new Date().toISOString().split("T")[0];
+    const dateInput = prompt("Reversal date (YYYY-MM-DD):", today);
+    if (dateInput === null) return; // user cancelled
+    const date = dateInput.trim() || today;
+    try {
+      await reverseJournalEntry(id, date);
+      load();
+    } catch (err: any) {
+      alert("Reversal failed: " + (err?.message ?? "Unknown error"));
+    }
   }
 
   const statusBadge = (s: string) => {
@@ -768,6 +781,15 @@ export default function JournalEntriesClient() {
                       <td className="px-2 py-3 text-right text-gray-800 font-medium">${fmt(entry.total_debits)}</td>
                       <td className="px-2 py-3">{statusBadge(entry.status)}</td>
                       <td className="px-2 py-3">
+                        {entry.status === "posted" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleReverse(entry.id); }}
+                            className="text-gray-300 hover:text-blue-500 p-1 transition-colors"
+                            title="Create reversing entry"
+                          >
+                            <RotateCcw size={13} />
+                          </button>
+                        )}
                         {entry.status !== "voided" && entry.source_type === "manual" && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleVoid(entry.id); }}
