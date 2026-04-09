@@ -5,8 +5,8 @@ import Link from "next/link";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
 
 type Phase = {
-  phase_number: number;
-  name: string;
+  phase_number: number | null;
+  name: string | null;
   status: string;
   number_of_lots: number | null;
   lots_sold: number;

@@ -39,7 +39,7 @@ export default async function ProjectsPage() {
   }
 
   // Fetch phase info for land dev projects
-  let phasesByProject: Record<string, { phase_number: number; name: string; status: string; number_of_lots: number | null; lots_sold: number }[]> = {};
+  let phasesByProject: Record<string, { phase_number: number | null; name: string | null; status: string; number_of_lots: number | null; lots_sold: number }[]> = {};
   const landIds = (projects ?? []).filter((p) => p.project_type === "land_development").map((p) => p.id);
   if (landIds.length > 0) {
     const { data: phases } = await supabase
