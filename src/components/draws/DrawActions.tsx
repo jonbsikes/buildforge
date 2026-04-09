@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { submitDraw, fundDraw, markDrawPaid, deleteDraw } from "@/app/actions/draws";
+import { submitDraw, fundDraw, deleteDraw } from "@/app/actions/draws";
 import { Trash2 } from "lucide-react";
 
 interface Props {
@@ -101,16 +101,9 @@ export default function DrawActions({ drawId, status, hasVendorPayments = false 
         )}
 
         {status === "funded" && !hasVendorPayments && (
-          <>
-            <button
-              onClick={() => run(() => markDrawPaid(drawId))}
-              disabled={isPending}
-              className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-60"
-            >
-              {isPending ? "Saving…" : "Mark as Paid"}
-            </button>
-            <p className="text-xs text-gray-400">Marks all invoices in this draw as paid with today&apos;s date.</p>
-          </>
+          <p className="text-xs text-gray-400">
+            No vendor payments found for this draw. Add invoices and re-fund, or use the remittance section to record individual checks.
+          </p>
         )}
       </div>
 

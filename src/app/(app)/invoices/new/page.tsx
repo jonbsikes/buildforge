@@ -21,7 +21,7 @@ export default async function NewInvoicePage() {
       .order("name"),
     supabase
       .from("cost_codes")
-      .select("id, code, name")
+      .select("id, code, name, project_type")
       .is("user_id", null)
       .order("code"),
   ]);

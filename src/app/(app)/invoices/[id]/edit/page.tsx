@@ -20,7 +20,7 @@ export default async function EditInvoicePage({ params }: Props) {
         .from("invoices")
         .select(`
           id, vendor, vendor_id, invoice_number, invoice_date, due_date,
-          status, payment_method, ai_confidence, ai_notes, pending_draw,
+          status, payment_method, ai_confidence, ai_notes, pending_draw, direct_cash_payment,
           project_id, contract_id, file_path, file_name, projects ( id, name )
         `)
         .eq("id", id)
@@ -46,7 +46,7 @@ export default async function EditInvoicePage({ params }: Props) {
 
       supabase
         .from("cost_codes")
-        .select("id, code, name")
+        .select("id, code, name, project_type")
         .is("user_id", null)
         .order("code"),
     ]);
@@ -126,6 +126,7 @@ export default async function EditInvoicePage({ params }: Props) {
               invoice_date: invoice.invoice_date ?? null,
               due_date: invoice.due_date ?? null,
               pending_draw: invoice.pending_draw ?? false,
+              direct_cash_payment: (invoice as { direct_cash_payment?: boolean }).direct_cash_payment ?? false,
               status: invoice.status,
               payment_method: invoice.payment_method ?? null,
               ai_confidence: invoice.ai_confidence ?? null,

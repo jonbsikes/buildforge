@@ -34,7 +34,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
     .select(`
       id, vendor, invoice_number, invoice_date, due_date,
       amount, status, ai_confidence, ai_notes,
-      pending_draw, manually_reviewed, file_name, file_path,
+      pending_draw, direct_cash_payment, manually_reviewed, file_name, file_path,
       payment_date, payment_method, source, contract_id,
       projects ( id, name ),
       vendors ( id, name ),
@@ -90,9 +90,9 @@ export default async function InvoiceDetailPage({ params }: Props) {
   const fileExt = invoice.file_name?.split(".").pop()?.toLowerCase() ?? "";
   const isImage = ["jpg", "jpeg", "png", "gif", "webp"].includes(fileExt);
 
-  const isEditable =
-    !isInFundedDraw &&
-    invoice.status !== "paid";
+  // Allow editing on paid/cleared invoices — just vendor name and invoice number
+  const isEditable = !isInFundedDraw;
+  const isFullyEditable = !isInFundedDraw && invoice.status !== "paid" && invoice.status !== "cleared";
   const isDeletable = !isInFundedDraw;
 
   return (
@@ -138,6 +138,11 @@ export default async function InvoiceDetailPage({ params }: Props) {
                     Pending Draw
                   </span>
                 )}
+                {(invoice as { direct_cash_payment?: boolean }).direct_cash_payment && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                    Auto-Draft
+                  </span>
+                )}
                 <span
                   className={`text-xs font-medium px-2.5 py-1 rounded-full ${
                     STATUS_COLORS[invoice.status] ?? "bg-gray-100 text-gray-600"
@@ -151,7 +156,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
                     className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-[#4272EF] text-white rounded-lg hover:bg-[#3461de] transition-colors"
                   >
                     <Pencil size={14} />
-                    Edit Invoice
+                    {isFullyEditable ? "Edit Invoice" : "Edit Vendor / #"}
                   </Link>
                 )}
                 {isDeletable && (

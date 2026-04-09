@@ -33,8 +33,10 @@ export interface SaveInvoiceInput {
   project_name: string; // for display name, "Company" if G&A
 
   // User-selected at creation
-  status?: "pending_review" | "approved" | "scheduled" | "paid" | "disputed";
+  status?: "pending_review" | "approved" | "released" | "cleared" | "disputed" | "void";
   pending_draw?: boolean;
+  // When the bank auto-drafts the payment, skip AP and post DR WIP / CR Cash at approval
+  direct_cash_payment?: boolean;
 }
 
 export async function saveInvoice(
@@ -116,6 +118,7 @@ export async function saveInvoice(
       file_name: displayName,
       cost_code_id: dominantCode?.id ?? null,
       pending_draw: input.pending_draw ?? false,
+      direct_cash_payment: input.direct_cash_payment ?? false,
       manually_reviewed: false,
     })
     .select("id")
@@ -159,6 +162,7 @@ export async function approveInvoice(
     .select(`
       status, ai_confidence, manually_reviewed, pending_draw,
       total_amount, amount, project_id, vendor, invoice_number,
+      direct_cash_payment,
       projects ( project_type )
     `)
     .eq("id", invoiceId)
@@ -175,72 +179,145 @@ export async function approveInvoice(
     };
   }
 
-  const { error } = await supabase
-    .from("invoices")
-    .update({ status: "approved" })
-    .eq("id", invoiceId);
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
+  const today = new Date().toISOString().split("T")[0];
+  const invLabel = [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
 
-  if (error) return { error: error.message };
+  // Determine WIP debit account:
+  //   - G&A (no project): Miscellaneous Operating Expense (6900)
+  //   - Land Development: CIP — Land Improvements (1230)
+  //   - Home Construction: Construction WIP (1210)
+  const debitAccountNumber = !invoice.project_id
+    ? "6900"
+    : projectType === "land_development"
+    ? "1230"
+    : "1210";
 
-  // Post GL entry ONLY for invoices not going through a draw.
-  // Draw-based invoices (pending_draw = true) get their WIP/AP entry when the draw is funded.
-  if (!invoice.pending_draw) {
-    const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-    const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
+  if (invoice.direct_cash_payment) {
+    // ── Direct cash payment path ────────────────────────────────────────────
+    // Bank auto-drafted this payment. Skip AP entirely.
+    // Single JE: DR WIP/CIP / CR Cash (1000)
+    // Invoice advances directly to 'cleared'.
 
-    // Determine debit account:
-    //   - G&A (no project): Miscellaneous Operating Expense (6900)
-    //   - Land Development: CIP — Land Improvements (1230)
-    //   - Home Construction: Construction WIP (1210)
-    const debitAccountNumber = !invoice.project_id
-      ? "6900"
-      : projectType === "land_development"
-      ? "1230"
-      : "1210";
+    const { error } = await supabase
+      .from("invoices")
+      .update({
+        status: "cleared",
+        payment_date: today,
+        payment_method: "ach",
+        wip_ap_posted: true,
+      })
+      .eq("id", invoiceId);
 
-    const { data: glAccounts } = await supabase
-      .from("chart_of_accounts")
-      .select("id, account_number")
-      .in("account_number", [debitAccountNumber, "2000"]);
+    if (error) return { error: error.message };
 
-    const debitAcctId = glAccounts?.find(a => a.account_number === debitAccountNumber)?.id;
-    const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
+    if (invoiceAmount > 0) {
+      const { data: glAccounts } = await supabase
+        .from("chart_of_accounts")
+        .select("id, account_number")
+        .in("account_number", [debitAccountNumber, "1000"]);
 
-    if (debitAcctId && acct2000 && invoiceAmount > 0) {
-      const invLabel = [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
-      const { data: je } = await supabase
-        .from("journal_entries")
-        .insert({
-          entry_date: new Date().toISOString().split("T")[0],
-          reference: `INV-APPR-${invoiceId.slice(0, 8)}`,
-          description: `Invoice approved — ${invLabel}`,
-          status: "posted",
-          source_type: "invoice_approval",
-          source_id: invoiceId,
-          user_id: user.id,
-        })
-        .select("id")
-        .single();
+      const debitAcctId = glAccounts?.find(a => a.account_number === debitAccountNumber)?.id;
+      const acct1000 = glAccounts?.find(a => a.account_number === "1000")?.id;
 
-      if (je) {
-        await supabase.from("journal_entry_lines").insert([
-          {
-            journal_entry_id: je.id,
-            account_id: debitAcctId,
-            project_id: invoice.project_id ?? null,
-            description: invLabel,
-            debit: invoiceAmount,
-            credit: 0,
-          },
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: invoice.project_id ?? null,
-            description: `AP — ${invLabel}`,
-            debit: 0,
-            credit: invoiceAmount,
-          },
-        ]);
+      if (debitAcctId && acct1000) {
+        const { data: je } = await supabase
+          .from("journal_entries")
+          .insert({
+            entry_date: today,
+            reference: `INV-CASH-${invoiceId.slice(0, 8)}`,
+            description: `Loan interest — bank auto-draft — ${invLabel}`,
+            status: "posted",
+            source_type: "invoice_approval",
+            source_id: invoiceId,
+            user_id: user.id,
+          })
+          .select("id")
+          .single();
+
+        if (je) {
+          await supabase.from("journal_entry_lines").insert([
+            {
+              journal_entry_id: je.id,
+              account_id: debitAcctId,
+              project_id: invoice.project_id ?? null,
+              description: `Loan interest — ${invLabel}`,
+              debit: invoiceAmount,
+              credit: 0,
+            },
+            {
+              journal_entry_id: je.id,
+              account_id: acct1000,
+              project_id: invoice.project_id ?? null,
+              description: `Bank auto-draft — ${invLabel}`,
+              debit: 0,
+              credit: invoiceAmount,
+            },
+          ]);
+        }
+      }
+    }
+  } else {
+    // ── Standard AP path ────────────────────────────────────────────────────
+    // Post WIP/AP JE. fundDraw checks wip_ap_posted to prevent double-entry.
+
+    const { error } = await supabase
+      .from("invoices")
+      .update({ status: "approved" })
+      .eq("id", invoiceId);
+
+    if (error) return { error: error.message };
+
+    if (invoiceAmount > 0) {
+      const { data: glAccounts } = await supabase
+        .from("chart_of_accounts")
+        .select("id, account_number")
+        .in("account_number", [debitAccountNumber, "2000"]);
+
+      const debitAcctId = glAccounts?.find(a => a.account_number === debitAccountNumber)?.id;
+      const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
+
+      if (debitAcctId && acct2000) {
+        const { data: je } = await supabase
+          .from("journal_entries")
+          .insert({
+            entry_date: today,
+            reference: `INV-APPR-${invoiceId.slice(0, 8)}`,
+            description: `Invoice approved — ${invLabel}`,
+            status: "posted",
+            source_type: "invoice_approval",
+            source_id: invoiceId,
+            user_id: user.id,
+          })
+          .select("id")
+          .single();
+
+        if (je) {
+          await supabase.from("journal_entry_lines").insert([
+            {
+              journal_entry_id: je.id,
+              account_id: debitAcctId,
+              project_id: invoice.project_id ?? null,
+              description: invLabel,
+              debit: invoiceAmount,
+              credit: 0,
+            },
+            {
+              journal_entry_id: je.id,
+              account_id: acct2000,
+              project_id: invoice.project_id ?? null,
+              description: `AP — ${invLabel}`,
+              debit: 0,
+              credit: invoiceAmount,
+            },
+          ]);
+          // Flag so fundDraw skips re-posting WIP/AP for this invoice
+          await supabase
+            .from("invoices")
+            .update({ wip_ap_posted: true })
+            .eq("id", invoiceId);
+        }
       }
     }
   }
@@ -341,11 +418,12 @@ export interface UpdateInvoiceInput {
   invoice_date: string;
   due_date: string;
   pending_draw: boolean;
-  status: "pending_review" | "approved" | "disputed";
+  status: "pending_review" | "approved" | "released" | "cleared" | "disputed" | "void";
   payment_method: string;
   line_items: LineItemInput[];
   project_name: string;
   contract_id: string | null;
+  direct_cash_payment?: boolean;
 }
 
 export async function updateInvoice(
@@ -406,6 +484,7 @@ export async function updateInvoice(
       file_name: displayName,
       cost_code_id: dominantCode?.id ?? null,
       pending_draw: input.pending_draw,
+      direct_cash_payment: input.direct_cash_payment ?? false,
       status: input.status,
       payment_method: input.payment_method || null,
       contract_id: input.contract_id || null,
@@ -493,7 +572,7 @@ export async function disputeInvoice(
 
 export async function advanceInvoiceStatus(
   invoiceId: string,
-  to: "scheduled" | "paid",
+  to: "released" | "cleared",
   paymentDate?: string,
   paymentMethod?: string
 ): Promise<{ error?: string }> {
@@ -501,9 +580,13 @@ export async function advanceInvoiceStatus(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const today = new Date().toISOString().split("T")[0];
   const updates: Record<string, unknown> = { status: to };
-  if (to === "paid") {
-    updates.payment_date = paymentDate ?? new Date().toISOString().split("T")[0];
+  if (to === "released") {
+    updates.payment_method = paymentMethod ?? null;
+  }
+  if (to === "cleared") {
+    updates.payment_date = paymentDate ?? today;
     updates.payment_method = paymentMethod ?? null;
   }
 
@@ -514,86 +597,115 @@ export async function advanceInvoiceStatus(
 
   if (error) return { error: error.message };
 
-  // Post GL entry when invoice is paid directly (not through the draw/vendor-payment workflow)
-  if (to === "paid") {
-    const { data: invoice } = await supabase
-      .from("invoices")
-      .select("amount, total_amount, project_id, vendor, invoice_number")
-      .eq("id", invoiceId)
-      .single();
+  // Load invoice details for JE posting
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("amount, total_amount, project_id, vendor, invoice_number")
+    .eq("id", invoiceId)
+    .single();
 
-    if (invoice) {
-      const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-      const paidDate = updates.payment_date as string;
-      const desc = [invoice.vendor, invoice.invoice_number]
-        .filter(Boolean)
-        .join(" — Inv #") || "Invoice Payment";
+  if (!invoice) { revalidatePath("/invoices"); return {}; }
 
-      // Check whether this invoice is part of a funded or paid draw.
-      // If so, markVendorPaymentPaid already posted the AP/Cash JE — skip to avoid double-posting.
-      const { data: fundedDrawLinks } = await supabase
-        .from("draw_invoices")
-        .select("draw_id")
-        .eq("invoice_id", invoiceId);
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  const desc = [invoice.vendor, invoice.invoice_number]
+    .filter(Boolean)
+    .join(" — Inv #") || "Invoice";
 
-      const drawIds = (fundedDrawLinks ?? []).map(l => l.draw_id);
-      let alreadyHandledByDraw = false;
-      if (drawIds.length > 0) {
-        const { data: fundedDraws } = await supabase
-          .from("loan_draws")
-          .select("id")
-          .in("id", drawIds)
-          .in("status", ["funded", "paid"])
-          .limit(1);
-        alreadyHandledByDraw = (fundedDraws?.length ?? 0) > 0;
+  if (invoiceAmount <= 0) { revalidatePath("/invoices"); return {}; }
+
+  if (to === "released") {
+    // Check written: DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050)
+    const { data: glAccounts } = await supabase
+      .from("chart_of_accounts")
+      .select("id, account_number")
+      .in("account_number", ["2000", "2050"]);
+
+    const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
+    const acct2050 = glAccounts?.find(a => a.account_number === "2050")?.id;
+
+    if (acct2000 && acct2050) {
+      const { data: je } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: today,
+          reference: `CHK-ISSUED-${invoiceId.slice(0, 8)}`,
+          description: `Check issued — ${desc}`,
+          status: "posted",
+          source_type: "invoice_payment",
+          source_id: invoiceId,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (je) {
+        await supabase.from("journal_entry_lines").insert([
+          {
+            journal_entry_id: je.id,
+            account_id: acct2000,
+            project_id: invoice.project_id ?? null,
+            description: `AP — ${desc}`,
+            debit: invoiceAmount,
+            credit: 0,
+          },
+          {
+            journal_entry_id: je.id,
+            account_id: acct2050,
+            project_id: invoice.project_id ?? null,
+            description: `Check issued — ${desc}`,
+            debit: 0,
+            credit: invoiceAmount,
+          },
+        ]);
       }
+    }
+  }
 
-      if (!alreadyHandledByDraw && invoiceAmount > 0) {
-        // Look up AP and Cash accounts
-        const { data: glAccounts } = await supabase
-          .from("chart_of_accounts")
-          .select("id, account_number")
-          .in("account_number", ["1000", "2000"]);
+  if (to === "cleared") {
+    // Check cleared bank: DR Checks Issued - Outstanding (2050) / CR Cash (1000)
+    const clearedDate = updates.payment_date as string;
+    const { data: glAccounts } = await supabase
+      .from("chart_of_accounts")
+      .select("id, account_number")
+      .in("account_number", ["2050", "1000"]);
 
-        const acct1000 = glAccounts?.find(a => a.account_number === "1000")?.id;
-        const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
+    const acct2050 = glAccounts?.find(a => a.account_number === "2050")?.id;
+    const acct1000 = glAccounts?.find(a => a.account_number === "1000")?.id;
 
-        if (acct1000 && acct2000) {
-          const { data: je } = await supabase
-            .from("journal_entries")
-            .insert({
-              entry_date: paidDate,
-              reference: `INV-PAY-${invoiceId.slice(0, 8)}`,
-              description: `Invoice paid — ${desc}`,
-              status: "posted",
-              source_type: "invoice_payment",
-              source_id: invoiceId,
-              user_id: user.id,
-            })
-            .select("id")
-            .single();
+    if (acct2050 && acct1000) {
+      const { data: je } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: clearedDate,
+          reference: `CHK-CLR-${invoiceId.slice(0, 8)}`,
+          description: `Check cleared — ${desc}`,
+          status: "posted",
+          source_type: "invoice_payment",
+          source_id: invoiceId,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
 
-          if (je) {
-            await supabase.from("journal_entry_lines").insert([
-              {
-                journal_entry_id: je.id,
-                account_id: acct2000,
-                project_id: invoice.project_id ?? null,
-                description: `AP cleared — ${desc}`,
-                debit: invoiceAmount,
-                credit: 0,
-              },
-              {
-                journal_entry_id: je.id,
-                account_id: acct1000,
-                project_id: invoice.project_id ?? null,
-                description: `Cash — ${desc}`,
-                debit: 0,
-                credit: invoiceAmount,
-              },
-            ]);
-          }
-        }
+      if (je) {
+        await supabase.from("journal_entry_lines").insert([
+          {
+            journal_entry_id: je.id,
+            account_id: acct2050,
+            project_id: invoice.project_id ?? null,
+            description: `Outstanding check cleared — ${desc}`,
+            debit: invoiceAmount,
+            credit: 0,
+          },
+          {
+            journal_entry_id: je.id,
+            account_id: acct1000,
+            project_id: invoice.project_id ?? null,
+            description: `Cash — ${desc}`,
+            debit: 0,
+            credit: invoiceAmount,
+          },
+        ]);
       }
     }
   }

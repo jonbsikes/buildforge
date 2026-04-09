@@ -536,6 +536,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const lender = draw.contacts as { name: string } | null;
   const lenderName = lender?.name ?? "Unknown Lender";
   const displayName = drawDisplayName(draw.draw_date);
+  const today = new Date().toISOString().split("T")[0];
 
   const { data: accounts } = await supabase
     .from("chart_of_accounts")
@@ -548,11 +549,23 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const acct1230 = accounts?.find(a => a.account_number === "1230")?.id;
   const acct2000 = accounts?.find(a => a.account_number === "2000")?.id;
 
+  // Load all invoices in this draw (needed for both WIP/AP and loan balance update)
+  const { data: drawInvoiceDetails } = await supabase
+    .from("draw_invoices")
+    .select(`
+      invoice_id,
+      invoices (
+        id, amount, vendor, invoice_number, project_id, wip_ap_posted,
+        projects ( project_type )
+      )
+    `)
+    .eq("draw_id", drawId);
+
   if (acct1000 && acct1120) {
     const { data: je, error: jeErr } = await supabase
       .from("journal_entries")
       .insert({
-        entry_date: new Date().toISOString().split("T")[0],
+        entry_date: today,
         reference: `DRAW-FUND-${drawId.slice(0, 8)}`,
         description: `Draw funded — ${displayName} — ${lenderName}`,
         status: "posted",
@@ -565,11 +578,12 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 
     if (jeErr || !je) return { error: `Draw funded but JE posting failed: ${jeErr?.message}` };
 
+    // Cash and 1120 are company-level (not project-specific) — project_id: null
     const { error: lineErr } = await supabase.from("journal_entry_lines").insert([
       {
         journal_entry_id: je.id,
         account_id: acct1000,
-        project_id: draw.project_id ?? null,
+        project_id: null,
         description: `Cash received — ${displayName} — ${lenderName}`,
         debit: draw.total_amount,
         credit: 0,
@@ -577,7 +591,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       {
         journal_entry_id: je.id,
         account_id: acct1120,
-        project_id: draw.project_id ?? null,
+        project_id: null,
         description: `Clear Due from Lender — ${displayName} — ${lenderName}`,
         debit: 0,
         credit: draw.total_amount,
@@ -587,20 +601,18 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     if (lineErr) return { error: `Draw funded but JE lines failed: ${lineErr.message}` };
   }
 
-  // Step 3b: Post WIP/AP JEs — one DR line per invoice (1210 WIP or 1230 CIP-Land),
-  // single CR to AP (2000).  This establishes the liability so vendor payment
-  // entries (DR AP / CR Cash) balance correctly.
+  // Step 3b: Post WIP/AP JEs — skip invoices that already had WIP/AP posted at approval
+  // (wip_ap_posted = true means approveInvoice already handled it).
   if (acct1210 && acct1230 && acct2000) {
-    const { data: drawInvoiceDetails } = await supabase
-      .from("draw_invoices")
-      .select(`
-        invoice_id,
-        invoices (
-          id, amount, vendor, invoice_number, project_id,
-          projects ( project_type )
-        )
-      `)
-      .eq("draw_id", drawId);
+    type InvDetail = {
+      id: string;
+      amount: number | null;
+      vendor: string | null;
+      invoice_number: string | null;
+      project_id: string | null;
+      wip_ap_posted: boolean | null;
+      projects: { project_type: string } | null;
+    };
 
     const wipLines: {
       journal_entry_id: string;
@@ -611,24 +623,20 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       credit: number;
     }[] = [];
     let totalWip = 0;
+    const newlyPostedInvoiceIds: string[] = [];
 
     for (const di of drawInvoiceDetails ?? []) {
-      const inv = di.invoices as {
-        id: string;
-        amount: number | null;
-        vendor: string | null;
-        invoice_number: string | null;
-        project_id: string | null;
-        projects: { project_type: string } | null;
-      } | null;
+      const inv = di.invoices as InvDetail | null;
       if (!inv || !inv.amount) continue;
+      // Skip if WIP/AP was already posted when invoice was approved outside of draw flow
+      if (inv.wip_ap_posted) continue;
 
       const isLandDev = inv.projects?.project_type === "land_development";
       const wipAcctId = isLandDev ? acct1230 : acct1210;
       const invLabel = [inv.vendor, inv.invoice_number].filter(Boolean).join(" — Inv #");
 
       wipLines.push({
-        journal_entry_id: "", // filled in after JE insert
+        journal_entry_id: "", // filled after JE insert
         account_id: wipAcctId,
         project_id: inv.project_id ?? null,
         description: invLabel || "Construction cost",
@@ -636,13 +644,14 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         credit: 0,
       });
       totalWip += inv.amount;
+      newlyPostedInvoiceIds.push(inv.id);
     }
 
     if (wipLines.length > 0 && totalWip > 0) {
       const { data: wipJe } = await supabase
         .from("journal_entries")
         .insert({
-          entry_date: new Date().toISOString().split("T")[0],
+          entry_date: today,
           reference: `DRAW-WIP-${drawId.slice(0, 8)}`,
           description: `Construction costs — ${displayName} — ${lenderName}`,
           status: "posted",
@@ -655,7 +664,6 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 
       if (wipJe) {
         const lines = wipLines.map(l => ({ ...l, journal_entry_id: wipJe.id }));
-        // Single AP credit for the draw total
         lines.push({
           journal_entry_id: wipJe.id,
           account_id: acct2000,
@@ -665,6 +673,42 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
           credit: totalWip,
         });
         await supabase.from("journal_entry_lines").insert(lines);
+
+        // Mark these invoices so they won't be double-posted if touched again
+        if (newlyPostedInvoiceIds.length > 0) {
+          await supabase
+            .from("invoices")
+            .update({ wip_ap_posted: true })
+            .in("id", newlyPostedInvoiceIds);
+        }
+      }
+    }
+  }
+
+  // Step 3c: Update each loan's current_balance by the funded amount per project
+  if (draw.lender_id && drawInvoiceDetails && drawInvoiceDetails.length > 0) {
+    // Accumulate funded amount per project
+    const projectAmounts = new Map<string, number>();
+    for (const di of drawInvoiceDetails) {
+      const inv = di.invoices as { project_id: string | null; amount: number | null } | null;
+      if (!inv?.project_id || !inv?.amount) continue;
+      projectAmounts.set(inv.project_id, (projectAmounts.get(inv.project_id) ?? 0) + inv.amount);
+    }
+
+    for (const [projectId, fundedAmt] of projectAmounts) {
+      const { data: loan } = await supabase
+        .from("loans")
+        .select("id, current_balance")
+        .eq("project_id", projectId)
+        .eq("lender_id", draw.lender_id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (loan) {
+        await supabase
+          .from("loans")
+          .update({ current_balance: (loan.current_balance ?? 0) + fundedAmt })
+          .eq("id", loan.id);
       }
     }
   }
@@ -738,107 +782,6 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 }
 
 // ---------------------------------------------------------------------------
-// markDrawPaid
-// Marks the draw as paid and sets all linked invoices to status = 'paid'.
-// ---------------------------------------------------------------------------
-
-export async function markDrawPaid(drawId: string): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
-
-  const { data: draw } = await supabase
-    .from("loan_draws")
-    .select("status, draw_date, draw_number, lender_id, contacts ( name )")
-    .eq("id", drawId)
-    .single();
-
-  if (!draw) return { error: "Draw not found" };
-  if (draw.status !== "funded") return { error: "Only funded draws can be marked as paid" };
-
-  // Get all invoices in this draw with vendor info for GL posting
-  const { data: drawInvoiceDetails } = await supabase
-    .from("draw_invoices")
-    .select("invoice_id, invoices ( id, amount, vendor, invoice_number, project_id )")
-    .eq("draw_id", drawId);
-
-  const today = new Date().toISOString().split("T")[0];
-  const invoiceIds = (drawInvoiceDetails ?? []).map((di) => di.invoice_id);
-
-  if (invoiceIds.length > 0) {
-    const { error: invErr } = await supabase
-      .from("invoices")
-      .update({ status: "paid", payment_date: today })
-      .in("id", invoiceIds);
-    if (invErr) return { error: invErr.message };
-  }
-
-  const { error } = await supabase
-    .from("loan_draws")
-    .update({ status: "paid" })
-    .eq("id", drawId);
-
-  if (error) return { error: error.message };
-
-  // Post GL entry: Dr AP (2000) / Cr Cash (1000) for the full draw total, per project
-  const { data: accounts } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", ["1000", "2000"]);
-
-  const acct1000 = accounts?.find(a => a.account_number === "1000")?.id;
-  const acct2000 = accounts?.find(a => a.account_number === "2000")?.id;
-  const lenderName = (draw.contacts as { name: string } | null)?.name ?? "Lender";
-  const displayName = drawDisplayName(draw.draw_date);
-
-  if (acct1000 && acct2000 && drawInvoiceDetails && drawInvoiceDetails.length > 0) {
-    const totalAmount = drawInvoiceDetails.reduce((s, di) => {
-      const inv = di.invoices as { amount: number | null } | null;
-      return s + (inv?.amount ?? 0);
-    }, 0);
-
-    const { data: je } = await supabase
-      .from("journal_entries")
-      .insert({
-        entry_date: today,
-        reference: `DRAW-PAID-${drawId.slice(0, 8)}`,
-        description: `Draw paid — ${displayName} — ${lenderName}`,
-        status: "posted",
-        source_type: "invoice_payment",
-        source_id: drawId,
-        user_id: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (je) {
-      await supabase.from("journal_entry_lines").insert([
-        {
-          journal_entry_id: je.id,
-          account_id: acct2000,
-          project_id: null,
-          description: `AP cleared — ${displayName} — ${lenderName}`,
-          debit: totalAmount,
-          credit: 0,
-        },
-        {
-          journal_entry_id: je.id,
-          account_id: acct1000,
-          project_id: null,
-          description: `Cash — ${displayName} — ${lenderName}`,
-          debit: 0,
-          credit: totalAmount,
-        },
-      ]);
-    }
-  }
-
-  revalidatePath("/draws");
-  revalidatePath(`/draws/${drawId}`);
-  return {};
-}
-
-// ---------------------------------------------------------------------------
 // markVendorPaymentPaid
 // Called when the user writes a check to a vendor and records the check
 // number / date.  Posts a GL entry (Dr AP / Cr Cash) and marks the vendor's
@@ -889,39 +832,40 @@ export async function markVendorPaymentPaid(
 
   const invoiceIds = (links ?? []).map((l) => l.invoice_id);
 
-  // Mark invoices as paid
+  // Mark invoices as released (check written, not yet cleared at bank)
   if (invoiceIds.length > 0) {
     const { error: invErr } = await supabase
       .from("invoices")
       .update({
-        status: "paid",
-        payment_date: paymentDate,
+        status: "released",
         payment_method: "check",
       })
       .in("id", invoiceIds);
     if (invErr) return { error: invErr.message };
   }
 
-  // Post GL entry: Dr Accounts Payable (2000) / Cr Cash (1000)
+  // Post GL entry: DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050)
+  // The check is written but has not yet cleared the bank.
+  // When the check clears, a separate entry DR 2050 / CR Cash (1000) is posted via Mark Cleared.
   const { data: accounts } = await supabase
     .from("chart_of_accounts")
     .select("id, account_number")
-    .in("account_number", ["1000", "2000"]);
+    .in("account_number", ["2000", "2050"]);
 
-  const acct1000 = accounts?.find((a) => a.account_number === "1000")?.id;
   const acct2000 = accounts?.find((a) => a.account_number === "2000")?.id;
+  const acct2050 = accounts?.find((a) => a.account_number === "2050")?.id;
 
   const checkRef = checkNumber?.trim()
     ? `Check #${checkNumber.trim()}`
     : `VPmt-${vendorPaymentId.slice(0, 8)}`;
 
-  if (acct1000 && acct2000) {
+  if (acct2000 && acct2050) {
     const { data: je } = await supabase
       .from("journal_entries")
       .insert({
         entry_date: paymentDate,
         reference: checkRef,
-        description: `Check payment — ${vp.vendor_name}`,
+        description: `Check issued — ${vp.vendor_name}`,
         status: "posted",
         source_type: "invoice_payment",
         source_id: vendorPaymentId,
@@ -936,15 +880,15 @@ export async function markVendorPaymentPaid(
           journal_entry_id: je.id,
           account_id: acct2000,
           project_id: null,
-          description: `AP cleared — ${vp.vendor_name}`,
+          description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
           debit: vp.amount,
           credit: 0,
         },
         {
           journal_entry_id: je.id,
-          account_id: acct1000,
+          account_id: acct2050,
           project_id: null,
-          description: `${checkRef} — ${vp.vendor_name}`,
+          description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
           debit: 0,
           credit: vp.amount,
         },

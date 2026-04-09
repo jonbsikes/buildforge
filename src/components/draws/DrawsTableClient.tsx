@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { submitDraw, fundDraw, markDrawPaid } from "@/app/actions/draws";
+import { submitDraw, fundDraw } from "@/app/actions/draws";
 import { drawDisplayName } from "@/lib/draws";
 
 interface Draw {
@@ -125,32 +125,7 @@ function ActionButton({ draw }: { draw: Draw }) {
   if (draw.status === "funded") {
     return (
       <div onClick={handleClick} className="flex items-center gap-2">
-        {!showConfirm ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }}
-            disabled={isPending}
-            className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors disabled:opacity-60 whitespace-nowrap"
-          >
-            Mark Paid
-          </button>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-gray-500">Mark as paid?</span>
-            <button
-              onClick={(e) => run(() => markDrawPaid(draw.id), e)}
-              disabled={isPending}
-              className="px-2.5 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 disabled:opacity-60"
-            >
-              {isPending ? "…" : "Yes"}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }}
-              className="px-2.5 py-1 border border-gray-300 text-gray-600 rounded text-xs hover:bg-gray-50"
-            >
-              No
-            </button>
-          </div>
-        )}
+        <span className="text-xs text-gray-500 italic">Write checks via draw detail</span>
         {error && <span className="text-xs text-red-500">{error}</span>}
       </div>
     );

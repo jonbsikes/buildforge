@@ -87,13 +87,12 @@ export default function CashFlowClient() {
       }));
 
     // --- OPERATING ACTIVITIES ---
-    // Cash received from customers = credits to revenue accounts that hit cash
-    // For now: revenue account credits (cash from customers)
+    // Cash received from customers = credits to revenue accounts
     const revenueLines = lines.filter((l: any) => l.account?.type === "revenue" && Number(l.credit || 0) > 0);
     const cashFromCustomers = revenueLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
 
-    // Cash paid to vendors = debits to expense/cogs accounts (vendor payments flowing through P&L)
-    // Plus invoice payments: source_type = 'invoice_payment' lines that credit cash
+    // Cash paid to vendors = CHK-CLR entries: source_type = 'invoice_payment', CR to Cash (1000)
+    // This captures the check-cleared step (DR 2050 / CR Cash) — actual cash leaving the bank
     const invoicePaymentLines = lines.filter((l: any) =>
       l.journal_entry?.source_type === 'invoice_payment' &&
       l.account?.account_number === '1000' &&
@@ -102,48 +101,40 @@ export default function CashFlowClient() {
     const cashToVendors = invoicePaymentLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
 
     // --- INVESTING ACTIVITIES ---
-    // WIP increases (construction spending) — debits to WIP from draw-funded entries
+    // WIP increases — debits to WIP (1210) or CIP Land (1230) from invoice approval or draw funding
+    // source_type = 'invoice_approval' (approved directly) or 'loan_draw' (funded via draw)
     const wipDrawLines = lines.filter((l: any) =>
-      l.account?.account_number === '1210' &&
+      (l.account?.account_number === '1210' || l.account?.account_number === '1230') &&
       Number(l.debit || 0) > 0 &&
-      l.journal_entry?.source_type === 'draw_funding'
+      (l.journal_entry?.source_type === 'loan_draw' || l.journal_entry?.source_type === 'invoice_approval')
     );
     const wipFromDraws = wipDrawLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
 
-    // Land purchases — debits to Land Inventory
+    // Land purchases — debits to Land Inventory (1200)
     const landPurchaseLines = lines.filter((l: any) =>
       l.account?.account_number === '1200' &&
       Number(l.debit || 0) > 0
     );
     const landPurchases = landPurchaseLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
 
-    // Lot cost transfers (not a cash event, but tracked for investing section)
-    // Closing fee capitalization to WIP from loan closings
-    const closingFeeLines = lines.filter((l: any) =>
-      l.account?.account_number === '1210' &&
-      Number(l.debit || 0) > 0 &&
-      l.journal_entry?.source_type === 'loan_closing' &&
-      (l.description || '').toLowerCase().includes('closing fee')
-    );
-    const closingFees = closingFeeLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
-
     // --- FINANCING ACTIVITIES ---
-    // Loan draws received = credits to Construction Loan Payable (from draw_funding entries)
+    // Loan draws received = actual cash received when draw is funded
+    // fundDraw posts: DR Cash (1000) / CR Due from Lender (1120), source_type = 'loan_draw'
     const drawCreditLines = lines.filter((l: any) =>
-      l.account?.account_number === '2100' &&
-      Number(l.credit || 0) > 0 &&
-      (l.journal_entry?.source_type === 'draw_funding' || l.journal_entry?.source_type === 'loan_draw')
+      l.account?.account_number === '1000' &&
+      Number(l.debit || 0) > 0 &&
+      l.journal_entry?.source_type === 'loan_draw'
     );
-    const cashFromDraws = drawCreditLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+    const cashFromDraws = drawCreditLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
 
-    // Loan payments = debits to Construction Loan Payable
+    // Loan payments = debits to any Loan Payable account (220x series)
     const loanPaymentLines = lines.filter((l: any) =>
-      l.account?.account_number === '2100' &&
+      l.account?.account_number?.startsWith('22') &&
       Number(l.debit || 0) > 0
     );
     const loanPayments = loanPaymentLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
 
-    // Capital contributions = credits to equity accounts (3010, 3020)
+    // Capital contributions = credits to equity accounts (30x series)
     const capitalContribLines = lines.filter((l: any) =>
       l.account?.type === 'equity' &&
       l.account?.account_number?.startsWith('30') &&
@@ -151,20 +142,12 @@ export default function CashFlowClient() {
     );
     const capitalContribs = capitalContribLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
 
-    // Owner draws = debits to draw accounts (3210, etc.)
+    // Owner draws = debits to draw/distribution accounts (32x series)
     const ownerDrawLines = lines.filter((l: any) =>
       l.account?.account_number?.startsWith('32') &&
       Number(l.debit || 0) > 0
     );
     const ownerDraws = ownerDrawLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
-
-    // Loan closing disbursements (closing fees funded by new loans)
-    const closingDisbursementLines = lines.filter((l: any) =>
-      l.account?.account_number === '2100' &&
-      Number(l.credit || 0) > 0 &&
-      l.journal_entry?.source_type === 'loan_closing'
-    );
-    const closingDisbursements = closingDisbursementLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
 
     const operating: CashFlowSection = {
       title: "Operating Activities",
@@ -179,21 +162,20 @@ export default function CashFlowClient() {
       title: "Investing Activities",
       lines: [
         ...(landPurchases > 0 ? [{ label: "Land purchases", amount: landPurchases, entries: toDrillEntries(landPurchaseLines), isSubtraction: true }] : []),
-        ...(closingFees > 0 ? [{ label: "Construction loan closing fees", amount: closingFees, entries: toDrillEntries(closingFeeLines), isSubtraction: true }] : []),
+        ...(wipFromDraws > 0 ? [{ label: "Construction costs capitalized to WIP", amount: wipFromDraws, entries: toDrillEntries(wipDrawLines), isSubtraction: true }] : []),
       ],
-      total: -(landPurchases + closingFees),
+      total: -(landPurchases + wipFromDraws),
     };
 
     const financing: CashFlowSection = {
       title: "Financing Activities",
       lines: [
         { label: "Construction loan draws received", amount: cashFromDraws, entries: toDrillEntries(drawCreditLines) },
-        ...(closingDisbursements > 0 ? [{ label: "Loan closing disbursements", amount: closingDisbursements, entries: toDrillEntries(closingDisbursementLines) }] : []),
         ...(capitalContribs > 0 ? [{ label: "Capital contributions", amount: capitalContribs, entries: toDrillEntries(capitalContribLines) }] : []),
         ...(loanPayments > 0 ? [{ label: "Loan payments made", amount: loanPayments, entries: toDrillEntries(loanPaymentLines), isSubtraction: true }] : []),
         ...(ownerDraws > 0 ? [{ label: "Owner draws & distributions", amount: ownerDraws, entries: toDrillEntries(ownerDrawLines), isSubtraction: true }] : []),
       ],
-      total: cashFromDraws + closingDisbursements + capitalContribs - loanPayments - ownerDraws,
+      total: cashFromDraws + capitalContribs - loanPayments - ownerDraws,
     };
 
     setSections([operating, investing, financing]);

@@ -17,7 +17,8 @@ export default async function InvoicesPage() {
       id, vendor, invoice_number, invoice_date, due_date,
       amount, status, ai_confidence, pending_draw, manually_reviewed,
       file_name, source,
-      projects ( id, name )
+      projects ( id, name ),
+      cost_codes ( code, name )
     `)
     .order("created_at", { ascending: false });
 

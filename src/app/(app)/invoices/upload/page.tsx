@@ -10,7 +10,7 @@ export default async function InvoiceUploadPage() {
 
   const [projectsRes, costCodesRes] = await Promise.all([
     supabase.from("projects").select("id, name, project_type, address, subdivision, block, lot").order("name"),
-    supabase.from("cost_codes").select("code, category, name").order("sort_order"),
+    supabase.from("cost_codes").select("code, category, name, project_type").order("sort_order"),
   ]);
 
   const projects = projectsRes.data ?? [];

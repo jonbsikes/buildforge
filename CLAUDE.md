@@ -84,11 +84,30 @@ Management
 
 ## Key Business Rules
 
-- Cost codes 1–33 = Land Development; 34–102 = Home Construction; 103–120 = G&A (company-level only, never project-assigned)
+- Cost codes are categorized by `project_type` column on the `cost_codes` table: `land_development`, `home_construction`, or `general_admin`. Do NOT use hardcoded numeric ranges to filter — always filter by `project_type`.
+- Current ranges (informational only, not used for filtering): Land Development 1–33 + 121; Home Construction 34–102 + 122; G&A 103–120
+- Codes 121 (Land Dev) and 122 (Home Construction) = **Loan Interest** — always capitalized into WIP/CIP, never expensed. See interest capitalization policy below.
+- G&A codes (`project_type = 'general_admin'`) are company-level only — `project_id` must be null on all invoices using these codes
 - Only display cost codes relevant to a project's type — never show land dev codes on a home construction project or vice versa
 - All financial transactions must post to the General Ledger and balance (debits = credits)
-- Every approved invoice payment posts GL entry: debit AP, credit Cash
-- Every funded loan draw posts GL entry: debit Cash, credit Construction Loan Payable — posted automatically when draw status changes to `funded`
+
+### Interest Capitalization Policy (ASC 835-20)
+
+**All project-level interest is capitalized into WIP/CIP — it never hits the income statement.**
+
+The JE debit account is driven by the **project type on the invoice**, not the cost code. This means every invoice attached to a project (including Loan Interest codes 121/122) automatically debits the correct WIP/CIP account:
+
+- Home Construction project → DR **Construction WIP (1210)**
+- Land Development project → DR **CIP — Land Improvements (1230)**
+- No project (G&A) → DR **G&A Expense (6900)** — hits the income statement
+
+This is correct GAAP treatment: construction loan interest on qualifying assets must be capitalized as part of the cost of those assets for the duration of construction.
+
+**Code 110 "Interest Expense" (G&A, codes 103–120)** is reserved for company-level interest only — e.g., interest on an operating line of credit. It is always company-level (`project_id = null`) and always hits 6900 / the income statement. Never use code 110 for construction loan interest.
+
+Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" account for project loan interest. It flows through AP (standard path) or directly to Cash (auto-draft path) and lands in WIP/CIP — no separate interest account is needed or correct.
+- The authoritative GL system is `journal_entries` + `journal_entry_lines` (double-entry). The old `gl_entries` table is legacy — do not write new entries to it
+- All journal entries post automatically at the correct lifecycle event — see **Automated Journal Entry Triggers** section
 - `committed_amount` = sum of active contract amounts per cost code/project
 - `actual_amount` = sum of approved and paid invoices per cost code/project; for multi-line invoices, roll up from `invoice_line_items`
 - Invoices with `ai_confidence: low` require manual review before any action
@@ -101,7 +120,7 @@ Management
 - When a build stage is marked complete, future stages in the Gantt automatically adjust
 - Build stage end date is auto-calculated from `start_date` + cumulative stage durations from `.claude/memory/build_stages.md`
 - Notifications fire for: past-due invoices, invoices pending review, COI/license expiring within 30 days, and COI/license already expired
-- G&A invoices (codes 103–120) are company-level only — `project_id` is null on these records
+- G&A invoices (`project_type = 'general_admin'`) are company-level only — `project_id` is null on these records
 - Multi-line invoice line items must sum to the parent invoice `amount`; a mismatch is a validation error
 - Financial reports are company-wide and must support drill-down to individual GL entries
 
@@ -165,7 +184,7 @@ Management
 | enabled | boolean | default true — allows enabling/disabling cost codes per project/subdivision |
 | created_at | timestamp | |
 
-> G&A cost codes (103–120) are never added to `project_cost_codes` — they are company-level only.
+> G&A cost codes (`project_type = 'general_admin'`) are never added to `project_cost_codes` — they are company-level only.
 
 ---
 
@@ -223,24 +242,33 @@ Management
 | project_id | uuid | FK → projects.id (nullable — null for G&A invoices) |
 | vendor_id | uuid | FK → vendors.id (nullable) |
 | contract_id | uuid | FK → contracts.id (nullable) |
-| cost_code | int | FK → cost_codes.code — primary/default cost code for single-line invoices |
+| cost_code_id | uuid | FK → cost_codes.id — dominant cost code for this invoice |
 | invoice_number | string | |
 | invoice_date | date | |
 | due_date | date | Required — defaults to entry date if not provided |
 | amount | decimal | Total invoice amount (sum of all line items) |
-| status | string | `'pending_review'`, `'approved'`, `'scheduled'`, `'paid'`, `'disputed'` |
-| payment_date | date | nullable |
+| status | string | `'pending_review'`, `'approved'`, `'released'`, `'cleared'`, `'disputed'`, `'void'` |
+| payment_date | date | nullable — set when check clears bank (status = `cleared`) |
 | payment_method | string | `'check'`, `'ach'`, `'wire'`, `'credit_card'` (nullable) |
 | ai_confidence | string | `'high'`, `'medium'`, `'low'` |
 | ai_notes | text | |
 | source | string | `'email'`, `'upload'` |
 | pending_draw | boolean | default false — flagged to be included in next draw request |
+| wip_ap_posted | boolean | default false — true once DR WIP / CR AP JE has been posted; prevents double-posting if invoice passes through both approval and draw funding |
 | email_message_id | string | nullable — Gmail message ID for email-ingested invoices (prevents duplicates) |
 | created_at | timestamp | |
 
+> **Invoice status lifecycle:**
+> - `pending_review` → created, awaiting human approval
+> - `approved` → human approved; WIP/AP JE auto-posted (DR WIP / CR AP)
+> - `released` → check written; AP/2050 JE auto-posted (DR AP / CR Checks Outstanding)
+> - `cleared` → check cleared bank; 2050/Cash JE auto-posted (DR Checks Outstanding / CR Cash)
+> - `disputed` → flagged, no payment actions available
+> - `void` → voided, no further action
+>
 > **Invoice filename convention:** When an invoice is stored, the description/display name is formatted as: `Vendor Name – Cost Code – Project Name – Invoice Number`
 >
-> **Multi-line invoices:** Invoices can have multiple line items, each attributed to a different cost code (see `invoice_line_items` table below). The `cost_code` on the parent invoice record is the primary code for single-line invoices or the dominant code for multi-line.
+> **Multi-line invoices:** Invoices can have multiple line items, each attributed to a different cost code (see `invoice_line_items` table below). The `cost_code_id` on the parent invoice record is the dominant cost code.
 >
 > **Add to draw:** When approving or entering an invoice, prompt: "Add to pending draw request?" If yes, set `pending_draw = true`.
 
@@ -371,9 +399,14 @@ Management
 | draw_number | int | |
 | draw_date | date | |
 | total_amount | decimal | |
-| status | string | `'draft'`, `'submitted'`, `'funded'` |
+| status | string | `'draft'`, `'submitted'`, `'funded'` — see draw lifecycle below |
 | notes | text | nullable |
 | created_at | timestamp | |
+
+> **Draw status lifecycle:**
+> - `draft` → being assembled; no JE posted
+> - `submitted` → sent to bank; JE auto-posted: DR Due from Lender (1120) / CR Loan Payable (220x)
+> - `funded` → bank wired money; two JEs auto-posted: (1) DR Cash / CR 1120, (2) DR WIP / CR AP for any invoices not yet WIP-posted; `loans.current_balance` auto-incremented per project
 
 ---
 
@@ -384,6 +417,107 @@ Management
 | id | uuid | PK |
 | draw_id | uuid | FK → loan_draws.id |
 | invoice_id | uuid | FK → invoices.id |
+
+---
+
+### vendor_payments
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| draw_id | uuid | FK → loan_draws.id |
+| vendor_id | uuid | FK → vendors.id (nullable) |
+| vendor_name | string | |
+| amount | decimal | |
+| status | string | `'pending'`, `'paid'` |
+| check_number | string | nullable |
+| payment_date | date | nullable |
+| created_at | timestamp | |
+
+> Created automatically when a draw is funded — one record per vendor in the draw. When `markVendorPaymentPaid` is called: JE posts DR AP / CR Checks Outstanding (2050) and invoice status advances to `released`. Draw auto-closes when all vendor_payments are paid.
+
+---
+
+### vendor_payment_invoices (join table)
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| vendor_payment_id | uuid | FK → vendor_payments.id |
+| invoice_id | uuid | FK → invoices.id |
+
+---
+
+### loans
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| project_id | uuid | FK → projects.id |
+| lender_id | uuid | FK → contacts.id |
+| loan_number | string | |
+| loan_amount | decimal | Total loan commitment |
+| current_balance | decimal | Outstanding balance — auto-incremented when draw is funded |
+| interest_rate | decimal | nullable |
+| origination_date | date | nullable |
+| maturity_date | date | nullable |
+| status | string | `'active'`, `'paid_off'`, `'cancelled'` |
+| coa_account_id | uuid | FK → chart_of_accounts.id — maps this loan to its specific liability account |
+| created_at | timestamp | |
+
+---
+
+### chart_of_accounts
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| account_number | string | e.g. `'1000'`, `'2050'`, `'2201'` |
+| name | string | e.g. `'Cash'`, `'Checks Issued - Outstanding'` |
+| account_type | string | `'asset'`, `'liability'`, `'equity'`, `'revenue'`, `'expense'` |
+| created_at | timestamp | |
+
+> Key accounts used by automated JE posting: 1000 (Cash), 1120 (Due from Lender), 1210 (Construction WIP), 1230 (CIP — Land), 2000 (Accounts Payable), 2050 (Checks Issued - Outstanding), 220x (per-loan Loan Payable accounts), 6900 (G&A Expense).
+
+---
+
+### journal_entries
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| entry_date | date | |
+| reference | string | e.g. `INV-APPR-{id}`, `DRAW-FUND-{id}`, `CHK-CLR-{id}` |
+| description | string | |
+| status | string | `'posted'`, `'draft'`, `'void'` |
+| source_type | string | `'invoice_approval'`, `'invoice_payment'`, `'loan_draw'`, `'manual'` |
+| source_id | uuid | FK to the originating record |
+| loan_id | uuid | FK → loans.id (nullable) |
+| user_id | uuid | FK → users.id |
+| created_at | timestamp | |
+
+---
+
+### journal_entry_lines
+
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| journal_entry_id | uuid | FK → journal_entries.id |
+| account_id | uuid | FK → chart_of_accounts.id |
+| project_id | uuid | FK → projects.id (nullable — null for company-level entries) |
+| description | string | |
+| debit | decimal | |
+| credit | decimal | |
+| created_at | timestamp | |
+
+> The balance sheet, income statement, and all financial reports read from `journal_entries` + `journal_entry_lines` where `status = 'posted'`. Every JE must balance (sum of debits = sum of credits).
+
+---
+
+### gl_entries ⚠️ LEGACY
+
+> **Do not write new entries to this table.** It is an older simplified single-line GL table retained for historical data only. All new accounting entries go to `journal_entries` + `journal_entry_lines`.
 
 ---
 
@@ -480,11 +614,12 @@ Management
 - **Invoice filename/description:** Auto-formatted as `Vendor Name – Cost Code – Project Name – Invoice Number`
 - **Add to draw prompt:** When entering or approving an invoice, ask "Add to pending draw request?" — if yes, set `pending_draw = true`
 - AI categorization via Claude API — see Invoice Processing Rules below
-- Approval workflow: pending_review → approved → scheduled → paid
+- **Approval workflow:** `pending_review` → `approved` → `released` → `cleared` (see status lifecycle in schema section)
 - `ai_confidence: low` flags require manual review — cannot be approved without human touch
-- GL entry posted on payment
+- Journal entries post automatically at each lifecycle stage — see **Automated Journal Entry Triggers** section
 - G&A invoices (codes 103–120) entered without a project — `project_id` is null
 - Only display cost codes relevant to the invoice's project type
+- **AP tab actions:** "Issue Check" button appears on `approved` invoices (hover); "Mark Cleared" button appears on `released` invoices (hover). Both post the correct JEs automatically. For a specific cleared date, use the invoice detail page.
 
 ### 5. Project Dashboard
 - Budget vs committed vs actual by enabled cost codes only
@@ -521,14 +656,15 @@ Management
 
 ### 9. Banking (Loans & Draw Management)
 - Navigation section is called "Banking" with three sub-pages: Bank Accounts, Loans, Draw Requests
-- **Loans:** Created manually from the Loans page or auto-created when a loan number is entered on a project. Each loan is linked to a project and a lender contact, and has a loan number, loan amount, interest rate, origination date, maturity date, and status
+- **Loans:** Created manually from the Loans page or auto-created when a loan number is entered on a project. Each loan is linked to a project and a lender contact, and has a loan number, loan amount, interest rate, origination date, maturity date, and status. `current_balance` is auto-incremented when a draw is funded
 - **Loan types:** `term_loan` (fixed amount, fully funded at origination) and `line_of_credit` (revolving — has a credit limit and a current outstanding balance). For lines of credit, display: credit limit, current balance, and available credit (credit limit minus current balance)
 - If a loan number is entered on a project's edit page, automatically create a loan record for that project if one does not already exist for that loan number
 - **Draw process is a weekly batch:** Pull all approved invoices with `pending_draw = true` not yet in a funded draw, grouped by lender. A single draw request can include invoices across multiple loans from the same lender
 - Highlights invoices due within 5 days or past due
 - Draw Request Report: summary page + attached invoice PDFs, single PDF export
-- Mark draw as submitted to bank
-- When draw is marked `funded`: GL entry posts automatically (debit Cash, credit Construction Loan Payable) and invoices in the draw are locked from future draws
+- **Draw lifecycle and automated accounting** — see **Automated Journal Entry Triggers** section
+- Once funded, `vendor_payments` records are auto-created (one per vendor). Use the draw detail page to record individual checks via "Mark Vendor Paid"
+- There is no "Mark Draw Paid" shortcut — all payments go through the individual vendor payment workflow to ensure proper 2050 accounting
 
 ### 10. Document Management
 - Per-project Documents tab: Plans, Permits, Contracts, Lender, Inspections, Photos, Other
@@ -571,6 +707,56 @@ Management
 
 ---
 
+## Automated Journal Entry Triggers
+
+All journal entries are posted automatically by server actions. **Never manually replicate these entries** — doing so will cause duplicate GL postings. The `wip_ap_posted` flag on `invoices` is the guard against double-posting.
+
+### Invoice lifecycle (all invoices — draw-based or not)
+
+**Standard AP path** (`direct_cash_payment = false`):
+
+| Event | Action file | JE posted |
+|---|---|---|
+| Invoice approved | `approveInvoice()` | DR WIP (1210/1230) or G&A Expense (6900) / CR Accounts Payable (2000). Sets `wip_ap_posted = true` |
+| Check issued (`released`) | `advanceInvoiceStatus(id, 'released')` | DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050) |
+| Check cleared bank (`cleared`) | `advanceInvoiceStatus(id, 'cleared', date)` | DR Checks Issued - Outstanding (2050) / CR Cash (1000) |
+
+**Auto-draft path** (`direct_cash_payment = true` — used for bank auto-drafted loan interest):
+
+| Event | Action file | JE posted |
+|---|---|---|
+| Invoice approved | `approveInvoice()` | DR WIP (1210/1230) / CR Cash (1000). Single entry. Status advances directly to `cleared`. Sets `wip_ap_posted = true`, `payment_method = 'ach'`, `payment_date = today`. No AP, no draw, no check issuance. |
+
+> Account selection for WIP/CIP debit (both paths): no project → 6900 (G&A Expense); land development project → 1230 (CIP — Land); home construction project → 1210 (Construction WIP). This is determined by project type, never by cost code.
+
+### Draw lifecycle
+
+| Event | Action file | JE posted |
+|---|---|---|
+| Draw submitted | `submitDraw()` | DR Due from Lender (1120) / CR per-loan Loan Payable (220x) |
+| Draw funded | `fundDraw()` | (1) DR Cash (1000) / CR Due from Lender (1120); (2) DR WIP / CR AP for any invoices with `wip_ap_posted = false` — skips invoices already posted at approval. Also increments `loans.current_balance` per project |
+| Vendor payment recorded | `markVendorPaymentPaid()` | DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050). Invoice status → `released` |
+| Check cleared bank | `advanceInvoiceStatus(id, 'cleared', date)` | DR Checks Issued - Outstanding (2050) / CR Cash (1000). Invoice status → `cleared` |
+
+### Key accounts
+
+| Account | Number | Type |
+|---|---|---|
+| Cash (DDA) | 1000 | Asset |
+| Due from Lender | 1120 | Asset |
+| Construction WIP | 1210 | Asset |
+| CIP — Land Improvements | 1230 | Asset |
+| Accounts Payable | 2000 | Liability |
+| Checks Issued - Outstanding | 2050 | Liability |
+| Construction Loan Payable (per loan) | 2201–229x | Liability |
+| G&A / Misc Operating Expense | 6900 | Expense |
+
+### Source files
+- `src/app/actions/invoices.ts` — `approveInvoice`, `advanceInvoiceStatus`
+- `src/app/actions/draws.ts` — `submitDraw`, `fundDraw`, `markVendorPaymentPaid`
+
+---
+
 ## Invoice Processing Rules
 
 ### Model
@@ -585,7 +771,7 @@ Management
 4. Output structured JSON matching both the `invoices` and `invoice_line_items` table schemas
 5. Set `ai_confidence` (high/medium/low) based on extraction certainty across all fields
 6. If `ai_confidence: low` on any key field — flag for human review, do not auto-approve
-7. G&A invoices (codes 103–120): set `project_id` to null
+7. G&A invoices (`project_type = 'general_admin'`): set `project_id` to null
 8. Auto-format description as: `Vendor Name – Primary Cost Code – Project Name – Invoice Number`
 
 ### Constraints
@@ -620,3 +806,7 @@ Management
 - File uploads: `documents` bucket for docs; `invoices` bucket for invoice attachments
 - Keep storage lean — no auto-upload of images unless user explicitly attaches them
 - **Supabase type fix:** `@supabase/ssr` passes Schema as 3rd generic but `supabase-js 2.101+` expects SchemaName (string). In `server.ts` and `client.ts`, cast the client: `return client as unknown as SupabaseClient<Database>;`
+- **Action file architecture:** All server actions live in `src/app/actions/`. There are no route-level `actions.ts` files — those were deleted. Primary action files: `invoices.ts`, `draws.ts`, `banking.ts`, `journal-entries.ts`
+- **GL system:** Write all new journal entries to `journal_entries` + `journal_entry_lines`. The `gl_entries` table is legacy — do not use it for new entries
+- **`wip_ap_posted` flag:** Set to `true` on an invoice once DR WIP / CR AP has been posted. `fundDraw` checks this flag before posting WIP/AP to prevent double-entry. Always check this flag when writing any code that might post WIP/AP entries
+- **`loans.current_balance`:** Auto-incremented by `fundDraw` — do not manually update unless correcting historical data

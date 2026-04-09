@@ -93,17 +93,13 @@ export default function BalanceSheetClient() {
     setLoading(true);
     const supabase = createClient();
 
-    // Fetch GL data and unpaid invoices in parallel
-    const [ledgerRes, invoicesRes] = await Promise.all([
+    // Fetch GL data only — AP is fully captured in journal entries (no raw invoice supplement needed)
+    const [ledgerRes] = await Promise.all([
       supabase.from("journal_entry_lines").select(`
         id, debit, credit, description,
         account:chart_of_accounts(account_number, name, type, subtype, is_active),
         journal_entry:journal_entries(id, entry_date, status, description, reference)
       `),
-      supabase.from("invoices")
-        .select("id, vendor, invoice_number, amount, due_date, invoice_date, status")
-        .in("status", ["pending_review", "approved", "scheduled"])
-        .lte("invoice_date", asOf),
     ]);
 
     // Filter to posted entries within date range
@@ -161,29 +157,53 @@ export default function BalanceSheetClient() {
     const longTermLiab = accounts.filter(a => a.type === "liability" && a.account_number >= "2100");
     const equityAccounts = accounts.filter(a => a.type === "equity");
 
+    // Net Member Capital accounts: combine capital + distributions per member into a single display line
+    // Sikes: 3010 (capital) + 3110 (distributions, debit-normal so already negative in balance)
+    // VeVea: 3020 (capital) + 3120 (distributions)
+    const memberPairs: { label: string; capitalNums: string[]; distNums: string[] }[] = [
+      { label: "Member Capital — Sikes", capitalNums: ["3010"], distNums: ["3110"] },
+      { label: "Member Capital — VeVea", capitalNums: ["3020"], distNums: ["3120"] },
+    ];
+    const netMemberAccounts: AccountBalance[] = memberPairs
+      .map(pair => {
+        const capAccts = equityAccounts.filter(a => pair.capitalNums.includes(a.account_number));
+        const distAccts = equityAccounts.filter(a => pair.distNums.includes(a.account_number));
+        const allAccts = [...capAccts, ...distAccts];
+        if (allAccts.length === 0) return null;
+        // Net balance: capital (credit-normal positive) minus distributions (debit-normal, stored as negative balance)
+        const netBalance = allAccts.reduce((s, a) => s + a.balance, 0);
+        if (Math.abs(netBalance) < 0.005) return null; // skip zero-balance members
+        const allLines = allAccts.flatMap(a => a.lines);
+        return {
+          account_number: capAccts[0]?.account_number ?? pair.capitalNums[0],
+          name: pair.label,
+          type: "equity",
+          subtype: "capital",
+          debit: allAccts.reduce((s, a) => s + a.debit, 0),
+          credit: allAccts.reduce((s, a) => s + a.credit, 0),
+          balance: netBalance,
+          lines: allLines,
+        } as AccountBalance;
+      })
+      .filter(Boolean) as AccountBalance[];
+
+    // Any remaining equity accounts not covered by member pairs (e.g. retained earnings account)
+    const pairedNums = memberPairs.flatMap(p => [...p.capitalNums, ...p.distNums]);
+    const otherEquityAccounts = equityAccounts.filter(a => !pairedNums.includes(a.account_number));
+
     // Revenue, COGS, Expenses -> Retained Earnings
     const revenue = accounts.filter(a => a.type === "revenue").reduce((s, a) => s + a.balance, 0);
     const cogs = accounts.filter(a => a.type === "cogs").reduce((s, a) => s + a.balance, 0);
     const expenses = accounts.filter(a => a.type === "expense").reduce((s, a) => s + a.balance, 0);
     const retainedEarnings = revenue - cogs - expenses; // net income flows to retained earnings
 
-    // AP from unpaid invoices (supplementary - not in GL yet)
-    const unpaidInvoices = invoicesRes.data ?? [];
-    const apFromInvoices = unpaidInvoices.reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
-    const apEntries: GLEntry[] = unpaidInvoices.map((i: any) => ({
-      id: i.id,
-      entry_date: i.invoice_date ?? "",
-      description: `${i.vendor ?? "Unknown"} · #${i.invoice_number ?? "—"}`,
-      amount: i.amount ?? 0,
-      debit_account: "Construction Costs",
-      credit_account: "Accounts Payable",
-      source_type: "invoice",
-    }));
+    // AP is fully GL-driven — account 2000 carries the balance from invoice_approval JEs
+    // No supplementary invoice query needed; both asset (CIP) and liability (AP) sides are in the ledger
 
     // Totals
     const totalAssets = currentAssets.reduce((s, a) => s + a.balance, 0) + longTermAssets.reduce((s, a) => s + a.balance, 0);
-    const totalLiabilities = currentLiab.reduce((s, a) => s + a.balance, 0) + longTermLiab.reduce((s, a) => s + a.balance, 0) + apFromInvoices;
-    const totalEquityFromGL = equityAccounts.reduce((s, a) => s + a.balance, 0);
+    const totalLiabilities = currentLiab.reduce((s, a) => s + a.balance, 0) + longTermLiab.reduce((s, a) => s + a.balance, 0);
+    const totalEquityFromGL = [...netMemberAccounts, ...otherEquityAccounts].reduce((s, a) => s + a.balance, 0);
     const totalEquity = totalEquityFromGL + retainedEarnings;
 
     setData({
@@ -192,10 +212,10 @@ export default function BalanceSheetClient() {
       totalAssets,
       currentLiabilities: currentLiab,
       longTermLiabilities: longTermLiab,
-      apFromInvoices,
-      apInvoices: apEntries,
+      apFromInvoices: 0,
+      apInvoices: [],
       totalLiabilities,
-      equityAccounts,
+      equityAccounts: [...netMemberAccounts, ...otherEquityAccounts],
       retainedEarnings,
       totalEquity,
     });
@@ -267,12 +287,6 @@ export default function BalanceSheetClient() {
                 <BSSectionHeader title="Liabilities" />
 
                 <BSGroup label="Current Liabilities" items={[
-                  ...(data.apFromInvoices > 0 ? [{
-                    label: "Accounts Payable",
-                    amount: data.apFromInvoices,
-                    drillable: true,
-                    onDrill: () => setDrill({ label: "Accounts Payable", amount: data.apFromInvoices, entries: data.apInvoices }),
-                  }] : []),
                   ...data.currentLiabilities.map(a => ({
                     label: a.name,
                     amount: a.balance,
@@ -302,7 +316,7 @@ export default function BalanceSheetClient() {
 
                 <div className="mt-6">
                   <BSSectionHeader title="Equity" />
-                  <BSGroup label="Equity Accounts" items={[
+                  <BSGroup label="Member Capital (Net)" items={[
                     ...data.equityAccounts.map(e => ({
                       label: `${e.name}`,
                       amount: e.balance,

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { ExtractedInvoiceData } from "@/app/api/invoices/extract/route";
 
-interface CostCode { code: string; category: string; name: string; }
+interface CostCode { code: string; category: string; name: string; project_type: "home_construction" | "land_development" | "general_admin" | null; }
 interface Project {
   id: string;
   name: string;
@@ -193,9 +193,9 @@ function InvoiceCard({
   onToggle: () => void;
   onChange: (field: keyof InvoiceReviewItem, value: string) => void;
 }) {
-  const landCodes = costCodes.filter((c) => { const n = parseInt(c.code); return n >= 1 && n <= 33; });
-  const homeCodes = costCodes.filter((c) => { const n = parseInt(c.code); return n >= 34 && n <= 102; });
-  const gaCodes   = costCodes.filter((c) => { const n = parseInt(c.code); return n >= 103 && n <= 120; });
+  const landCodes = costCodes.filter((c) => c.project_type === "land_development");
+  const homeCodes = costCodes.filter((c) => c.project_type === "home_construction");
+  const gaCodes   = costCodes.filter((c) => c.project_type === "general_admin");
 
   return (
     <div className={`border rounded-xl overflow-hidden ${item.ai_confidence === "low" ? "border-red-300" : "border-gray-200"}`}>
@@ -268,13 +268,13 @@ function InvoiceCard({
               <select value={item.cost_code} onChange={(e) => onChange("cost_code", e.target.value)}
                 className={`w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] ${item.ai_confidence === "low" ? "border-red-400" : "border-gray-300"}`}>
                 <option value="">— Select cost code —</option>
-                <optgroup label="Land Development (1–33)">
+                <optgroup label="Land Development">
                   {landCodes.map((c) => <option key={c.code} value={String(c.code)}>{c.code} — {c.name}</option>)}
                 </optgroup>
-                <optgroup label="Home Construction (34–102)">
+                <optgroup label="Home Construction">
                   {homeCodes.map((c) => <option key={c.code} value={String(c.code)}>{c.code} — {c.name}</option>)}
                 </optgroup>
-                <optgroup label="General & Administrative (103–120)">
+                <optgroup label="General & Administrative">
                   {gaCodes.map((c) => <option key={c.code} value={String(c.code)}>{c.code} — {c.name}</option>)}
                 </optgroup>
               </select>

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 export interface JournalLineInput {
   account_id: string;
   project_id: string | null;
+  cost_code_id?: string | null;
   loan_id?: string | null;
   description: string;
   debit: number;
@@ -53,6 +54,7 @@ export async function createJournalEntry(input: JournalEntryInput) {
     journal_entry_id: entry.id,
     account_id: l.account_id,
     project_id: l.project_id || null,
+    cost_code_id: l.cost_code_id || null,
     loan_id: l.loan_id || null,
     description: l.description || null,
     debit: l.debit,

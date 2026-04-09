@@ -7,7 +7,7 @@ import { updateInvoice, type UpdateInvoiceInput } from "@/app/actions/invoices";
 
 interface Vendor { id: string; name: string }
 interface Project { id: string; name: string; project_type: "home_construction" | "land_development" }
-interface CostCode { id: string; code: string; name: string }
+interface CostCode { id: string; code: string; name: string; project_type: "home_construction" | "land_development" | "general_admin" | null }
 interface Contract { id: string; label: string; amount: number; status: string }
 
 interface LineItem {
@@ -24,6 +24,7 @@ interface InitialData {
   invoice_date: string | null;
   due_date: string | null;
   pending_draw: boolean;
+  direct_cash_payment: boolean;
   status: string;
   payment_method: string | null;
   ai_confidence: string | null;
@@ -50,8 +51,8 @@ function getCodesForContext(
   projectType: "home_construction" | "land_development" | null,
   allCodes: CostCode[]
 ): CostCode[] {
-  if (projectType === "home_construction") return allCodes.filter((c) => { const n = parseInt(c.code, 10); return n >= 34 && n <= 102; });
-  if (projectType === "land_development") return allCodes.filter((c) => { const n = parseInt(c.code, 10); return n >= 1 && n <= 33; });
+  if (projectType === "home_construction") return allCodes.filter((c) => c.project_type === "home_construction");
+  if (projectType === "land_development") return allCodes.filter((c) => c.project_type === "land_development");
   return allCodes;
 }
 
@@ -82,8 +83,11 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
   const [invoiceDate, setInvoiceDate] = useState(initial.invoice_date ?? "");
   const [dueDate, setDueDate] = useState(initial.due_date ?? "");
   const [pendingDraw, setPendingDraw] = useState(initial.pending_draw);
-  const [status, setStatus] = useState<"pending_review" | "approved" | "disputed">(
-    (initial.status === "approved" || initial.status === "disputed") ? initial.status : "pending_review"
+  const [directCashPayment, setDirectCashPayment] = useState(initial.direct_cash_payment ?? false);
+  const [status, setStatus] = useState<"pending_review" | "approved" | "released" | "cleared" | "disputed" | "void">(
+    (["approved", "released", "cleared", "disputed", "void"].includes(initial.status))
+      ? initial.status as "approved" | "released" | "cleared" | "disputed" | "void"
+      : "pending_review"
   );
   const [paymentMethod, setPaymentMethod] = useState(initial.payment_method ?? "");
   const [lineItems, setLineItems] = useState<LineItem[]>(
@@ -100,11 +104,14 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
   const selectedProject = projects.find((p) => p.id === projectId) ?? null;
   const relevantCodes = getCodesForContext(selectedProject?.project_type ?? null, costCodes);
 
-  // G&A enforcement: if any line item uses a G&A code (103–120), project must be null
+  // G&A enforcement: if any line item uses a G&A cost code, project must be null
   const hasGaCostCode = lineItems.some((li) => {
-    const n = parseInt(li.cost_code, 10);
-    return n >= 103 && n <= 120;
+    const found = costCodes.find((c) => c.code === li.cost_code);
+    return found?.project_type === "general_admin";
   });
+
+  // Detect Loan Interest cost codes (121/122) — shows the auto-draft toggle
+  const hasLoanInterestCode = lineItems.some((li) => li.cost_code === "121" || li.cost_code === "122");
 
   // Auto-clear project when G&A code is selected
   useEffect(() => {
@@ -113,6 +120,14 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasGaCostCode]);
+
+  // Auto-clear directCashPayment when Loan Interest code is removed
+  useEffect(() => {
+    if (!hasLoanInterestCode && directCashPayment) {
+      setDirectCashPayment(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoanInterestCode]);
 
   const lineTotal = lineItems.reduce((sum, li) => {
     const n = parseFloat(li.amount);
@@ -145,7 +160,8 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
       invoice_number: invoiceNumber,
       invoice_date: invoiceDate,
       due_date: dueDate,
-      pending_draw: pendingDraw,
+      pending_draw: pendingDraw && !directCashPayment,
+      direct_cash_payment: directCashPayment,
       status,
       payment_method: paymentMethod,
       contract_id: contractId || null,
@@ -197,7 +213,7 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
               onChange={(e) => setProjectId(e.target.value)}
               disabled={hasGaCostCode}
               className={ic() + (hasGaCostCode ? " opacity-50 cursor-not-allowed" : "")}
-              title={hasGaCostCode ? "G&A cost codes (103–120) cannot be assigned to a project" : undefined}
+              title={hasGaCostCode ? "G&A cost codes cannot be assigned to a project" : undefined}
             >
               <option value="">— G&A (no project) —</option>
               {projects.map((p) => (
@@ -257,7 +273,10 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
             <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className={ic()}>
               <option value="pending_review">Pending Review</option>
               <option value="approved">Approved</option>
+              <option value="released">Released</option>
+              <option value="cleared">Cleared</option>
               <option value="disputed">Disputed</option>
+              <option value="void">Void</option>
             </select>
           </Field>
           <Field label="Payment Method">
@@ -274,12 +293,37 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
         <label className="flex items-center gap-2.5 cursor-pointer">
           <input
             type="checkbox"
-            checked={pendingDraw}
+            checked={pendingDraw && !directCashPayment}
             onChange={(e) => setPendingDraw(e.target.checked)}
-            className="w-4 h-4 rounded accent-[#4272EF]"
+            disabled={directCashPayment}
+            className="w-4 h-4 rounded accent-[#4272EF] disabled:opacity-40"
           />
-          <span className="text-sm text-gray-700">Include in pending draw request</span>
+          <span className={`text-sm ${directCashPayment ? "text-gray-400" : "text-gray-700"}`}>
+            Include in pending draw request
+          </span>
         </label>
+
+        {/* Auto-draft toggle — only shown when a Loan Interest cost code is on any line item */}
+        {hasLoanInterestCode && (
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mt-3">
+            <input
+              type="checkbox"
+              id="directCashPaymentEdit"
+              checked={directCashPayment}
+              onChange={(e) => {
+                setDirectCashPayment(e.target.checked);
+                if (e.target.checked) setPendingDraw(false);
+              }}
+              className="mt-0.5 w-4 h-4 rounded border-blue-300 accent-[#4272EF]"
+            />
+            <label htmlFor="directCashPaymentEdit" className="cursor-pointer select-none">
+              <span className="text-sm font-medium text-blue-900">Bank auto-drafts from operating account</span>
+              <p className="text-xs text-blue-700 mt-0.5">
+                On approval, posts DR WIP/CIP / CR Cash directly — skips AP and draw. Payment date set to today.
+              </p>
+            </label>
+          </div>
+        )}
       </section>
 
       {/* Line items */}
@@ -295,7 +339,7 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
           <p className="text-xs text-amber-600 mb-3">
             {projectId
               ? "No cost codes found for this project type."
-              : "No G&A cost codes (103–120) found in the system."}
+              : "No G&A cost codes found in the system."}
           </p>
         )}
 

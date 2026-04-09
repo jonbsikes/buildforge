@@ -181,8 +181,8 @@ function AddCostCodePanel({
     });
   }
 
-  if (!open) {
-    return (
+  return (
+    <>
       <button
         onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#4272EF] border border-[#4272EF] rounded-lg hover:bg-blue-50 transition-colors"
@@ -190,88 +190,103 @@ function AddCostCodePanel({
         <Plus size={13} />
         Add Cost Code
       </button>
-    );
-  }
 
-  return (
-    <div className="absolute right-0 top-8 z-20 w-80 bg-white border border-gray-200 rounded-xl shadow-lg flex flex-col" style={{ maxHeight: 420 }}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <span className="text-sm font-semibold text-gray-800">Add Cost Codes</span>
-        <button onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); setError(null); }}
-          className="text-gray-400 hover:text-gray-600 transition-colors">
-          <X size={15} />
-        </button>
-      </div>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); setError(null); }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col"
+            style={{ maxHeight: "80vh" }}
+            onClick={(e) => e.stopPropagation()}>
 
-      {/* Search */}
-      <div className="px-3 py-2 border-b border-gray-100">
-        <div className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded-lg border border-gray-200">
-          <Search size={13} className="text-gray-400 shrink-0" />
-          <input
-            autoFocus
-            type="text"
-            placeholder="Search cost codes…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 text-sm bg-transparent outline-none text-gray-700 placeholder-gray-400"
-          />
-        </div>
-      </div>
-
-      {/* Select all / clear */}
-      <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-50">
-        <span className="text-xs text-gray-400">{selected.size} selected</span>
-        <div className="flex gap-3">
-          <button onClick={selectAll} className="text-xs text-[#4272EF] hover:underline">All</button>
-          <button onClick={clearAll} className="text-xs text-gray-400 hover:underline">None</button>
-        </div>
-      </div>
-
-      {/* List */}
-      <div className="overflow-y-auto flex-1 px-2 py-2">
-        {filtered.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-4">No cost codes match your search.</p>
-        ) : (
-          Object.entries(grouped).map(([cat, codes]) => (
-            <div key={cat} className="mb-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 px-2 mb-1">
-                {cat.replace(/_/g, " ")}
-              </p>
-              {codes.map((cc) => (
-                <label key={cc.id}
-                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(cc.id)}
-                    onChange={() => toggle(cc.id)}
-                    className="accent-[#4272EF] w-3.5 h-3.5 shrink-0"
-                  />
-                  <span className="text-xs text-gray-500 w-6 shrink-0">{cc.code}</span>
-                  <span className="text-sm text-gray-700 leading-tight">{cc.name}</span>
-                </label>
-              ))}
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <span className="text-base font-semibold text-gray-800">Add Cost Codes</span>
+              <button onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); setError(null); }}
+                className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X size={18} />
+              </button>
             </div>
-          ))
-        )}
-      </div>
 
-      {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-100 flex items-center gap-2">
-        {error && <p className="text-xs text-red-500 flex-1">{error}</p>}
-        <button onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); }}
-          className="ml-auto text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
-          Cancel
-        </button>
-        <button
-          onClick={handleAdd}
-          disabled={isPending || selected.size === 0}
-          className="px-3 py-1.5 bg-[#4272EF] text-white rounded-lg text-xs font-medium hover:bg-[#3461de] transition-colors disabled:opacity-50"
-        >
-          {isPending ? "Adding…" : `Add${selected.size > 0 ? ` (${selected.size})` : ""}`}
-        </button>
-      </div>
-    </div>
+            {/* Search */}
+            <div className="px-4 py-3 border-b border-gray-100">
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                <Search size={14} className="text-gray-400 shrink-0" />
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Search cost codes…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="flex-1 text-sm bg-transparent outline-none text-gray-700 placeholder-gray-400"
+                />
+                {search && (
+                  <button onClick={() => setSearch("")} className="text-gray-400 hover:text-gray-600">
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Select all / clear */}
+            <div className="flex items-center justify-between px-5 py-2 border-b border-gray-100 bg-gray-50">
+              <span className="text-xs text-gray-500 font-medium">
+                {selected.size > 0 ? `${selected.size} selected` : `${filtered.length} available`}
+              </span>
+              <div className="flex gap-4">
+                <button onClick={selectAll} className="text-xs text-[#4272EF] hover:underline font-medium">Select All</button>
+                <button onClick={clearAll} className="text-xs text-gray-400 hover:underline">Clear</button>
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="overflow-y-auto flex-1 px-3 py-3">
+              {filtered.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">No cost codes match your search.</p>
+              ) : (
+                Object.entries(grouped).map(([cat, codes]) => (
+                  <div key={cat} className="mb-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 px-2 mb-1.5">
+                      {cat.replace(/_/g, " ")}
+                    </p>
+                    {codes.map((cc) => (
+                      <label key={cc.id}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(cc.id)}
+                          onChange={() => toggle(cc.id)}
+                          className="accent-[#4272EF] w-4 h-4 shrink-0 cursor-pointer"
+                        />
+                        <span className="text-xs text-gray-400 w-7 shrink-0 font-mono">{cc.code}</span>
+                        <span className="text-sm text-gray-700">{cc.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center gap-3">
+              {error && <p className="text-xs text-red-500 flex-1">{error}</p>}
+              <button
+                onClick={() => { setOpen(false); setSelected(new Set()); setSearch(""); setError(null); }}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdd}
+                disabled={isPending || selected.size === 0}
+                className="flex-1 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-50"
+              >
+                {isPending ? "Adding…" : selected.size > 0 ? `Add ${selected.size} Cost Code${selected.size > 1 ? "s" : ""}` : "Add Cost Codes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -392,13 +407,11 @@ export default function CostItemsTab({
             </h3>
           </div>
           {available.length > 0 && (
-            <div className="relative">
-              <AddCostCodePanel
-                projectId={projectId}
-                available={available}
-                onAdded={handleAdded}
-              />
-            </div>
+            <AddCostCodePanel
+              projectId={projectId}
+              available={available}
+              onAdded={handleAdded}
+            />
           )}
         </div>
 

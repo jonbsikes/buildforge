@@ -176,6 +176,16 @@ export default async function DrawDetailPage({ params }: Props) {
                 <p className="text-sm text-gray-400 mt-0.5">{lender?.name ?? "No lender"}</p>
               </div>
               <div className="flex items-center gap-2">
+                {draw.status === "funded" && hasVendorPayments && (
+                  <Link
+                    href={`/draws/${id}/remittances`}
+                    target="_blank"
+                    className="flex items-center gap-1.5 px-3 py-1.5 border border-[#4272EF] text-[#4272EF] bg-blue-50 rounded-lg text-xs font-medium hover:bg-blue-100 transition-colors"
+                  >
+                    <Printer size={13} />
+                    Print Remittances
+                  </Link>
+                )}
                 <Link
                   href={`/draws/${id}/print`}
                   target="_blank"

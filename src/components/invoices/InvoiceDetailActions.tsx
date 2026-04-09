@@ -11,25 +11,50 @@ interface Props {
 export default function InvoiceDetailActions({ invoiceId, status }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [showClearForm, setShowClearForm] = useState(false);
+  const [clearDate, setClearDate] = useState(new Date().toISOString().split("T")[0]);
   const [paymentMethod, setPaymentMethod] = useState("check");
 
-  if (status === "paid") {
+  if (status === "cleared") {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <p className="text-sm text-green-600 font-medium">Invoice paid and closed.</p>
+        <p className="text-sm text-green-600 font-medium">✓ Check cleared — invoice closed.</p>
       </div>
     );
   }
 
-  if (status !== "pending_review" && status !== "approved") return null;
+  if (status === "void") {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <p className="text-sm text-gray-500 font-medium">Invoice voided.</p>
+      </div>
+    );
+  }
 
-  function handlePay() {
+  if (status === "disputed") {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <p className="text-sm text-red-600 font-medium">Invoice disputed — no payment actions available.</p>
+      </div>
+    );
+  }
+
+  if (!["pending_review", "approved", "released"].includes(status)) return null;
+
+  function handleRelease() {
+    setError(null);
     startTransition(async () => {
-      const result = await advanceInvoiceStatus(invoiceId, "paid", paymentDate, paymentMethod);
+      const result = await advanceInvoiceStatus(invoiceId, "released", undefined, "check");
       if (result.error) setError(result.error);
-      else setShowPaymentForm(false);
+    });
+  }
+
+  function handleClear() {
+    setError(null);
+    startTransition(async () => {
+      const result = await advanceInvoiceStatus(invoiceId, "cleared", clearDate, paymentMethod);
+      if (result.error) setError(result.error);
+      else setShowClearForm(false);
     });
   }
 
@@ -45,25 +70,44 @@ export default function InvoiceDetailActions({ invoiceId, status }: Props) {
     <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
       <h3 className="text-sm font-semibold text-gray-700">Actions</h3>
 
-      {status === "approved" && !showPaymentForm && (
-        <button
-          onClick={() => setShowPaymentForm(true)}
-          className="px-4 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-        >
-          Mark as Paid
-        </button>
+      {/* Step 1: approved → released (check written, DR AP / CR 2050) */}
+      {status === "approved" && !showClearForm && (
+        <div className="space-y-2">
+          <button
+            onClick={handleRelease}
+            disabled={isPending}
+            className="px-4 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
+          >
+            {isPending ? "Saving…" : "Issue Check"}
+          </button>
+          <p className="text-xs text-gray-400">Posts DR Accounts Payable / CR Checks Outstanding (2050).</p>
+        </div>
       )}
 
-      {showPaymentForm && (
+      {/* Step 2: released → cleared (check clears bank, DR 2050 / CR Cash) */}
+      {status === "released" && !showClearForm && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setShowClearForm(true)}
+            disabled={isPending}
+            className="px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-60"
+          >
+            Mark Check Cleared
+          </button>
+          <p className="text-xs text-gray-400">Posts DR Checks Outstanding (2050) / CR Cash when check clears bank.</p>
+        </div>
+      )}
+
+      {showClearForm && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <p className="text-sm font-medium text-gray-700">Record Payment</p>
+          <p className="text-sm font-medium text-gray-700">Check Cleared — Record Bank Date</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Payment Date</label>
+              <label className="block text-xs text-gray-500 mb-1">Date Cleared</label>
               <input
                 type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
+                value={clearDate}
+                onChange={(e) => setClearDate(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
               />
             </div>
@@ -83,14 +127,14 @@ export default function InvoiceDetailActions({ invoiceId, status }: Props) {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={handlePay}
+              onClick={handleClear}
               disabled={isPending}
-              className="px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-60"
             >
-              {isPending ? "Saving…" : "Confirm Payment"}
+              {isPending ? "Saving…" : "Confirm Cleared"}
             </button>
             <button
-              onClick={() => setShowPaymentForm(false)}
+              onClick={() => setShowClearForm(false)}
               className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
             >
               Cancel
@@ -99,7 +143,7 @@ export default function InvoiceDetailActions({ invoiceId, status }: Props) {
         </div>
       )}
 
-      {!showPaymentForm && (
+      {!showClearForm && status !== "released" && (
         <button
           onClick={handleDispute}
           disabled={isPending}

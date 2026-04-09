@@ -568,41 +568,64 @@ export type Database = {
       gl_entries: {
         Row: {
           amount: number
+          cost_code_id: string | null
           created_at: string
           credit_account: string
           debit_account: string
           description: string
           entry_date: string
           id: string
+          loan_id: string | null
           project_id: string | null
           source_id: string | null
           source_type: string
+          transaction_group_id: string | null
         }
         Insert: {
           amount: number
+          cost_code_id?: string | null
           created_at?: string
           credit_account: string
           debit_account: string
           description: string
           entry_date?: string
           id?: string
+          loan_id?: string | null
           project_id?: string | null
           source_id?: string | null
           source_type?: string
+          transaction_group_id?: string | null
         }
         Update: {
           amount?: number
+          cost_code_id?: string | null
           created_at?: string
           credit_account?: string
           debit_account?: string
           description?: string
           entry_date?: string
           id?: string
+          loan_id?: string | null
           project_id?: string | null
           source_id?: string | null
           source_type?: string
+          transaction_group_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "gl_entries_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gl_entries_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "gl_entries_project_id_fkey"
             columns: ["project_id"]
@@ -659,10 +682,16 @@ export type Database = {
           ai_confidence: string
           ai_notes: string | null
           amount: number | null
+          check_number: string | null
+          cleared_date: string | null
           contract_id: string | null
           cost_code_id: string | null
           cost_item_id: string | null
           created_at: string
+          direct_cash_payment: boolean
+          dispute_reason: string | null
+          dispute_resolved_date: string | null
+          disputed_amount: number | null
           due_date: string | null
           email_message_id: string | null
           extracted_data: Json | null
@@ -672,27 +701,39 @@ export type Database = {
           invoice_date: string | null
           invoice_number: string | null
           manually_reviewed: boolean
+          owner_equity_account_id: string | null
+          parent_invoice_id: string | null
           payment_date: string | null
           payment_method: string | null
+          payment_type: string | null
           pending_draw: boolean
           processed: boolean
           project_id: string | null
+          released_date: string | null
           source: string
           status: string
           total_amount: number | null
+          type: string
           updated_at: string
           user_id: string | null
           vendor: string | null
           vendor_id: string | null
+          wip_ap_posted: boolean
         }
         Insert: {
           ai_confidence?: string
           ai_notes?: string | null
           amount?: number | null
+          check_number?: string | null
+          cleared_date?: string | null
           contract_id?: string | null
           cost_code_id?: string | null
           cost_item_id?: string | null
           created_at?: string
+          direct_cash_payment?: boolean
+          dispute_reason?: string | null
+          dispute_resolved_date?: string | null
+          disputed_amount?: number | null
           due_date?: string | null
           email_message_id?: string | null
           extracted_data?: Json | null
@@ -702,27 +743,39 @@ export type Database = {
           invoice_date?: string | null
           invoice_number?: string | null
           manually_reviewed?: boolean
+          owner_equity_account_id?: string | null
+          parent_invoice_id?: string | null
           payment_date?: string | null
           payment_method?: string | null
+          payment_type?: string | null
           pending_draw?: boolean
           processed?: boolean
           project_id?: string | null
+          released_date?: string | null
           source?: string
           status?: string
           total_amount?: number | null
+          type?: string
           updated_at?: string
           user_id?: string | null
           vendor?: string | null
           vendor_id?: string | null
+          wip_ap_posted?: boolean
         }
         Update: {
           ai_confidence?: string
           ai_notes?: string | null
           amount?: number | null
+          check_number?: string | null
+          cleared_date?: string | null
           contract_id?: string | null
           cost_code_id?: string | null
           cost_item_id?: string | null
           created_at?: string
+          direct_cash_payment?: boolean
+          dispute_reason?: string | null
+          dispute_resolved_date?: string | null
+          disputed_amount?: number | null
           due_date?: string | null
           email_message_id?: string | null
           extracted_data?: Json | null
@@ -732,18 +785,24 @@ export type Database = {
           invoice_date?: string | null
           invoice_number?: string | null
           manually_reviewed?: boolean
+          owner_equity_account_id?: string | null
+          parent_invoice_id?: string | null
           payment_date?: string | null
           payment_method?: string | null
+          payment_type?: string | null
           pending_draw?: boolean
           processed?: boolean
           project_id?: string | null
+          released_date?: string | null
           source?: string
           status?: string
           total_amount?: number | null
+          type?: string
           updated_at?: string
           user_id?: string | null
           vendor?: string | null
           vendor_id?: string | null
+          wip_ap_posted?: boolean
         }
         Relationships: [
           {
@@ -768,6 +827,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "invoices_owner_equity_account_id_fkey"
+            columns: ["owner_equity_account_id"]
+            isOneToOne: false
+            referencedRelation: "chart_of_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoices_parent_invoice_id_fkey"
+            columns: ["parent_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "invoices_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
@@ -789,6 +862,7 @@ export type Database = {
           description: string
           entry_date: string
           id: string
+          loan_id: string | null
           reference: string | null
           source_id: string | null
           source_type: string | null
@@ -800,6 +874,7 @@ export type Database = {
           description: string
           entry_date: string
           id?: string
+          loan_id?: string | null
           reference?: string | null
           source_id?: string | null
           source_type?: string | null
@@ -811,43 +886,58 @@ export type Database = {
           description?: string
           entry_date?: string
           id?: string
+          loan_id?: string | null
           reference?: string | null
           source_id?: string | null
           source_type?: string | null
           status?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "journal_entries_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       journal_entry_lines: {
         Row: {
           account_id: string
+          cost_code_id: string | null
           created_at: string
           credit: number
           debit: number
           description: string | null
           id: string
           journal_entry_id: string
+          loan_id: string | null
           project_id: string | null
         }
         Insert: {
           account_id: string
+          cost_code_id?: string | null
           created_at?: string
           credit?: number
           debit?: number
           description?: string | null
           id?: string
           journal_entry_id: string
+          loan_id?: string | null
           project_id?: string | null
         }
         Update: {
           account_id?: string
+          cost_code_id?: string | null
           created_at?: string
           credit?: number
           debit?: number
           description?: string | null
           id?: string
           journal_entry_id?: string
+          loan_id?: string | null
           project_id?: string | null
         }
         Relationships: [
@@ -859,10 +949,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "journal_entry_lines_cost_code_id_fkey"
+            columns: ["cost_code_id"]
+            isOneToOne: false
+            referencedRelation: "cost_codes"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "journal_entry_lines_journal_entry_id_fkey"
             columns: ["journal_entry_id"]
             isOneToOne: false
             referencedRelation: "journal_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "journal_entry_lines_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
             referencedColumns: ["id"]
           },
           {
@@ -992,6 +1096,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "loans_coa_account_id_fkey"
+            columns: ["coa_account_id"]
+            isOneToOne: false
+            referencedRelation: "chart_of_accounts"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "loans_lender_id_fkey"
             columns: ["lender_id"]
             isOneToOne: false
@@ -1096,27 +1207,33 @@ export type Database = {
       }
       project_cost_codes: {
         Row: {
+          budget_amount: number
           budgeted_amount: number
           cost_code_id: string
           created_at: string
+          enabled: boolean
           id: string
           notes: string | null
           project_id: string
           updated_at: string
         }
         Insert: {
+          budget_amount?: number
           budgeted_amount?: number
           cost_code_id: string
           created_at?: string
+          enabled?: boolean
           id?: string
           notes?: string | null
           project_id: string
           updated_at?: string
         }
         Update: {
+          budget_amount?: number
           budgeted_amount?: number
           cost_code_id?: string
           created_at?: string
+          enabled?: boolean
           id?: string
           notes?: string | null
           project_id?: string
@@ -1432,6 +1549,122 @@ export type Database = {
           },
         ]
       }
+      vendor_payment_adjustments: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string
+          id: string
+          vendor_payment_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description: string
+          id?: string
+          vendor_payment_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string
+          id?: string
+          vendor_payment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_payment_adjustments_vendor_payment_id_fkey"
+            columns: ["vendor_payment_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_payment_invoices: {
+        Row: {
+          id: string
+          invoice_id: string
+          vendor_payment_id: string
+        }
+        Insert: {
+          id?: string
+          invoice_id: string
+          vendor_payment_id: string
+        }
+        Update: {
+          id?: string
+          invoice_id?: string
+          vendor_payment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_payment_invoices_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_payment_invoices_vendor_payment_id_fkey"
+            columns: ["vendor_payment_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_payments: {
+        Row: {
+          amount: number
+          check_number: string | null
+          created_at: string
+          draw_id: string
+          id: string
+          payment_date: string | null
+          status: string
+          vendor_id: string | null
+          vendor_name: string
+        }
+        Insert: {
+          amount: number
+          check_number?: string | null
+          created_at?: string
+          draw_id: string
+          id?: string
+          payment_date?: string | null
+          status?: string
+          vendor_id?: string | null
+          vendor_name: string
+        }
+        Update: {
+          amount?: number
+          check_number?: string | null
+          created_at?: string
+          draw_id?: string
+          id?: string
+          payment_date?: string | null
+          status?: string
+          vendor_id?: string | null
+          vendor_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_payments_draw_id_fkey"
+            columns: ["draw_id"]
+            isOneToOne: false
+            referencedRelation: "loan_draws"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_payments_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendors: {
         Row: {
           accounting_contact_email: string | null
@@ -1544,6 +1777,7 @@ export type Database = {
         | "on_hold"
         | "completed"
         | "cancelled"
+        | "pre_construction"
       project_type: "land_development" | "home_construction" | "general_admin"
       sale_type:
         | "lot_sale"
@@ -1707,6 +1941,7 @@ export const Constants = {
         "on_hold",
         "completed",
         "cancelled",
+        "pre_construction",
       ],
       project_type: ["land_development", "home_construction", "general_admin"],
       sale_type: [

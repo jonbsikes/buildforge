@@ -44,7 +44,7 @@ export default function FinancialSummaryClient() {
         `),
         supabase.from("invoices")
           .select("amount, status, project_id")
-          .in("status", ["pending_review", "approved", "scheduled"]),
+          .in("status", ["pending_review", "approved", "released"]),
         supabase.from("projects").select("id, name").order("name"),
       ]);
 
