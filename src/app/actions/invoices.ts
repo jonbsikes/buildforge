@@ -574,16 +574,19 @@ export async function advanceInvoiceStatus(
   invoiceId: string,
   to: "released" | "cleared",
   paymentDate?: string,
-  paymentMethod?: string
+  paymentMethod?: string,
+  discountTaken?: number
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
   const today = new Date().toISOString().split("T")[0];
+  const discount = discountTaken && discountTaken > 0 ? discountTaken : 0;
   const updates: Record<string, unknown> = { status: to };
   if (to === "released") {
     updates.payment_method = paymentMethod ?? null;
+    if (discount > 0) updates.discount_taken = discount;
   }
   if (to === "cleared") {
     updates.payment_date = paymentDate ?? today;
@@ -600,28 +603,45 @@ export async function advanceInvoiceStatus(
   // Load invoice details for JE posting
   const { data: invoice } = await supabase
     .from("invoices")
-    .select("amount, total_amount, project_id, vendor, invoice_number")
+    .select("amount, total_amount, project_id, vendor, invoice_number, discount_taken, projects ( project_type )")
     .eq("id", invoiceId)
     .single();
 
   if (!invoice) { revalidatePath("/invoices"); return {}; }
 
   const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  const savedDiscount = (invoice.discount_taken ?? 0) as number;
+  const netAmount = invoiceAmount - savedDiscount;
   const desc = [invoice.vendor, invoice.invoice_number]
     .filter(Boolean)
     .join(" — Inv #") || "Invoice";
 
   if (invoiceAmount <= 0) { revalidatePath("/invoices"); return {}; }
 
+  // Determine WIP account for discount credit-back
+  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
+  const wipAccountNumber = !invoice.project_id
+    ? "6900"
+    : projectType === "land_development"
+    ? "1230"
+    : "1210";
+
   if (to === "released") {
-    // Check written: DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050)
+    // Check written with possible early-pay discount:
+    //   DR Accounts Payable (2000) = full invoice amount (clears full liability)
+    //   CR WIP/CIP (1210/1230/6900) = discount amount (reduces project cost)
+    //   CR Checks Issued - Outstanding (2050) = net amount (actual check amount)
+    const accountNumbers = ["2000", "2050"];
+    if (savedDiscount > 0) accountNumbers.push(wipAccountNumber);
+
     const { data: glAccounts } = await supabase
       .from("chart_of_accounts")
       .select("id, account_number")
-      .in("account_number", ["2000", "2050"]);
+      .in("account_number", accountNumbers);
 
     const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
     const acct2050 = glAccounts?.find(a => a.account_number === "2050")?.id;
+    const wipAcct = savedDiscount > 0 ? glAccounts?.find(a => a.account_number === wipAccountNumber)?.id : null;
 
     if (acct2000 && acct2050) {
       const { data: je } = await supabase
@@ -629,7 +649,9 @@ export async function advanceInvoiceStatus(
         .insert({
           entry_date: today,
           reference: `CHK-ISSUED-${invoiceId.slice(0, 8)}`,
-          description: `Check issued — ${desc}`,
+          description: savedDiscount > 0
+            ? `Check issued w/ early-pay discount $${savedDiscount.toFixed(2)} — ${desc}`
+            : `Check issued — ${desc}`,
           status: "posted",
           source_type: "invoice_payment",
           source_id: invoiceId,
@@ -639,7 +661,7 @@ export async function advanceInvoiceStatus(
         .single();
 
       if (je) {
-        await supabase.from("journal_entry_lines").insert([
+        const lines = [
           {
             journal_entry_id: je.id,
             account_id: acct2000,
@@ -654,15 +676,30 @@ export async function advanceInvoiceStatus(
             project_id: invoice.project_id ?? null,
             description: `Check issued — ${desc}`,
             debit: 0,
-            credit: invoiceAmount,
+            credit: netAmount,
           },
-        ]);
+        ];
+
+        // Add discount credit to WIP/CIP if discount was taken
+        if (savedDiscount > 0 && wipAcct) {
+          lines.push({
+            journal_entry_id: je.id,
+            account_id: wipAcct,
+            project_id: invoice.project_id ?? null,
+            description: `Early-pay discount — ${desc}`,
+            debit: 0,
+            credit: savedDiscount,
+          });
+        }
+
+        await supabase.from("journal_entry_lines").insert(lines);
       }
     }
   }
 
   if (to === "cleared") {
     // Check cleared bank: DR Checks Issued - Outstanding (2050) / CR Cash (1000)
+    // Uses net amount (after discount) since that's what was on the check
     const clearedDate = updates.payment_date as string;
     const { data: glAccounts } = await supabase
       .from("chart_of_accounts")
@@ -694,7 +731,7 @@ export async function advanceInvoiceStatus(
             account_id: acct2050,
             project_id: invoice.project_id ?? null,
             description: `Outstanding check cleared — ${desc}`,
-            debit: invoiceAmount,
+            debit: netAmount,
             credit: 0,
           },
           {
@@ -703,7 +740,7 @@ export async function advanceInvoiceStatus(
             project_id: invoice.project_id ?? null,
             description: `Cash — ${desc}`,
             debit: 0,
-            credit: invoiceAmount,
+            credit: netAmount,
           },
         ]);
       }

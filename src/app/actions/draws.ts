@@ -792,7 +792,8 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 export async function markVendorPaymentPaid(
   vendorPaymentId: string,
   checkNumber: string,
-  paymentDate: string
+  paymentDate: string,
+  discountTaken?: number
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
@@ -811,6 +812,8 @@ export async function markVendorPaymentPaid(
   if (vp.status === "paid") return { error: "This vendor has already been paid" };
 
   if (!paymentDate) return { error: "Payment date is required" };
+
+  const discount = discountTaken && discountTaken > 0 ? discountTaken : 0;
 
   // Mark the vendor payment record as paid
   const { error: vpErr } = await supabase
@@ -844,13 +847,74 @@ export async function markVendorPaymentPaid(
     if (invErr) return { error: invErr.message };
   }
 
+  // If discount was taken, distribute it across the linked invoices and
+  // determine which WIP accounts to credit back.
+  let totalDiscount = discount;
+  type DiscountByWip = { accountNumber: string; projectId: string | null; amount: number };
+  const discountsByWip: DiscountByWip[] = [];
+
+  if (discount > 0 && invoiceIds.length > 0) {
+    // Load invoice details to determine per-invoice WIP account
+    const { data: invoices } = await supabase
+      .from("invoices")
+      .select("id, total_amount, amount, project_id, projects ( project_type )")
+      .in("id", invoiceIds);
+
+    if (invoices && invoices.length > 0) {
+      // Calculate total invoice amount for pro-rata distribution
+      const totalInvAmt = invoices.reduce(
+        (s, inv) => s + ((inv.total_amount ?? inv.amount ?? 0) as number), 0
+      );
+
+      let distributed = 0;
+      for (let i = 0; i < invoices.length; i++) {
+        const inv = invoices[i];
+        const invAmt = (inv.total_amount ?? inv.amount ?? 0) as number;
+        // Pro-rata share; last invoice gets remainder to avoid rounding issues
+        const share = i === invoices.length - 1
+          ? totalDiscount - distributed
+          : Math.round((invAmt / totalInvAmt) * totalDiscount * 100) / 100;
+        distributed += share;
+
+        if (share > 0) {
+          // Save discount on the invoice record
+          await supabase
+            .from("invoices")
+            .update({ discount_taken: share })
+            .eq("id", inv.id);
+
+          const projType = (inv.projects as { project_type: string } | null)?.project_type;
+          const wipAcct = !inv.project_id
+            ? "6900"
+            : projType === "land_development"
+            ? "1230"
+            : "1210";
+
+          discountsByWip.push({
+            accountNumber: wipAcct,
+            projectId: inv.project_id ?? null,
+            amount: share,
+          });
+        }
+      }
+    }
+  }
+
+  const netAmount = vp.amount - totalDiscount;
+
   // Post GL entry: DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050)
-  // The check is written but has not yet cleared the bank.
-  // When the check clears, a separate entry DR 2050 / CR Cash (1000) is posted via Mark Cleared.
+  // With discount: also CR WIP/CIP for the discount portion
+  const glAccountNumbers = ["2000", "2050"];
+  if (totalDiscount > 0) {
+    for (const d of discountsByWip) {
+      if (!glAccountNumbers.includes(d.accountNumber)) glAccountNumbers.push(d.accountNumber);
+    }
+  }
+
   const { data: accounts } = await supabase
     .from("chart_of_accounts")
     .select("id, account_number")
-    .in("account_number", ["2000", "2050"]);
+    .in("account_number", glAccountNumbers);
 
   const acct2000 = accounts?.find((a) => a.account_number === "2000")?.id;
   const acct2050 = accounts?.find((a) => a.account_number === "2050")?.id;
@@ -865,7 +929,9 @@ export async function markVendorPaymentPaid(
       .insert({
         entry_date: paymentDate,
         reference: checkRef,
-        description: `Check issued — ${vp.vendor_name}`,
+        description: totalDiscount > 0
+          ? `Check issued w/ early-pay discount $${totalDiscount.toFixed(2)} — ${vp.vendor_name}`
+          : `Check issued — ${vp.vendor_name}`,
         status: "posted",
         source_type: "invoice_payment",
         source_id: vendorPaymentId,
@@ -875,7 +941,14 @@ export async function markVendorPaymentPaid(
       .single();
 
     if (je) {
-      await supabase.from("journal_entry_lines").insert([
+      const lines: Array<{
+        journal_entry_id: string;
+        account_id: string;
+        project_id: string | null;
+        description: string;
+        debit: number;
+        credit: number;
+      }> = [
         {
           journal_entry_id: je.id,
           account_id: acct2000,
@@ -890,9 +963,28 @@ export async function markVendorPaymentPaid(
           project_id: null,
           description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
           debit: 0,
-          credit: vp.amount,
+          credit: netAmount,
         },
-      ]);
+      ];
+
+      // Add discount credit lines to WIP/CIP per project
+      if (totalDiscount > 0) {
+        for (const d of discountsByWip) {
+          const wipAcctId = accounts?.find((a) => a.account_number === d.accountNumber)?.id;
+          if (wipAcctId) {
+            lines.push({
+              journal_entry_id: je.id,
+              account_id: wipAcctId,
+              project_id: d.projectId,
+              description: `Early-pay discount — ${checkRef} — ${vp.vendor_name}`,
+              debit: 0,
+              credit: d.amount,
+            });
+          }
+        }
+      }
+
+      await supabase.from("journal_entry_lines").insert(lines);
     }
   }
 

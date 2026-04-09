@@ -217,6 +217,7 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
                   />
                   <MarkVendorPaidForm
                     vendorPaymentId={vp.id}
+                    vendorPaymentAmount={vp.amount}
                     defaultDate={today}
                   />
                 </div>

@@ -33,9 +33,9 @@ export default async function InvoiceDetailPage({ params }: Props) {
     .from("invoices")
     .select(`
       id, vendor, invoice_number, invoice_date, due_date,
-      amount, status, ai_confidence, ai_notes,
+      amount, total_amount, status, ai_confidence, ai_notes,
       pending_draw, direct_cash_payment, manually_reviewed, file_name, file_path,
-      payment_date, payment_method, source, contract_id,
+      payment_date, payment_method, source, contract_id, discount_taken,
       projects ( id, name ),
       vendors ( id, name ),
       contracts ( id, amount, status, cost_codes ( code, name ) )
@@ -185,6 +185,16 @@ export default async function InvoiceDetailPage({ params }: Props) {
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">Total</p>
                 <p className="text-lg font-semibold text-gray-900">{fmt(invoice.amount)}</p>
+                {(invoice.discount_taken as number) > 0 && (
+                  <div className="mt-0.5">
+                    <p className="text-xs text-green-600">
+                      Discount: {fmt(invoice.discount_taken as number)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Net paid: {fmt((invoice.amount ?? 0) - (invoice.discount_taken as number))}
+                    </p>
+                  </div>
+                )}
               </div>
               {linkedContract && (
                 <div>
@@ -305,6 +315,8 @@ export default async function InvoiceDetailPage({ params }: Props) {
           <InvoiceDetailActions
             invoiceId={invoice.id}
             status={invoice.status}
+            invoiceAmount={((invoice.total_amount ?? invoice.amount) as number) ?? 0}
+            discountTaken={(invoice.discount_taken as number) ?? 0}
           />
         </div>
       </main>

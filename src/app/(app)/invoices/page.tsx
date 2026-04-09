@@ -16,7 +16,7 @@ export default async function InvoicesPage() {
     .select(`
       id, vendor, invoice_number, invoice_date, due_date,
       amount, status, ai_confidence, pending_draw, manually_reviewed,
-      file_name, source,
+      file_name, source, discount_taken,
       projects ( id, name ),
       cost_codes ( code, name )
     `)

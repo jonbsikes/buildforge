@@ -689,6 +689,7 @@ export type Database = {
           cost_item_id: string | null
           created_at: string
           direct_cash_payment: boolean
+          discount_taken: number
           dispute_reason: string | null
           dispute_resolved_date: string | null
           disputed_amount: number | null
@@ -731,6 +732,7 @@ export type Database = {
           cost_item_id?: string | null
           created_at?: string
           direct_cash_payment?: boolean
+          discount_taken?: number
           dispute_reason?: string | null
           dispute_resolved_date?: string | null
           disputed_amount?: number | null
@@ -773,6 +775,7 @@ export type Database = {
           cost_item_id?: string | null
           created_at?: string
           direct_cash_payment?: boolean
+          discount_taken?: number
           dispute_reason?: string | null
           dispute_resolved_date?: string | null
           disputed_amount?: number | null

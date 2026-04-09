@@ -50,6 +50,7 @@ type InvoiceRow = {
   pending_draw: boolean | null;
   manually_reviewed: boolean | null;
   source: string | null;
+  discount_taken: number | null;
   projects: { id: string; name: string } | null;
   cost_codes: { code: string; name: string } | null;
 };
@@ -378,8 +379,13 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       </Link>
                     </td>
                     <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-3 font-medium text-gray-900">
-                        {fmt(inv.amount)}
+                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-3">
+                        <span className="font-medium text-gray-900">{fmt(inv.amount)}</span>
+                        {(inv.discount_taken ?? 0) > 0 && (
+                          <span className="block text-[10px] text-green-600">
+                            Disc: {fmt(inv.discount_taken)} · Net: {fmt((inv.amount ?? 0) - (inv.discount_taken ?? 0))}
+                          </span>
+                        )}
                       </Link>
                     </td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
