@@ -283,7 +283,29 @@ function hasOutOfSpecDates(stages: StageRow[], startDate: string | null): boolea
 // ---------------------------------------------------------------------------
 
 export default function StageReportTab({ stages, projectId, isHome, startDate }: Props) {
+  const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [, startCompleteTransition] = useTransition();
+
+  function handleQuickComplete(stage: StageRow) {
+    setCompletingId(stage.id);
+    const today = new Date().toISOString().split("T")[0];
+    startCompleteTransition(async () => {
+      await updateStage(
+        stage.id,
+        {
+          actual_start_date: stage.actual_start_date || today,
+          actual_end_date: today,
+          status: "complete",
+          notes: stage.notes || null,
+        },
+        projectId
+      );
+      setCompletingId(null);
+      router.refresh();
+    });
+  }
 
   if (stages.length === 0) {
     return (
@@ -353,7 +375,7 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
               <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Actual Start</th>
               <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Actual End</th>
               <th className="text-left px-3 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wider">Variance</th>
-              <th className="w-10" />
+              <th className="w-16" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -408,17 +430,29 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                     <td className="px-3 py-2.5 text-xs text-gray-600">{fmtDate(stage.actual_end_date)}</td>
                     <td className={`px-3 py-2.5 text-xs ${varianceClass(stage)}`}>{varianceLabel(stage)}</td>
                     <td className="px-3 py-2.5">
-                      <button
-                        onClick={() => setEditingId(editing ? null : stage.id)}
-                        className={`p-1 rounded transition-colors ${
-                          editing
-                            ? "text-[#4272EF] bg-blue-100"
-                            : "text-gray-400 hover:text-[#4272EF] hover:bg-blue-50"
-                        }`}
-                        title={editing ? "Close edit" : "Edit stage"}
-                      >
-                        {editing ? <X size={13} /> : <Pencil size={13} />}
-                      </button>
+                      <div className="flex items-center gap-1">
+                        {stage.status !== "complete" && stage.status !== "completed" && (
+                          <button
+                            onClick={() => handleQuickComplete(stage)}
+                            disabled={completingId === stage.id}
+                            className="p-1 rounded transition-colors text-gray-400 hover:text-green-600 hover:bg-green-50 disabled:opacity-50"
+                            title="Mark complete"
+                          >
+                            <Check size={13} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setEditingId(editing ? null : stage.id)}
+                          className={`p-1 rounded transition-colors ${
+                            editing
+                              ? "text-[#4272EF] bg-blue-100"
+                              : "text-gray-400 hover:text-[#4272EF] hover:bg-blue-50"
+                          }`}
+                          title={editing ? "Close edit" : "Edit stage"}
+                        >
+                          {editing ? <X size={13} /> : <Pencil size={13} />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
 
