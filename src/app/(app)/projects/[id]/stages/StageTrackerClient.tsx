@@ -257,6 +257,16 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                     </button>
                   ) : (
                     <>
+                      {status !== "completed" && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); updateStatus(ps, "completed"); }}
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-300 hover:bg-green-50 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          <CheckCircle2 size={13} />
+                          {isSaving ? "Saving…" : "Complete"}
+                        </button>
+                      )}
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg.color} ${cfg.bg}`}>{cfg.label}</span>
                       {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
                     </>
