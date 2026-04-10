@@ -42,7 +42,7 @@ export default async function ProjectsPage() {
         }
       }
 
-      if (s.status !== "complete" && s.planned_end_date && s.planned_end_date < today) {
+      if (s.status !== "complete" && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today) {
         if (!delayedStagesByProject[s.project_id]) delayedStagesByProject[s.project_id] = [];
         delayedStagesByProject[s.project_id].push({
           stage_name: s.stage_name,

@@ -183,10 +183,10 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const days = daysUnderConstruction(project.start_date);
 
-  // What's Next data
+  // What's Next data (exclude skipped stages)
   const today = new Date().toISOString().split("T")[0];
   const delayedStages = buildStages.filter(
-    (s) => s.status !== "complete" && s.planned_end_date && s.planned_end_date < today
+    (s) => s.status !== "complete" && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today
   );
   const currentStage = buildStages.find((s) => s.status === "in_progress") || null;
   const nextStage = buildStages.find((s) => s.status === "not_started") || null;

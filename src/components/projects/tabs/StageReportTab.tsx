@@ -36,6 +36,7 @@ const STATUS_OPTIONS = [
   { value: "in_progress", label: "In Progress" },
   { value: "complete",    label: "Complete" },
   { value: "delayed",     label: "Delayed" },
+  { value: "skipped",     label: "Skipped" },
 ];
 
 const STATUS_STYLES: Record<string, string> = {
@@ -44,6 +45,7 @@ const STATUS_STYLES: Record<string, string> = {
   complete:    "bg-green-100 text-green-700",
   completed:   "bg-green-100 text-green-700",
   delayed:     "bg-red-100 text-red-600",
+  skipped:     "bg-orange-50 text-orange-400 line-through",
 };
 
 function fmtDate(d: string | null): string {
@@ -61,7 +63,7 @@ function daysBetween(a: string, b: string): number {
 
 function isDelayed(stage: StageRow): boolean {
   if (!stage.planned_end_date) return false;
-  if (stage.status === "complete" || stage.status === "completed") return false;
+  if (stage.status === "complete" || stage.status === "completed" || stage.status === "skipped") return false;
   return new Date(stage.planned_end_date + "T00:00:00") < new Date(new Date().toDateString());
 }
 
@@ -307,6 +309,24 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
     });
   }
 
+  function handleSkip(stage: StageRow) {
+    setCompletingId(stage.id);
+    startCompleteTransition(async () => {
+      await updateStage(
+        stage.id,
+        {
+          actual_start_date: null,
+          actual_end_date: null,
+          status: "skipped",
+          notes: stage.notes || null,
+        },
+        projectId
+      );
+      setCompletingId(null);
+      router.refresh();
+    });
+  }
+
   if (stages.length === 0) {
     return (
       <div className="space-y-3">
@@ -320,10 +340,11 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
     );
   }
 
-  const complete = stages.filter(
+  const activeStages = stages.filter((s) => s.status !== "skipped");
+  const complete = activeStages.filter(
     (s) => s.status === "complete" || s.status === "completed"
   ).length;
-  const pct = Math.round((complete / stages.length) * 100);
+  const pct = activeStages.length > 0 ? Math.round((complete / activeStages.length) * 100) : 0;
 
   const outOfSpec = isHome && hasOutOfSpecDates(stages, startDate);
 
@@ -353,7 +374,7 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
             />
           </div>
           <span className="text-xs text-gray-500 flex-shrink-0">
-            {complete}/{stages.length} complete ({pct}%)
+            {complete}/{activeStages.length} complete ({pct}%)
           </span>
         </div>
         <ResetScheduleButton projectId={projectId} />
@@ -387,6 +408,7 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                 <Fragment key={stage.id}>
                   <tr
                     className={`hover:bg-gray-50 transition-colors ${
+                      stage.status === "skipped" ? "opacity-50" :
                       delayed ? "bg-amber-50/60" : ""
                     } ${editing ? "bg-blue-50/40" : ""}`}
                   >
@@ -431,15 +453,25 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                     <td className={`px-3 py-2.5 text-xs ${varianceClass(stage)}`}>{varianceLabel(stage)}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1">
-                        {stage.status !== "complete" && stage.status !== "completed" && (
-                          <button
-                            onClick={() => handleQuickComplete(stage)}
-                            disabled={completingId === stage.id}
-                            className="p-1 rounded transition-colors text-gray-400 hover:text-green-600 hover:bg-green-50 disabled:opacity-50"
-                            title="Mark complete"
-                          >
-                            <Check size={13} />
-                          </button>
+                        {stage.status !== "complete" && stage.status !== "completed" && stage.status !== "skipped" && (
+                          <>
+                            <button
+                              onClick={() => handleQuickComplete(stage)}
+                              disabled={completingId === stage.id}
+                              className="p-1 rounded transition-colors text-gray-400 hover:text-green-600 hover:bg-green-50 disabled:opacity-50"
+                              title="Mark complete"
+                            >
+                              <Check size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleSkip(stage)}
+                              disabled={completingId === stage.id}
+                              className="p-1 rounded transition-colors text-gray-400 hover:text-orange-500 hover:bg-orange-50 disabled:opacity-50"
+                              title="Skip — not applicable"
+                            >
+                              <X size={13} />
+                            </button>
+                          </>
                         )}
                         <button
                           onClick={() => setEditingId(editing ? null : stage.id)}
