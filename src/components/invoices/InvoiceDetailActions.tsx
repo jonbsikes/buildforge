@@ -1,13 +1,112 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { advanceInvoiceStatus, disputeInvoice } from "@/app/actions/invoices";
+import { advanceInvoiceStatus, disputeInvoice, voidAfterDraw, voidInvoice } from "@/app/actions/invoices";
 
 interface Props {
   invoiceId: string;
   status: string;
   invoiceAmount?: number;
   discountTaken?: number;
+}
+
+function DisputedActions({
+  invoiceId,
+  isPending,
+  startTransition,
+}: {
+  invoiceId: string;
+  isPending: boolean;
+  startTransition: (fn: () => Promise<void>) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [showVoidDrawn, setShowVoidDrawn] = useState(false);
+
+  function handleVoidDrawn() {
+    setError(null);
+    startTransition(async () => {
+      const result = await voidAfterDraw(invoiceId);
+      if (result.error) setError(result.error);
+    });
+  }
+
+  function handleVoid() {
+    setError(null);
+    startTransition(async () => {
+      const result = await voidInvoice(invoiceId);
+      if (result.error) setError(result.error);
+    });
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <div>
+        <p className="text-sm font-semibold text-red-600">Invoice Disputed</p>
+        <p className="text-xs text-gray-500 mt-1">No payment actions available. Choose how to resolve:</p>
+      </div>
+
+      {/* Option 1: Void after draw — drawn on but vendor won't be paid */}
+      <div className="border border-orange-100 rounded-lg p-4 space-y-2">
+        <p className="text-sm font-medium text-orange-700">Void — Bank drew on this, vendor won&apos;t be paid</p>
+        <p className="text-xs text-gray-500">
+          Posts <strong>DR Accounts Payable / CR WIP</strong> to clear the AP balance and reduce project cost.
+          Cash and loan payable are unaffected — the draw stays on the books.
+        </p>
+        {!showVoidDrawn ? (
+          <button
+            onClick={() => setShowVoidDrawn(true)}
+            disabled={isPending}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors disabled:opacity-60"
+          >
+            Void After Draw
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-orange-700">
+              This will post DR AP (2000) / CR WIP and mark the invoice void. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleVoidDrawn}
+                disabled={isPending}
+                className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors disabled:opacity-60"
+              >
+                {isPending ? "Posting…" : "Confirm Void"}
+              </button>
+              <button
+                onClick={() => setShowVoidDrawn(false)}
+                className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Option 2: Simple void — never drawn, just close it out */}
+      <div className="border border-gray-100 rounded-lg p-4 space-y-2">
+        <p className="text-sm font-medium text-gray-700">Void — Invoice was never drawn or paid</p>
+        <p className="text-xs text-gray-500">
+          Reverses any posted WIP/AP entry and marks the invoice void. Use this if the invoice was
+          not included in a funded draw.
+        </p>
+        <button
+          onClick={handleVoid}
+          disabled={isPending}
+          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-60"
+        >
+          {isPending ? "Voiding…" : "Void Invoice"}
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount, discountTaken: existingDiscount }: Props) {
@@ -42,9 +141,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
 
   if (status === "disputed") {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <p className="text-sm text-red-600 font-medium">Invoice disputed — no payment actions available.</p>
-      </div>
+      <DisputedActions invoiceId={invoiceId} isPending={isPending} startTransition={startTransition} />
     );
   }
 

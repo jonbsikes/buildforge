@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown } from "lucide-react";
-import { deleteInvoice, setInvoiceStatus, setPendingDraw, advanceInvoiceStatus } from "@/app/actions/invoices";
+import { deleteInvoice, setInvoiceStatus, voidInvoice, voidAfterDraw, setPendingDraw, advanceInvoiceStatus } from "@/app/actions/invoices";
 
 const STATUS_COLORS: Record<string, string> = {
   pending_review: "bg-amber-100 text-amber-700",
@@ -394,6 +394,19 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                           value={effectiveStatus}
                           onChange={(e) => {
                             const next = e.target.value;
+                            // Void always goes through voidInvoice so the JE is posted correctly
+                            if (next === "void") {
+                              if (!confirm("Void this invoice? If WIP/AP was already posted, a reversing journal entry will be recorded automatically.")) return;
+                              setStatusOverrides((prev) => ({ ...prev, [inv.id]: "void" }));
+                              startTransition(async () => {
+                                const r = await voidInvoice(inv.id);
+                                if (r.error) {
+                                  setStatusOverrides((prev) => ({ ...prev, [inv.id]: effectiveStatus }));
+                                  alert(r.error);
+                                }
+                              });
+                              return;
+                            }
                             setStatusOverrides((prev) => ({ ...prev, [inv.id]: next }));
                             startTransition(async () => {
                               await setInvoiceStatus(inv.id, next);
@@ -441,6 +454,27 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                             className="opacity-0 group-hover:opacity-100 text-xs px-2 py-1 bg-green-100 text-green-700 rounded-lg font-medium hover:bg-green-200 transition-all disabled:opacity-40 whitespace-nowrap"
                           >
                             Mark Cleared
+                          </button>
+                        )}
+                        {/* Void (Drawn): disputed invoices that were funded in a draw but vendor won't be paid */}
+                        {effectiveStatus === "disputed" && (
+                          <button
+                            title="Void after draw — posts DR AP / CR WIP. Use when vendor won't be paid but cash/loan stay."
+                            onClick={() => {
+                              if (!confirm("Void this disputed invoice?\n\nThis will post DR Accounts Payable / CR WIP to clear the AP balance. Cash and loan payable are unaffected.\n\nUse this only when the bank already funded the draw but the vendor will not be paid.")) return;
+                              setStatusOverrides((prev) => ({ ...prev, [inv.id]: "void" }));
+                              startTransition(async () => {
+                                const r = await voidAfterDraw(inv.id);
+                                if (r.error) {
+                                  setStatusOverrides((prev) => ({ ...prev, [inv.id]: "disputed" }));
+                                  alert(r.error);
+                                }
+                              });
+                            }}
+                            disabled={isPending}
+                            className="opacity-0 group-hover:opacity-100 text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded-lg font-medium hover:bg-orange-200 transition-all disabled:opacity-40 whitespace-nowrap"
+                          >
+                            Void (Drawn)
                           </button>
                         )}
                       </div>

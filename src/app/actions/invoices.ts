@@ -570,6 +570,222 @@ export async function disputeInvoice(
   return {};
 }
 
+// ---------------------------------------------------------------------------
+// voidInvoice — general void (used by the status dropdown)
+// ---------------------------------------------------------------------------
+// Posts the correct reversing JE based on the invoice's current state:
+//   - pending_review (wip_ap_posted = false): just void, no GL work needed
+//   - approved/disputed (wip_ap_posted = true): DR AP (2000) / CR WIP/CIP (1210/1230/6900)
+//   - released/cleared: blocked — those need explicit reversal workflow
+// ---------------------------------------------------------------------------
+
+export async function voidInvoice(
+  invoiceId: string
+): Promise<{ error?: string; success?: boolean }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select(`
+      status, total_amount, amount, project_id, vendor, invoice_number,
+      wip_ap_posted,
+      projects ( project_type )
+    `)
+    .eq("id", invoiceId)
+    .single();
+
+  if (!invoice) return { error: "Invoice not found" };
+
+  if (invoice.status === "released") {
+    return { error: "Cannot void a released invoice — the check must be cancelled first. Contact your accountant to reverse the check issuance." };
+  }
+  if (invoice.status === "cleared") {
+    return { error: "Cannot void a cleared invoice — payment has already been made." };
+  }
+  if (invoice.status === "void") {
+    return { error: "Invoice is already voided." };
+  }
+
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
+  const today = new Date().toISOString().split("T")[0];
+  const invLabel =
+    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
+
+  // If WIP/AP was posted, reverse it: DR AP (2000) / CR WIP/CIP
+  if (invoiceAmount > 0 && invoice.wip_ap_posted) {
+    const wipAccountNumber = !invoice.project_id
+      ? "6900"
+      : projectType === "land_development"
+      ? "1230"
+      : "1210";
+
+    const { data: glAccounts } = await supabase
+      .from("chart_of_accounts")
+      .select("id, account_number")
+      .in("account_number", ["2000", wipAccountNumber]);
+
+    const acct2000 = glAccounts?.find((a) => a.account_number === "2000")?.id;
+    const wipAcctId = glAccounts?.find((a) => a.account_number === wipAccountNumber)?.id;
+
+    if (acct2000 && wipAcctId) {
+      const { data: je } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: today,
+          reference: `VOID-${invoiceId.slice(0, 8)}`,
+          description: `Invoice voided — ${invLabel}`,
+          status: "posted",
+          source_type: "manual",
+          source_id: invoiceId,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (je) {
+        await supabase.from("journal_entry_lines").insert([
+          {
+            journal_entry_id: je.id,
+            account_id: acct2000,
+            project_id: invoice.project_id ?? null,
+            description: `AP cleared — invoice voided — ${invLabel}`,
+            debit: invoiceAmount,
+            credit: 0,
+          },
+          {
+            journal_entry_id: je.id,
+            account_id: wipAcctId,
+            project_id: invoice.project_id ?? null,
+            description: `WIP reversal — invoice voided — ${invLabel}`,
+            debit: 0,
+            credit: invoiceAmount,
+          },
+        ]);
+      }
+    }
+  }
+
+  const { error: voidError } = await supabase
+    .from("invoices")
+    .update({ status: "void", pending_draw: false })
+    .eq("id", invoiceId);
+
+  if (voidError) return { error: voidError.message };
+
+  revalidatePath(`/invoices/${invoiceId}`);
+  revalidatePath("/invoices");
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// voidAfterDraw
+// ---------------------------------------------------------------------------
+// Used when a disputed invoice was already drawn on (bank funded the draw),
+// but the vendor will not be paid. Cash and loan payable remain unchanged.
+// Posts: DR Accounts Payable (2000) / CR WIP/CIP (1210/1230/6900)
+// This clears the AP liability and reduces project cost.
+// ---------------------------------------------------------------------------
+
+export async function voidAfterDraw(
+  invoiceId: string
+): Promise<{ error?: string; success?: boolean }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select(`
+      status, total_amount, amount, project_id, vendor, invoice_number,
+      wip_ap_posted,
+      projects ( project_type )
+    `)
+    .eq("id", invoiceId)
+    .single();
+
+  if (!invoice) return { error: "Invoice not found" };
+  if (invoice.status !== "disputed") {
+    return { error: "Only disputed invoices can be voided this way" };
+  }
+
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
+  const today = new Date().toISOString().split("T")[0];
+  const invLabel =
+    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
+
+  // Determine the WIP/CIP account that was originally debited at approval
+  const wipAccountNumber = !invoice.project_id
+    ? "6900"
+    : projectType === "land_development"
+    ? "1230"
+    : "1210";
+
+  // Only post the clearing JE if WIP/AP was actually posted (wip_ap_posted = true).
+  // If for some reason the WIP entry was never posted, there is no AP to clear.
+  if (invoiceAmount > 0 && invoice.wip_ap_posted) {
+    const { data: glAccounts } = await supabase
+      .from("chart_of_accounts")
+      .select("id, account_number")
+      .in("account_number", ["2000", wipAccountNumber]);
+
+    const acct2000 = glAccounts?.find((a) => a.account_number === "2000")?.id;
+    const wipAcctId = glAccounts?.find((a) => a.account_number === wipAccountNumber)?.id;
+
+    if (acct2000 && wipAcctId) {
+      const { data: je } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: today,
+          reference: `VOID-DRAWN-${invoiceId.slice(0, 8)}`,
+          description: `Void after draw — vendor not paid — ${invLabel}`,
+          status: "posted",
+          source_type: "manual",
+          source_id: invoiceId,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (je) {
+        await supabase.from("journal_entry_lines").insert([
+          {
+            journal_entry_id: je.id,
+            account_id: acct2000,
+            project_id: invoice.project_id ?? null,
+            description: `AP cleared — vendor not paid — ${invLabel}`,
+            debit: invoiceAmount,
+            credit: 0,
+          },
+          {
+            journal_entry_id: je.id,
+            account_id: wipAcctId,
+            project_id: invoice.project_id ?? null,
+            description: `WIP reduction — disputed invoice voided — ${invLabel}`,
+            debit: 0,
+            credit: invoiceAmount,
+          },
+        ]);
+      }
+    }
+  }
+
+  // Mark invoice void and remove from any pending draw queue
+  const { error: voidError } = await supabase
+    .from("invoices")
+    .update({ status: "void", pending_draw: false })
+    .eq("id", invoiceId);
+
+  if (voidError) return { error: voidError.message };
+
+  revalidatePath(`/invoices/${invoiceId}`);
+  revalidatePath("/invoices");
+  return { success: true };
+}
+
 export async function advanceInvoiceStatus(
   invoiceId: string,
   to: "released" | "cleared",
@@ -600,7 +816,6 @@ export async function advanceInvoiceStatus(
 
   if (error) return { error: error.message };
 
-  // Load invoice details for JE posting
   const { data: invoice } = await supabase
     .from("invoices")
     .select("amount, total_amount, project_id, vendor, invoice_number, discount_taken, projects ( project_type )")
@@ -618,7 +833,6 @@ export async function advanceInvoiceStatus(
 
   if (invoiceAmount <= 0) { revalidatePath("/invoices"); return {}; }
 
-  // Determine WIP account for discount credit-back
   const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
   const wipAccountNumber = !invoice.project_id
     ? "6900"
@@ -627,10 +841,6 @@ export async function advanceInvoiceStatus(
     : "1210";
 
   if (to === "released") {
-    // Check written with possible early-pay discount:
-    //   DR Accounts Payable (2000) = full invoice amount (clears full liability)
-    //   CR WIP/CIP (1210/1230/6900) = discount amount (reduces project cost)
-    //   CR Checks Issued - Outstanding (2050) = net amount (actual check amount)
     const accountNumbers = ["2000", "2050"];
     if (savedDiscount > 0) accountNumbers.push(wipAccountNumber);
 
@@ -680,7 +890,6 @@ export async function advanceInvoiceStatus(
           },
         ];
 
-        // Add discount credit to WIP/CIP if discount was taken
         if (savedDiscount > 0 && wipAcct) {
           lines.push({
             journal_entry_id: je.id,
@@ -698,8 +907,6 @@ export async function advanceInvoiceStatus(
   }
 
   if (to === "cleared") {
-    // Check cleared bank: DR Checks Issued - Outstanding (2050) / CR Cash (1000)
-    // Uses net amount (after discount) since that's what was on the check
     const clearedDate = updates.payment_date as string;
     const { data: glAccounts } = await supabase
       .from("chart_of_accounts")

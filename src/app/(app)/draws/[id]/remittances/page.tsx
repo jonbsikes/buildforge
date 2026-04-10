@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import { drawDisplayName } from "@/lib/draws";
+import RemittanceActions from "@/components/draws/RemittanceActions";
 
 export const dynamic = "force-dynamic";
 
@@ -126,7 +127,7 @@ export default async function RemittancesPage({ params }: Props) {
         .info-grid {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
-          gap: 12px 16px;
+          gap: 0 16px;
           margin-bottom: 20px;
         }
         .info-item p:first-child { font-size: 8pt; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; margin-bottom: 3px; }
@@ -169,42 +170,11 @@ export default async function RemittancesPage({ params }: Props) {
       `}</style>
 
       <div style={{ padding: "24px 32px" }}>
-        <div className="no-print" style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "24px" }}>
-          <button
-            onClick={() => window.print()}
-            style={{
-              padding: "8px 18px",
-              background: "#4272EF",
-              color: "#fff",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "13px",
-              cursor: "pointer",
-              fontWeight: 500,
-            }}
-          >
-            Print All Remittances ({vendorPayments.length})
-          </button>
-          <a
-            href={`/draws/${id}`}
-            style={{
-              padding: "8px 18px",
-              background: "#fff",
-              color: "#4272EF",
-              border: "1.5px solid #4272EF",
-              borderRadius: "6px",
-              fontSize: "13px",
-              cursor: "pointer",
-              fontWeight: 500,
-              textDecoration: "none",
-            }}
-          >
-            ← Back to Draw
-          </a>
-          <span style={{ fontSize: "13px", color: "#64748b" }}>
-            One page per vendor · {lender?.name ?? ""}
-          </span>
-        </div>
+        <RemittanceActions
+          drawId={id}
+          vendorCount={vendorPayments.length}
+          lenderName={lender?.name ?? ""}
+        />
 
         {vendorPayments.map((vp, idx) => {
           const invoices = invoicesByVp.get(vp.id) ?? [];
@@ -223,7 +193,7 @@ export default async function RemittancesPage({ params }: Props) {
                 <img src="/prairie-sky-logo.png" alt="Prairie Sky" />
                 <div className="header-text">
                   <div className="header-title">Check Remittance</div>
-                  <div className="header-sub">{drawName} · {lender?.name ?? ""} · Prairie Sky, LLC</div>
+                  <div className="header-sub">Prairie Sky, LLC</div>
                 </div>
               </div>
 
@@ -242,18 +212,6 @@ export default async function RemittancesPage({ params }: Props) {
                 <div className="info-item">
                   <p>Check Amount</p>
                   <p>{fmt(vp.amount)}</p>
-                </div>
-                <div className="info-item">
-                  <p>Status</p>
-                  <p style={{ textTransform: "capitalize" }}>{vp.status}</p>
-                </div>
-                <div className="info-item">
-                  <p>Draw Date</p>
-                  <p>{fmtDate(draw.draw_date)}</p>
-                </div>
-                <div className="info-item">
-                  <p>Lender</p>
-                  <p>{lender?.name ?? "—"}</p>
                 </div>
               </div>
 
@@ -306,7 +264,7 @@ export default async function RemittancesPage({ params }: Props) {
 
               {/* Footer */}
               <div className="footer">
-                <span>{vp.vendor_name} · {drawName}</span>
+                <span>{vp.vendor_name} · Prairie Sky, LLC</span>
                 <span>Generated {fmtDate(new Date().toISOString().split("T")[0])}</span>
               </div>
             </div>
