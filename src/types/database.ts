@@ -1208,6 +1208,121 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_invoices: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          invoice_id: string
+          payment_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          invoice_id: string
+          payment_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          payment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_invoices_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_invoices_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          cleared_date: string | null
+          created_at: string
+          draw_id: string | null
+          funding_source: string
+          id: string
+          notes: string | null
+          payee: string
+          payment_date: string
+          payment_method: string
+          payment_number: string | null
+          status: string
+          user_id: string
+          vendor_id: string | null
+          vendor_payment_id: string | null
+        }
+        Insert: {
+          amount: number
+          cleared_date?: string | null
+          created_at?: string
+          draw_id?: string | null
+          funding_source?: string
+          id?: string
+          notes?: string | null
+          payee: string
+          payment_date: string
+          payment_method: string
+          payment_number?: string | null
+          status?: string
+          user_id: string
+          vendor_id?: string | null
+          vendor_payment_id?: string | null
+        }
+        Update: {
+          amount?: number
+          cleared_date?: string | null
+          created_at?: string
+          draw_id?: string | null
+          funding_source?: string
+          id?: string
+          notes?: string | null
+          payee?: string
+          payment_date?: string
+          payment_method?: string
+          payment_number?: string | null
+          status?: string
+          user_id?: string
+          vendor_id?: string | null
+          vendor_payment_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_draw_id_fkey"
+            columns: ["draw_id"]
+            isOneToOne: false
+            referencedRelation: "loan_draws"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_vendor_payment_id_fkey"
+            columns: ["vendor_payment_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_cost_codes: {
         Row: {
           budget_amount: number
