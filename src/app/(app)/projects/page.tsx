@@ -19,21 +19,42 @@ export default async function ProjectsPage() {
     .order("start_date", { ascending: true })
     .order("address", { ascending: true });
 
-  // Fetch last completed stage for each project
+  // Fetch all build stages for each project (for last completed, delayed, and next stage)
   const projectIds = (projects ?? []).map((p) => p.id);
   let lastStageByProject: Record<string, string> = {};
+  let delayedStagesByProject: Record<string, { stage_name: string; planned_end_date: string }[]> = {};
+  let nextStageByProject: Record<string, { stage_name: string; planned_start_date: string | null }> = {};
   if (projectIds.length > 0) {
-    const { data: stages } = await supabase
+    const { data: allStages } = await supabase
       .from("build_stages")
-      .select("project_id, stage_name, actual_end_date, planned_end_date")
+      .select("project_id, stage_name, stage_number, status, planned_start_date, planned_end_date, actual_end_date")
       .in("project_id", projectIds)
-      .eq("status", "complete")
-      .order("actual_end_date", { ascending: false });
+      .order("stage_number", { ascending: true });
 
-    // Group: keep most recent completed stage per project
-    for (const s of stages ?? []) {
-      if (!lastStageByProject[s.project_id]) {
-        lastStageByProject[s.project_id] = s.stage_name;
+    const today = new Date().toISOString().split("T")[0];
+
+    for (const s of allStages ?? []) {
+      if (s.status === "complete") {
+        if (!lastStageByProject[s.project_id]) {
+          lastStageByProject[s.project_id] = s.stage_name;
+        } else {
+          lastStageByProject[s.project_id] = s.stage_name;
+        }
+      }
+
+      if (s.status !== "complete" && s.planned_end_date && s.planned_end_date < today) {
+        if (!delayedStagesByProject[s.project_id]) delayedStagesByProject[s.project_id] = [];
+        delayedStagesByProject[s.project_id].push({
+          stage_name: s.stage_name,
+          planned_end_date: s.planned_end_date,
+        });
+      }
+
+      if (s.status === "not_started" && !nextStageByProject[s.project_id]) {
+        nextStageByProject[s.project_id] = {
+          stage_name: s.stage_name,
+          planned_start_date: s.planned_start_date,
+        };
       }
     }
   }
@@ -74,6 +95,8 @@ export default async function ProjectsPage() {
           projects={(projects ?? []).map((p) => ({
             ...p,
             lastStageCompleted: lastStageByProject[p.id] ?? null,
+            delayedStages: delayedStagesByProject[p.id] ?? [],
+            nextStage: nextStageByProject[p.id] ?? null,
             phases: phasesByProject[p.id] ?? [],
           }))}
         />

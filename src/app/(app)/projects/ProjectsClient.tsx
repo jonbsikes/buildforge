@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, AlertTriangle, ArrowRight } from "lucide-react";
 
 type Phase = {
   phase_number: number | null;
@@ -10,6 +10,16 @@ type Phase = {
   status: string;
   number_of_lots: number | null;
   lots_sold: number;
+};
+
+type DelayedStage = {
+  stage_name: string;
+  planned_end_date: string;
+};
+
+type NextStage = {
+  stage_name: string;
+  planned_start_date: string | null;
 };
 
 type Project = {
@@ -31,6 +41,8 @@ type Project = {
   number_of_lots: number | null;
   number_of_phases: number | null;
   lastStageCompleted: string | null;
+  delayedStages: DelayedStage[];
+  nextStage: NextStage | null;
   phases: Phase[];
 };
 
@@ -78,27 +90,48 @@ function HouseIcon({ size = 16, className = "" }: { size?: number; className?: s
 function LandIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      {/* Semicircle sun on horizon */}
       <path d="M5 12 Q5 7 12 7 Q19 7 19 12" />
-      {/* Rays */}
       <line x1="12" y1="4" x2="12" y2="2" />
       <line x1="7" y1="5.5" x2="5.5" y2="4" />
       <line x1="17" y1="5.5" x2="18.5" y2="4" />
       <line x1="4" y1="10" x2="2" y2="10" />
       <line x1="20" y1="10" x2="22" y2="10" />
-      {/* Horizon line */}
       <line x1="2" y1="14" x2="22" y2="14" />
-      {/* Tree trunk */}
       <line x1="19" y1="14" x2="19" y2="19" />
-      {/* Tree crown */}
       <polygon points="19,9 16,14 22,14" />
-      {/* Ground */}
       <line x1="2" y1="19" x2="22" y2="19" />
     </svg>
   );
 }
 
-// ─── Home Construction Project Tile ──────────────────────────────────────────
+function WhatsNext({ project }: { project: Project }) {
+  const hasDelayed = project.delayedStages.length > 0;
+  const hasNext = project.nextStage !== null;
+  if (!hasDelayed && !hasNext) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+      {hasDelayed && (
+        <span className="inline-flex items-center gap-1 text-xs text-red-600 font-medium">
+          <AlertTriangle size={11} className="shrink-0" />
+          {project.delayedStages.length === 1
+            ? project.delayedStages[0].stage_name
+            : `${project.delayedStages.length} delayed`}
+        </span>
+      )}
+      {hasNext && (
+        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+          <ArrowRight size={11} className="shrink-0 text-gray-400" />
+          Next: {project.nextStage!.stage_name}
+          {project.nextStage!.planned_start_date && (
+            <span className="text-gray-400">({formatDate(project.nextStage!.planned_start_date)})</span>
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function HomeTile({ project }: { project: Project }) {
   const days = project.start_date ? daysUnderConstruction(project.start_date) : 0;
   const blockLot = [project.block && `Block ${project.block}`, project.lot && `Lot ${project.lot}`]
@@ -111,14 +144,12 @@ function HomeTile({ project }: { project: Project }) {
       className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors"
     >
       <div className="flex-1 min-w-0">
-        {/* Name + address on same line */}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           <span className="text-sm font-semibold text-gray-900">{project.name}</span>
           {project.address && (
             <span className="text-xs text-gray-400 truncate">{project.address}</span>
           )}
         </div>
-        {/* Details row */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
           {blockLot && <span className="text-xs text-gray-500">{blockLot}</span>}
           {project.plan && <span className="text-xs text-gray-500">Plan: {project.plan}</span>}
@@ -134,7 +165,6 @@ function HomeTile({ project }: { project: Project }) {
             </span>
           )}
         </div>
-        {/* Dates row */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
           {project.start_date && (
             <span className="text-xs text-gray-400">Started {formatDate(project.start_date)}</span>
@@ -146,6 +176,7 @@ function HomeTile({ project }: { project: Project }) {
             <span className="text-xs font-medium text-[#4272EF]">{days}d under construction</span>
           )}
         </div>
+        <WhatsNext project={project} />
       </div>
       <span
         className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-100 text-gray-600"}`}
@@ -156,7 +187,6 @@ function HomeTile({ project }: { project: Project }) {
   );
 }
 
-// ─── Collapsible Subdivision Group ───────────────────────────────────────────
 function SubdivisionGroup({
   subdivision,
   projects,
@@ -185,7 +215,6 @@ function SubdivisionGroup({
             {activeCount > 0 ? `, ${activeCount} active` : ""}
           </span>
         </div>
-        {/* Status dots */}
         <div className="flex items-center gap-1">
           {projects.map((p) => (
             <span
@@ -214,7 +243,6 @@ function SubdivisionGroup({
   );
 }
 
-// ─── Land Development Tile ────────────────────────────────────────────────────
 function LandTile({ project }: { project: Project }) {
   const days = project.start_date ? daysUnderConstruction(project.start_date) : 0;
   const hasPhases = project.phases.length > 0;
@@ -249,7 +277,6 @@ function LandTile({ project }: { project: Project }) {
           )}
         </div>
 
-        {/* Phase badges */}
         {hasPhases && (
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {project.phases.map((ph) => (
@@ -276,6 +303,7 @@ function LandTile({ project }: { project: Project }) {
             <span className="text-xs font-medium text-[#4272EF]">{days}d active</span>
           )}
         </div>
+        <WhatsNext project={project} />
       </div>
 
       <span
@@ -287,7 +315,6 @@ function LandTile({ project }: { project: Project }) {
   );
 }
 
-// ─── Main Client ──────────────────────────────────────────────────────────────
 export default function ProjectsClient({ projects }: { projects: Project[] }) {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -323,7 +350,6 @@ export default function ProjectsClient({ projects }: { projects: Project[] }) {
     [projects, search, filterStatus]
   );
 
-  // Group home projects by subdivision
   const subdivisions = useMemo(() => {
     const map = new Map<string, Project[]>();
     for (const p of homeProjects) {
@@ -339,7 +365,6 @@ export default function ProjectsClient({ projects }: { projects: Project[] }) {
 
   return (
     <div className="space-y-6">
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-48">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -347,7 +372,7 @@ export default function ProjectsClient({ projects }: { projects: Project[] }) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, address, subdivision, plan…"
+            placeholder="Search by name, address, subdivision, plan..."
             className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
           />
         </div>
@@ -387,7 +412,6 @@ export default function ProjectsClient({ projects }: { projects: Project[] }) {
         )}
       </div>
 
-      {/* Home Construction */}
       {showHome && (
         <section>
           <div className="flex items-center gap-2 mb-3">
@@ -416,7 +440,6 @@ export default function ProjectsClient({ projects }: { projects: Project[] }) {
         </section>
       )}
 
-      {/* Land Development */}
       {showLand && (
         <section>
           <div className="flex items-center gap-2 mb-3">

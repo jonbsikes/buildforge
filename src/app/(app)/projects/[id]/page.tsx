@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Building2, Landmark, MapPin, Calendar, Home, Ruler, Pencil } from "lucide-react";
+import { Building2, Landmark, MapPin, Calendar, Home, Ruler, Pencil, AlertTriangle, ArrowRight } from "lucide-react";
 import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
 
@@ -33,7 +33,6 @@ export default async function ProjectDetailPage({ params }: Props) {
   const { id } = await params;
   const supabase = await createClient();
 
-  // Parallel fetch everything
   const [
     projectResult,
     phasesResult,
@@ -99,9 +98,6 @@ export default async function ProjectDetailPage({ params }: Props) {
       .eq("project_id", id)
       .in("status", ["approved", "scheduled", "released", "cleared"]),
 
-    // JE-based costs: manual JEs, lot costs, etc. tagged with cost_code_id
-    // These capture owner equity contributions, land purchases, and other
-    // costs entered as journal entries without an invoice record.
     supabase
       .from("journal_entry_lines")
       .select("cost_code_id, debit, credit, journal_entries!inner ( status, source_type )")
@@ -118,7 +114,6 @@ export default async function ProjectDetailPage({ params }: Props) {
   const totalSoldLots = phases.reduce((s, p) => s + (p.lots_sold ?? 0), 0);
   const remainingLots = (project.number_of_lots ?? 0) - totalSoldLots;
 
-  // Filter cost codes: exclude G&A (null project_type), keep type-matched only
   type CostCodeRow = {
     id: string;
     pccId: string;
@@ -135,7 +130,7 @@ export default async function ProjectDetailPage({ params }: Props) {
         id: string; code: string; name: string;
         category: string; project_type: string | null; sort_order: number | null;
       } | null;
-      if (!cc || !cc.project_type) return null; // skip G&A
+      if (!cc || !cc.project_type) return null;
       if (isHome && cc.project_type !== "home_construction") return null;
       if (!isHome && cc.project_type !== "land_development") return null;
       return {
@@ -154,21 +149,18 @@ export default async function ProjectDetailPage({ params }: Props) {
   const buildStages = stagesResult.data ?? [];
   const documents = documentsResult.data ?? [];
 
-  // All master cost codes for this project type (excluding G&A)
   const projectTypeName = isHome ? "home_construction" : "land_development";
   const enabledCodes = new Set(costCodes.map((c) => c.code));
   const availableCostCodes = (allMasterCodesResult.data ?? [])
     .filter((c) => c.project_type === projectTypeName && !enabledCodes.has(c.code))
     .map((c) => ({ id: c.id, code: c.code, name: c.name, category: c.category, sort_order: c.sort_order }));
 
-  // Aggregate committed (contracts) and actual (invoices) by cost_code_id
   const committedByCostCodeId: Record<string, number> = {};
   for (const c of contractsResult.data ?? []) {
     if (c.cost_code_id) {
       committedByCostCodeId[c.cost_code_id] = (committedByCostCodeId[c.cost_code_id] ?? 0) + (c.amount ?? 0);
     }
   }
-  // Aggregate actual costs from invoices (single-line: use cost_code_id on invoice)
   const actualByCostCodeId: Record<string, number> = {};
   for (const inv of invoicesResult.data ?? []) {
     if (inv.cost_code_id) {
@@ -177,8 +169,6 @@ export default async function ProjectDetailPage({ params }: Props) {
     }
   }
 
-  // Also include JE-based costs (manual JEs, lot costs, owner equity, etc.)
-  // Skip invoice_approval/invoice_payment to avoid double-counting with invoices above.
   for (const line of jeLinesResult.data ?? []) {
     const je = line.journal_entries as { status: string; source_type: string } | null | undefined;
     if (!je || je.status !== "posted") continue;
@@ -193,6 +183,15 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const days = daysUnderConstruction(project.start_date);
 
+  // What's Next data
+  const today = new Date().toISOString().split("T")[0];
+  const delayedStages = buildStages.filter(
+    (s) => s.status !== "complete" && s.planned_end_date && s.planned_end_date < today
+  );
+  const currentStage = buildStages.find((s) => s.status === "in_progress") || null;
+  const nextStage = buildStages.find((s) => s.status === "not_started") || null;
+  const showWhatsNext = delayedStages.length > 0 || currentStage !== null || nextStage !== null;
+
   return (
     <>
       <Header title={project.name} />
@@ -202,7 +201,7 @@ export default async function ProjectDetailPage({ params }: Props) {
             href="/projects"
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
           >
-            ← Projects
+            &larr; Projects
           </Link>
 
           {/* Project header card */}
@@ -237,7 +236,6 @@ export default async function ProjectDetailPage({ params }: Props) {
               </div>
             </div>
 
-            {/* Fields grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-4 text-sm">
               {project.address && (
                 <DetailField icon={<MapPin size={13} />} label="Address" value={project.address} wide />
@@ -254,7 +252,6 @@ export default async function ProjectDetailPage({ params }: Props) {
                 <DetailField label="Lender" value={lender.name} />
               )}
 
-              {/* Home Construction */}
               {isHome && project.subdivision && <DetailField label="Subdivision" value={project.subdivision} />}
               {isHome && (project.block || project.lot) && (
                 <DetailField label="Block / Lot" value={[project.block, project.lot].filter(Boolean).join(" / ")} />
@@ -267,7 +264,6 @@ export default async function ProjectDetailPage({ params }: Props) {
                 <DetailField icon={<Home size={13} />} label="Home Size" value={`${project.home_size_sf.toLocaleString()} SF`} />
               )}
 
-              {/* Land Development */}
               {!isHome && project.size_acres != null && (
                 <DetailField label="Size" value={`${project.size_acres} acres`} />
               )}
@@ -286,7 +282,44 @@ export default async function ProjectDetailPage({ params }: Props) {
             </div>
           </div>
 
-          {/* Tabs */}
+          {showWhatsNext && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">{"What's Next"}</h2>
+              <div className="space-y-2">
+                {delayedStages.map((s) => {
+                  const daysLate = Math.floor(
+                    (new Date().getTime() - new Date(s.planned_end_date + "T00:00:00").getTime()) / 86400000
+                  );
+                  return (
+                    <div key={s.id} className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-100 rounded-lg">
+                      <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                      <span className="text-sm text-red-700 font-medium">{s.stage_name}</span>
+                      <span className="text-xs text-red-400 ml-auto">{daysLate}d overdue</span>
+                    </div>
+                  );
+                })}
+                {currentStage && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+                    <div className="w-2 h-2 rounded-full bg-[#4272EF] shrink-0" />
+                    <span className="text-sm text-blue-700 font-medium">{currentStage.stage_name}</span>
+                    <span className="text-xs text-blue-400 ml-auto">In progress</span>
+                  </div>
+                )}
+                {nextStage && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg">
+                    <ArrowRight size={14} className="text-gray-400 shrink-0" />
+                    <span className="text-sm text-gray-700 font-medium">{nextStage.stage_name}</span>
+                    {nextStage.planned_start_date && (
+                      <span className="text-xs text-gray-400 ml-auto">
+                        Starts {new Date(nextStage.planned_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <ProjectTabs
             projectId={id}
             isHome={isHome}
