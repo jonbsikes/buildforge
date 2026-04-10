@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { drawDisplayName } from "@/lib/draws";
-import fs from "fs";
-import path from "path";
 
 export const dynamic = "force-dynamic";
 
@@ -136,16 +134,20 @@ export async function GET(
   const rowLine = rgb(0.953, 0.961, 0.976); // very light row separator
   const red = rgb(0.78, 0.1, 0.1); // for negative adjustments
 
-  // Load logo once
+  // Load logo once — fetch via HTTP so it works on Vercel (public/ isn't
+  // reliably on the fs in serverless bundles, but static assets always are)
   let logoImage: Awaited<ReturnType<typeof pdfDoc.embedPng>> | null = null;
   let logoDrawW = 0;
   const LOGO_H = 52;
   try {
-    const logoPath = path.join(process.cwd(), "public", "prairie-sky-logo.png");
-    const logoBytes = fs.readFileSync(logoPath);
-    logoImage = await pdfDoc.embedPng(new Uint8Array(logoBytes));
-    const dims = logoImage.scale(1);
-    logoDrawW = (dims.width / dims.height) * LOGO_H;
+    const origin = new URL(_req.url).origin;
+    const logoRes = await fetch(`${origin}/prairie-sky-logo.png`);
+    if (logoRes.ok) {
+      const logoBytes = await logoRes.arrayBuffer();
+      logoImage = await pdfDoc.embedPng(new Uint8Array(logoBytes));
+      const dims = logoImage.scale(1);
+      logoDrawW = (dims.width / dims.height) * LOGO_H;
+    }
   } catch {
     // No logo — proceed without it
   }
