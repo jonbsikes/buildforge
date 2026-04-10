@@ -151,13 +151,14 @@ export async function GET(
   }
 
   // Table column definitions (shared across all pages)
-  const tCols = [
+  interface TableCol { label: string; x: number; w: number; right?: boolean; }
+  const tCols: TableCol[] = [
     { label: "PROJECT / ADDRESS", x: ML, w: 148 },
     { label: "INVOICE #", x: ML + 150, w: 72 },
     { label: "DATE", x: ML + 224, w: 62 },
     { label: "CATEGORY", x: ML + 288, w: 138 },
     { label: "AMOUNT", x: ML + 428, w: 88, right: true },
-  ] as const;
+  ];
 
   // ── One page per vendor ───────────────────────────────────────────────────
 
