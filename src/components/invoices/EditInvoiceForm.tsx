@@ -139,7 +139,7 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
   }
 
   function validate(): string | null {
-    if (\!vendorId) return "A vendor must be selected. Use '+ Create new vendor' if the vendor isn't listed.";
+    if (!vendorId) return "A vendor must be selected. Use '+ Create new vendor' if the vendor isn't listed.";
     if (!invoiceDate) return "Invoice date is required";
     if (lineItems.some((li) => !li.cost_code || !li.amount)) return "Each line item needs a cost code and amount";
     if (lineItems.some((li) => isNaN(parseFloat(li.amount)) || parseFloat(li.amount) <= 0)) return "All amounts must be positive numbers";
@@ -223,7 +223,7 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
             </select>
           </Field>
           <Field label="Vendor" required>
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={ic(\!vendorId && \!\!submitError)}>
+            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className={ic(!vendorId && !!submitError)}>
               <option value="">— Select vendor —</option>
               {vendors.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>

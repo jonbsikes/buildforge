@@ -48,7 +48,7 @@ export async function saveInvoice(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  if (\!input.vendor_id) return { error: "A vendor must be selected. Create the vendor first if they are not in the system." };
+  if (!input.vendor_id) return { error: "A vendor must be selected. Create the vendor first if they are not in the system." };
 
   if (input.line_items.length === 0) return { error: "At least one line item is required" };
 
@@ -436,7 +436,7 @@ export async function updateInvoice(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  if (\!input.vendor_id) return { error: "A vendor must be selected. Create the vendor first if they are not in the system." };
+  if (!input.vendor_id) return { error: "A vendor must be selected. Create the vendor first if they are not in the system." };
 
   if (input.line_items.length === 0) return { error: "At least one line item is required" };
 
