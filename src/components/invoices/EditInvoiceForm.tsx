@@ -244,9 +244,6 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
           </Field>
         </div>
 
-        {!vendorId && (
-
-        )}
 
         {contracts.length > 0 && (
           <Field label="Linked Contract">
