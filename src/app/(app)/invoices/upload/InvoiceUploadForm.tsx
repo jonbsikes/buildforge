@@ -885,7 +885,7 @@ function BatchUpload({ projects, vendors, hasAI }: Props) {
 
           {items.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-gray-500 uppercase">{items.length} file{items.length \!== 1 ? "s" : ""} selected</p>
+              <p className="text-xs font-medium text-gray-500 uppercase">{items.length} file{items.length !== 1 ? "s" : ""} selected</p>
               <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
                 {items.map((item, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2.5">
@@ -913,7 +913,7 @@ function BatchUpload({ projects, vendors, hasAI }: Props) {
           <button onClick={handleRun} disabled={items.length === 0}
             className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
             style={{ backgroundColor: "#4272EF" }}>
-            Upload {items.length > 0 ? `${items.length} File${items.length \!== 1 ? "s" : ""}` : "Files"}
+            Upload {items.length > 0 ? `${items.length} File${items.length !== 1 ? "s" : ""}` : "Files"}
           </button>
         </>
       )}
@@ -940,8 +940,8 @@ function BatchUpload({ projects, vendors, hasAI }: Props) {
           {allDone && (
             <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm ${errorCount > 0 ? "bg-amber-50 text-amber-800" : "bg-green-50 text-green-800"}`}>
               {errorCount > 0 ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-              {doneCount} file{doneCount \!== 1 ? "s" : ""} processed
-              {totalInvoices \!== doneCount ? ` → ${totalInvoices} invoices created` : " successfully"}
+              {doneCount} file{doneCount !== 1 ? "s" : ""} processed
+              {totalInvoices !== doneCount ? ` → ${totalInvoices} invoices created` : " successfully"}
               {errorCount > 0 ? `, ${errorCount} failed` : ""}.
             </div>
           )}
@@ -954,7 +954,7 @@ function BatchUpload({ projects, vendors, hasAI }: Props) {
             </button>
           )}
 
-          {\!allDone && (
+          {!allDone && (
             <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
               <Loader2 size={14} className="animate-spin" />
               Processing {items.find((it) => it.status === "uploading" || it.status === "extracting")?.file.name ?? ""}…

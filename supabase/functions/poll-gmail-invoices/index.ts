@@ -453,7 +453,7 @@ Deno.serve(async (_req) => {
                   minDue.setDate(minDue.getDate() + 7);
                   const minDueStr = minDue.toISOString().split("T")[0];
                   if (dd < minDueStr) dd = minDueStr;
-                } else if (extracted.invoice_date && \!dd) {
+                } else if (extracted.invoice_date && !dd) {
                   const minDue = new Date(extracted.invoice_date + "T00:00:00");
                   minDue.setDate(minDue.getDate() + 7);
                   dd = minDue.toISOString().split("T")[0];
@@ -478,7 +478,7 @@ Deno.serve(async (_req) => {
             .select("id")
             .single();
 
-          if (insertErr || \!invoice) {
+          if (insertErr || !invoice) {
             stats.errors++;
             stats.errorDetails.push(`[${invoiceEmailId}] invoice insert failed: ${insertErr?.message}`);
             continue;
