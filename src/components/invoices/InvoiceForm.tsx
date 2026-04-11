@@ -324,14 +324,6 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     if (lineItems.some((li) => isNaN(parseFloat(li.amount)) || parseFloat(li.amount) <= 0)) {
       return "All line item amounts must be positive numbers";
     }
-    // Enforce 7-day minimum due date
-    if (invoiceDate && dueDate) {
-      const minDue = new Date(invoiceDate + "T00:00:00");
-      minDue.setDate(minDue.getDate() + 7);
-      if (new Date(dueDate + "T00:00:00") < minDue) {
-        return "Due date must be at least 7 days after the invoice date";
-      }
-    }
     return null;
   }
 
@@ -549,7 +541,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               value={invoiceNumber}
               onChange={(e) => { markEdited(); setInvoiceNumber(e.target.value); }}
               placeholder="INV-001"
-              className={inputClass(false)}
+              className={inputClass(!vendorId && !!submitError)}
             />
           </Field>
           <Field label="Invoice Date" required>
@@ -565,10 +557,8 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               type="date"
               value={dueDate}
               onChange={(e) => { markEdited(); setDueDate(e.target.value); }}
-              min={invoiceDate ? (() => { const d = new Date(invoiceDate + "T00:00:00"); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]; })() : undefined}
-              className={inputClass(false)}
+              className={inputClass(!vendorId && !!submitError)}
             />
-            <p className="text-xs text-gray-500 mt-1">Minimum 7 days after invoice date</p>
           </Field>
         </div>
 
@@ -577,7 +567,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as typeof status)}
-              className={inputClass(false)}
+              className={inputClass(!vendorId && !!submitError)}
             >
               <option value="pending_review">Pending Review</option>
               <option value="approved">Approved</option>
@@ -673,7 +663,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
                 value={li.description}
                 onChange={(e) => updateLine(idx, "description", e.target.value)}
                 placeholder="Description"
-                className={inputClass(false)}
+                className={inputClass(!vendorId && !!submitError)}
               />
               <input
                 type="number"
@@ -775,4 +765,15 @@ function Field({
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-1.5">
         {label}
-        {required && <
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function inputClass(hasError: boolean) {
+  return `w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] focus:border-transparent transition-colors ${
+    hasError ? "border-red-400" : "border-gray-300"
+  }`;
+}
