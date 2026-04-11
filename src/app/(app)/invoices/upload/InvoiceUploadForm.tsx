@@ -11,6 +11,7 @@ import {
 import type { ExtractedInvoiceData } from "@/app/api/invoices/extract/route";
 
 interface CostCode { code: string; category: string; name: string; project_type: "home_construction" | "land_development" | "general_admin" | null; }
+interface Vendor { id: string; name: string; }
 interface Project {
   id: string;
   name: string;
@@ -20,7 +21,7 @@ interface Project {
   block?: string | null;
   lot?: string | null;
 }
-interface Props { projects: Project[]; costCodes: CostCode[]; hasAI: boolean; }
+interface Props { projects: Project[]; costCodes: CostCode[]; vendors: Vendor[]; hasAI: boolean; }
 
 type SingleStep = "upload" | "extracting" | "review";
 
@@ -35,7 +36,8 @@ interface BatchItem {
 interface InvoiceReviewItem {
   project_id: string;
   cost_code: string;          // primary code shown in review; written to line_items on save
-  vendor: string;
+  vendor: string;             // AI-extracted vendor name (display only)
+  vendor_id: string;          // selected vendor from dropdown
   invoice_number: string;
   invoice_date: string;
   amount: string;
@@ -53,14 +55,42 @@ function fileSizeOk(f: File) { return f.size <= 20 * 1024 * 1024; }
 const MULTI_PROJECT = "__multiple__";
 
 function emptyReviewItem(): InvoiceReviewItem {
-  return { project_id: "", cost_code: "", vendor: "", invoice_number: "", invoice_date: "", amount: "", due_date: "", ai_notes: "", ai_confidence: "", line_items: [] };
+  return { project_id: "", cost_code: "", vendor: "", vendor_id: "", invoice_number: "", invoice_date: "", amount: "", due_date: "", ai_notes: "", ai_confidence: "", line_items: [] };
 }
 
-function extractedToReviewItem(inv: ExtractedInvoiceData): InvoiceReviewItem {
+/** Strip suffixes like LLC, Inc, Corp and normalize whitespace / casing for fuzzy vendor matching */
+function normalizeVendorName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[.,'"]/g, "")
+    .replace(/\b(llc|inc|corp|corporation|incorporated|co|company|ltd|lp|llp|dba)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Find the best matching vendor by name — exact normalized match or containment */
+function matchVendor(extractedName: string, vendors: Vendor[]): string {
+  if (!extractedName) return "";
+  const normalized = normalizeVendorName(extractedName);
+  // 1) Exact normalized match
+  const exact = vendors.find((v) => normalizeVendorName(v.name) === normalized);
+  if (exact) return exact.id;
+  // 2) Containment match
+  const contains = vendors.find((v) => {
+    const vNorm = normalizeVendorName(v.name);
+    return vNorm.includes(normalized) || normalized.includes(vNorm);
+  });
+  return contains?.id ?? "";
+}
+
+function extractedToReviewItem(inv: ExtractedInvoiceData, vendors: Vendor[]): InvoiceReviewItem {
+  const vendorName = inv.vendor ?? "";
+  const vendorId = matchVendor(vendorName, vendors);
   return {
     project_id: inv.project_id ?? "",
     cost_code: inv.line_items?.[0]?.cost_code ?? "",
-    vendor: inv.vendor ?? "",
+    vendor: vendorName,
+    vendor_id: vendorId,
     invoice_number: inv.invoice_number ?? "",
     invoice_date: inv.invoice_date ?? "",
     amount: inv.total_amount != null ? String(inv.total_amount) : "",
@@ -132,7 +162,20 @@ async function uploadAndExtract(
       vendor: inv.vendor || null,
       invoice_number: inv.invoice_number || null,
       invoice_date: inv.invoice_date || null,
-      due_date: inv.due_date || null,
+      due_date: (() => {
+        let dd = inv.due_date || null;
+        if (inv.invoice_date && dd) {
+          const minDue = new Date(inv.invoice_date + "T00:00:00");
+          minDue.setDate(minDue.getDate() + 7);
+          const minDueStr = minDue.toISOString().split("T")[0];
+          if (dd < minDueStr) dd = minDueStr;
+        } else if (inv.invoice_date && !dd) {
+          const minDue = new Date(inv.invoice_date + "T00:00:00");
+          minDue.setDate(minDue.getDate() + 7);
+          dd = minDue.toISOString().split("T")[0];
+        }
+        return dd;
+      })(),
       amount: inv.total_amount || null,
       total_amount: inv.total_amount || null,
       ai_notes: inv.ai_notes || null,
@@ -182,16 +225,18 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
 // ─── Single invoice review card ───────────────────────────────────────────────
 
 function InvoiceCard({
-  item, idx, total, projects, costCodes, expanded, onToggle, onChange,
+  item, idx, total, projects, costCodes, vendors, expanded, onToggle, onChange, onCreateVendor,
 }: {
   item: InvoiceReviewItem;
   idx: number;
   total: number;
   projects: Project[];
   costCodes: CostCode[];
+  vendors: Vendor[];
   expanded: boolean;
   onToggle: () => void;
   onChange: (field: keyof InvoiceReviewItem, value: string) => void;
+  onCreateVendor: (idx: number) => void;
 }) {
   const landCodes = costCodes.filter((c) => c.project_type === "land_development");
   const homeCodes = costCodes.filter((c) => c.project_type === "home_construction");
@@ -205,7 +250,11 @@ function InvoiceCard({
           <span className="text-xs font-semibold text-gray-500 uppercase shrink-0">Invoice {idx + 1} of {total}</span>
         )}
         <ConfidenceBadge confidence={item.ai_confidence} />
-        {item.vendor && <span className="text-sm font-medium text-gray-800 truncate">{item.vendor}</span>}
+        {(item.vendor_id ? vendors.find((v) => v.id === item.vendor_id)?.name : item.vendor) && (
+          <span className="text-sm font-medium text-gray-800 truncate">
+            {item.vendor_id ? vendors.find((v) => v.id === item.vendor_id)?.name : item.vendor}
+          </span>
+        )}
         {item.invoice_number && <span className="text-xs text-gray-400">#{item.invoice_number}</span>}
         {item.amount && (
           <span className="ml-auto text-sm font-semibold text-gray-800 shrink-0">
@@ -235,9 +284,24 @@ function InvoiceCard({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
-              <input type="text" value={item.vendor} onChange={(e) => onChange("vendor", e.target.value)}
-                placeholder="e.g. ABC Concrete"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
+              <select value={item.vendor_id} onChange={(e) => onChange("vendor_id", e.target.value)}
+                className={`w-full px-3 py-2 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] ${!item.vendor_id && item.vendor ? "border-amber-400" : "border-gray-300"}`}>
+                <option value="">— Select vendor —</option>
+                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+              {!item.vendor_id && item.vendor && (
+                <p className="mt-1 text-xs text-amber-600">
+                  No match for &ldquo;{item.vendor}&rdquo; —{" "}
+                  <button type="button" onClick={() => onCreateVendor(idx)} className="text-[#4272EF] hover:underline font-medium">
+                    + Create new vendor
+                  </button>
+                </p>
+              )}
+              {(item.vendor_id || !item.vendor) && (
+                <button type="button" onClick={() => onCreateVendor(idx)} className="mt-1 text-xs text-[#4272EF] hover:underline">
+                  + Create new vendor
+                </button>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
@@ -336,8 +400,9 @@ function PdfPane({ objectUrl, fileName }: { objectUrl: string; fileName: string 
 
 // ─── Single-file upload flow ──────────────────────────────────────────────────
 
-function SingleUpload({ projects, costCodes, hasAI }: Props) {
+function SingleUpload({ projects, costCodes, vendors: initialVendors, hasAI }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -352,6 +417,26 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
   const [filePath, setFilePath] = useState<string>("");
   const [invoiceItems, setInvoiceItems] = useState<InvoiceReviewItem[]>([]);
   const [expandedSet, setExpandedSet] = useState<Set<number>>(new Set([0]));
+  const [vendors, setVendors] = useState<Vendor[]>(initialVendors);
+
+  // Handle return from vendor creation page
+  useEffect(() => {
+    const returnedVendorId = searchParams.get("vendorId");
+    const returnedVendorName = searchParams.get("vendorName");
+    const vendorCardIdx = searchParams.get("vendorCardIdx");
+    if (returnedVendorId && vendorCardIdx != null) {
+      // Add the new vendor to the local list
+      if (returnedVendorName) {
+        setVendors((prev) => {
+          if (prev.some((v) => v.id === returnedVendorId)) return prev;
+          return [...prev, { id: returnedVendorId, name: returnedVendorName }].sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+      // Set vendor_id on the relevant invoice card
+      const idx = parseInt(vendorCardIdx, 10);
+      setInvoiceItems((items) => items.map((item, i) => i === idx ? { ...item, vendor_id: returnedVendorId } : item));
+    }
+  }, [searchParams]);
 
   // Cleanup object URL on unmount
   useEffect(() => {
@@ -417,7 +502,7 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
         const res = await fetch("/api/invoices/extract", { method: "POST", body: fd });
         const data = await res.json();
         if (!data.error && data.invoices?.length) {
-          items = (data.invoices as ExtractedInvoiceData[]).map(extractedToReviewItem);
+          items = (data.invoices as ExtractedInvoiceData[]).map((inv) => extractedToReviewItem(inv, vendors));
         } else {
           extractionFailed = true;
         }
@@ -439,9 +524,46 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
     setStep("review");
   }
 
+  function handleCreateVendor(cardIdx: number) {
+    // Save draft state so we can restore it when returning
+    sessionStorage.setItem("invoice_upload_draft", JSON.stringify({
+      step, filePath, invoiceItems, expandedSet: Array.from(expandedSet),
+    }));
+    const item = invoiceItems[cardIdx];
+    const params = new URLSearchParams();
+    if (item.vendor) params.set("name", item.vendor);
+    params.set("returnTo", "invoice-upload");
+    params.set("vendorCardIdx", String(cardIdx));
+    router.push(`/vendors/new?${params.toString()}`);
+  }
+
+  // Restore draft state when returning from vendor creation
+  useEffect(() => {
+    const draft = sessionStorage.getItem("invoice_upload_draft");
+    if (draft && searchParams.get("vendorId")) {
+      try {
+        const parsed = JSON.parse(draft);
+        if (parsed.step) setStep(parsed.step);
+        if (parsed.filePath) setFilePath(parsed.filePath);
+        if (parsed.invoiceItems?.length) setInvoiceItems(parsed.invoiceItems);
+        if (parsed.expandedSet?.length) setExpandedSet(new Set(parsed.expandedSet));
+      } catch { /* ignore parse errors */ }
+      sessionStorage.removeItem("invoice_upload_draft");
+    }
+  }, [searchParams]);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!filePath || !file) return;
+
+    // Validate all invoices have a vendor selected
+    for (let i = 0; i < invoiceItems.length; i++) {
+      if (!invoiceItems[i].vendor_id) {
+        setError(`Invoice ${invoiceItems.length > 1 ? `${i + 1}: ` : ""}A vendor must be selected. Use "+ Create new vendor" if the vendor isn't listed.`);
+        return;
+      }
+    }
+
     setSaving(true);
     setError(null);
 
@@ -452,6 +574,7 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
 
     for (let i = 0; i < invoiceItems.length; i++) {
       const item = invoiceItems[i];
+      const vendorName = vendors.find((v) => v.id === item.vendor_id)?.name ?? item.vendor;
 
       const { data: invoice, error: insertError } = await supabase
         .from("invoices")
@@ -460,7 +583,8 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
           user_id: user.id,
           file_path: filePath,
           file_name: file.name,
-          vendor: item.vendor || null,
+          vendor_id: item.vendor_id || null,
+          vendor: vendorName || null,
           invoice_number: item.invoice_number || null,
           invoice_date: item.invoice_date || null,
           due_date: item.due_date || null,
@@ -496,7 +620,7 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
         // Single-line invoice
         lineItemsToSave.push({
           cost_code: item.cost_code || null,
-          description: item.vendor || "Invoice",
+          description: vendors.find((v) => v.id === item.vendor_id)?.name || item.vendor || "Invoice",
           amount: parseFloat(item.amount) || 0,
         });
       }
@@ -618,9 +742,11 @@ function SingleUpload({ projects, costCodes, hasAI }: Props) {
                   total={invoiceItems.length}
                   projects={projects}
                   costCodes={costCodes}
+                  vendors={vendors}
                   expanded={expandedSet.has(idx)}
                   onToggle={() => toggleExpanded(idx)}
                   onChange={(field, value) => setItemField(idx, field, value)}
+                  onCreateVendor={handleCreateVendor}
                 />
               ))}
 
@@ -669,7 +795,7 @@ const STATUS_LABEL: Record<BatchStatus, string> = {
   queued: "Queued", uploading: "Uploading…", extracting: "Extracting…", done: "Done", error: "Error",
 };
 
-function BatchUpload({ projects, hasAI }: Props) {
+function BatchUpload({ projects, vendors, hasAI }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -759,7 +885,7 @@ function BatchUpload({ projects, hasAI }: Props) {
 
           {items.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-gray-500 uppercase">{items.length} file{items.length !== 1 ? "s" : ""} selected</p>
+              <p className="text-xs font-medium text-gray-500 uppercase">{items.length} file{items.length \!== 1 ? "s" : ""} selected</p>
               <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
                 {items.map((item, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-2.5">
@@ -787,7 +913,7 @@ function BatchUpload({ projects, hasAI }: Props) {
           <button onClick={handleRun} disabled={items.length === 0}
             className="w-full py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
             style={{ backgroundColor: "#4272EF" }}>
-            Upload {items.length > 0 ? `${items.length} File${items.length !== 1 ? "s" : ""}` : "Files"}
+            Upload {items.length > 0 ? `${items.length} File${items.length \!== 1 ? "s" : ""}` : "Files"}
           </button>
         </>
       )}
@@ -814,8 +940,8 @@ function BatchUpload({ projects, hasAI }: Props) {
           {allDone && (
             <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm ${errorCount > 0 ? "bg-amber-50 text-amber-800" : "bg-green-50 text-green-800"}`}>
               {errorCount > 0 ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
-              {doneCount} file{doneCount !== 1 ? "s" : ""} processed
-              {totalInvoices !== doneCount ? ` → ${totalInvoices} invoices created` : " successfully"}
+              {doneCount} file{doneCount \!== 1 ? "s" : ""} processed
+              {totalInvoices \!== doneCount ? ` → ${totalInvoices} invoices created` : " successfully"}
               {errorCount > 0 ? `, ${errorCount} failed` : ""}.
             </div>
           )}
@@ -828,7 +954,7 @@ function BatchUpload({ projects, hasAI }: Props) {
             </button>
           )}
 
-          {!allDone && (
+          {\!allDone && (
             <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
               <Loader2 size={14} className="animate-spin" />
               Processing {items.find((it) => it.status === "uploading" || it.status === "extracting")?.file.name ?? ""}…
