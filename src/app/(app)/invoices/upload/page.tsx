@@ -17,7 +17,7 @@ export default async function InvoiceUploadPage() {
   const projects = projectsRes.data ?? [];
   const costCodes = costCodesRes.data ?? [];
   const vendors = vendorsRes.data ?? [];
-  const hasAI = \!\!process.env.ANTHROPIC_API_KEY;
+  const hasAI = !!process.env.ANTHROPIC_API_KEY;
 
   return (
     <>
