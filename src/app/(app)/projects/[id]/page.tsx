@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Building2, Landmark, MapPin, Calendar, Home, Ruler, Pencil, AlertTriangle, ArrowRight } from "lucide-react";
+import { Building2, Landmark, MapPin, Calendar, Home, Ruler, Pencil, ArrowRight } from "lucide-react";
 import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
 
@@ -183,14 +183,24 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const days = daysUnderConstruction(project.start_date);
 
-  // What's Next data (exclude skipped stages)
+  // What's Next data — show in-progress and next-up per track (Exterior / Interior)
   const today = new Date().toISOString().split("T")[0];
-  const delayedStages = buildStages.filter(
-    (s) => s.status !== "complete" && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today
-  );
-  const currentStage = buildStages.find((s) => s.status === "in_progress") || null;
-  const nextStage = buildStages.find((s) => s.status === "not_started") || null;
-  const showWhatsNext = delayedStages.length > 0 || currentStage !== null || nextStage !== null;
+  const tracks = ["Exterior", "Interior"] as const;
+  const whatsNextItems: { stage: typeof buildStages[number]; type: "in_progress" | "next" }[] = [];
+  for (const track of tracks) {
+    const trackStages = buildStages.filter((s) => s.track === track && s.status !== "skipped");
+    const inProgress = trackStages.find((s) => s.status === "in_progress");
+    if (inProgress) whatsNextItems.push({ stage: inProgress, type: "in_progress" });
+    const next = trackStages.find((s) => s.status === "not_started");
+    if (next) whatsNextItems.push({ stage: next, type: "next" });
+  }
+  // Also include stages with no track (shared/general)
+  const noTrackStages = buildStages.filter((s) => !s.track && s.status !== "skipped");
+  const noTrackInProgress = noTrackStages.find((s) => s.status === "in_progress");
+  if (noTrackInProgress) whatsNextItems.push({ stage: noTrackInProgress, type: "in_progress" });
+  const noTrackNext = noTrackStages.find((s) => s.status === "not_started");
+  if (noTrackNext) whatsNextItems.push({ stage: noTrackNext, type: "next" });
+  const showWhatsNext = whatsNextItems.length > 0;
 
   return (
     <>
@@ -286,36 +296,32 @@ export default async function ProjectDetailPage({ params }: Props) {
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h2 className="text-sm font-semibold text-gray-700 mb-3">{"What's Next"}</h2>
               <div className="space-y-2">
-                {delayedStages.map((s) => {
-                  const daysLate = Math.floor(
-                    (new Date().getTime() - new Date(s.planned_end_date + "T00:00:00").getTime()) / 86400000
-                  );
+                {whatsNextItems.map((item) => {
+                  const s = item.stage;
+                  const trackLabel = s.track ? `${s.track}` : "";
+                  if (item.type === "in_progress") {
+                    return (
+                      <div key={s.id} className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+                        <div className="w-2 h-2 rounded-full bg-[#4272EF] shrink-0" />
+                        <span className="text-sm text-blue-700 font-medium">{s.stage_name}</span>
+                        {trackLabel && <span className="text-[10px] text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
+                        <span className="text-xs text-blue-400 ml-auto">In progress</span>
+                      </div>
+                    );
+                  }
                   return (
-                    <div key={s.id} className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-100 rounded-lg">
-                      <AlertTriangle size={14} className="text-red-500 shrink-0" />
-                      <span className="text-sm text-red-700 font-medium">{s.stage_name}</span>
-                      <span className="text-xs text-red-400 ml-auto">{daysLate}d overdue</span>
+                    <div key={s.id} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg">
+                      <ArrowRight size={14} className="text-gray-400 shrink-0" />
+                      <span className="text-sm text-gray-700 font-medium">{s.stage_name}</span>
+                      {trackLabel && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
+                      {s.planned_start_date && (
+                        <span className="text-xs text-gray-400 ml-auto">
+                          Starts {new Date(s.planned_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
-                {currentStage && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
-                    <div className="w-2 h-2 rounded-full bg-[#4272EF] shrink-0" />
-                    <span className="text-sm text-blue-700 font-medium">{currentStage.stage_name}</span>
-                    <span className="text-xs text-blue-400 ml-auto">In progress</span>
-                  </div>
-                )}
-                {nextStage && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg">
-                    <ArrowRight size={14} className="text-gray-400 shrink-0" />
-                    <span className="text-sm text-gray-700 font-medium">{nextStage.stage_name}</span>
-                    {nextStage.planned_start_date && (
-                      <span className="text-xs text-gray-400 ml-auto">
-                        Starts {new Date(nextStage.planned_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           )}
