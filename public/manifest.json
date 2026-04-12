@@ -1,16 +1,11 @@
 {
   "name": "BuildForge",
   "short_name": "BuildForge",
+  "description": "Construction ERP — project management, job costing & accounting",
   "display": "standalone",
+  "orientation": "any",
   "start_url": "/dashboard",
+  "scope": "/",
   "background_color": "#ffffff",
-  "theme_color": "#f59e0b",
-  "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
-  ]
-}
+  "theme_color": "#4272EF",
+  "categories": 

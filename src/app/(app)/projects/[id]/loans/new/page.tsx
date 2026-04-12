@@ -22,7 +22,3 @@ export default async function NewLoanPage({ params }: { params: Promise<{ id: st
       <NewLoanForm
         projectId={id}
         contacts={(contactsRes.data ?? []) as Parameters<typeof NewLoanForm>[0]["contacts"]}
-      />
-    </>
-  );
-}

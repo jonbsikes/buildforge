@@ -24,10 +24,3 @@ export default async function InvoiceUploadPage() {
       <Header title="New Invoice" />
       <InvoiceUploadForm
         projects={projects as Parameters<typeof InvoiceUploadForm>[0]["projects"]}
-        costCodes={costCodes as Parameters<typeof InvoiceUploadForm>[0]["costCodes"]}
-        vendors={vendors as Parameters<typeof InvoiceUploadForm>[0]["vendors"]}
-        hasAI={hasAI}
-      />
-    </>
-  );
-}

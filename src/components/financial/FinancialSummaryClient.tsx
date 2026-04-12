@@ -3,7 +3,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { FileDown } from "lucide-react";
+import { Wallet, HardHat, Building2, Landmark, Receipt, Scale, CheckCircle2, AlertCircle } from "lucide-react";
+import ReportChrome from "@/components/ui/ReportChrome";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -139,45 +140,78 @@ export default function FinancialSummaryClient() {
     load();
   }, []);
 
-  return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <p className="text-sm text-gray-500">Company-wide financial overview</p>
-        <button
-          onClick={() => window.print()}
-          className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-        >
-          <FileDown size={15} />
-          Export PDF
-        </button>
-      </div>
+  const isBalanced = data && Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1;
 
+  return (
+    <ReportChrome title="Financial Summary" subtitle="Company-wide financial overview">
       {loading ? (
         <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
       ) : !data ? null : (
         <div className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <KpiCard label="Cash on Hand" value={fmt(data.cash)} color="text-green-600" />
-            <KpiCard label="Total WIP / CIP" value={fmt(data.totalWIP)} color="text-[#4272EF]" />
-            <KpiCard label="Total Assets" value={fmt(data.totalAssets)} color="text-gray-800" />
-            <KpiCard label="Construction Loans" value={fmt(data.totalLoans)} color="text-amber-600" />
-            <KpiCard label="AP Outstanding" value={fmt(data.apOutstanding)} color="text-red-600" />
-            <KpiCard label="Total Liabilities" value={fmt(data.totalLiabilities)} color="text-amber-600" />
+          {/* KPI Grid */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <KpiCard
+              icon={Wallet}
+              label="Cash on Hand"
+              value={fmt(data.cash)}
+              borderColor="border-green-500"
+              secondaryText="Available in DDA"
+            />
+            <KpiCard
+              icon={HardHat}
+              label="Total WIP / CIP"
+              value={fmt(data.totalWIP)}
+              borderColor="border-[#4272EF]"
+              secondaryText="Active projects"
+            />
+            <KpiCard
+              icon={Building2}
+              label="Total Assets"
+              value={fmt(data.totalAssets)}
+              borderColor="border-blue-500"
+              secondaryText="All assets"
+            />
+            <KpiCard
+              icon={Landmark}
+              label="Construction Loans"
+              value={fmt(data.totalLoans)}
+              borderColor="border-amber-500"
+              secondaryText="Outstanding"
+            />
+            <KpiCard
+              icon={Receipt}
+              label="AP Outstanding"
+              value={fmt(data.apOutstanding)}
+              borderColor="border-red-500"
+              secondaryText="Unpaid invoices"
+            />
+            <KpiCard
+              icon={Scale}
+              label="Total Equity"
+              value={fmt(data.totalEquity)}
+              borderColor={data.totalEquity >= 0 ? "border-green-500" : "border-red-500"}
+              secondaryText="Shareholders' equity"
+            />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-              <p className="text-xs text-gray-500 mb-1">Total Equity</p>
-              <p className={`text-xl font-semibold ${data.totalEquity >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(data.totalEquity)}</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-              <p className="text-xs text-gray-500 mb-1">Balance Check (A − L − E)</p>
-              <p className={`text-xl font-semibold ${Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1 ? "text-green-600" : "text-amber-600"}`}>
-                {Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1 ? "✓ Balanced" : fmt(data.totalAssets - data.totalLiabilities - data.totalEquity)}
-              </p>
-            </div>
+          {/* Balance Check Indicator */}
+          <div className={`flex items-center gap-2 px-4 py-3 rounded-lg ${isBalanced ? "bg-green-50 border border-green-200" : "bg-amber-50 border border-amber-200"}`}>
+            {isBalanced ? (
+              <>
+                <CheckCircle2 size={18} className="text-green-600 flex-shrink-0" />
+                <span className="text-sm font-medium text-green-700">Balance verified: Assets = Liabilities + Equity</span>
+              </>
+            ) : (
+              <>
+                <AlertCircle size={18} className="text-amber-600 flex-shrink-0" />
+                <span className="text-sm font-medium text-amber-700">
+                  Out of balance by {fmt(data.totalAssets - data.totalLiabilities - data.totalEquity)}
+                </span>
+              </>
+            )}
           </div>
 
+          {/* Project WIP & Loan Table */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100" style={{ backgroundColor: "#f8faff" }}>
               <h2 className="text-sm font-semibold text-[#4272EF]">WIP & Loan Balance by Project</h2>
@@ -186,55 +220,63 @@ export default function FinancialSummaryClient() {
               <div className="px-5 py-8 text-center text-sm text-gray-400">No project data found.</div>
             ) : (
               <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                    <th className="px-5 py-3 text-left">Project</th>
-                    <th className="px-5 py-3 text-right">WIP Balance</th>
-                    <th className="px-5 py-3 text-right">Loan Balance</th>
-                    <th className="px-5 py-3 text-right">Net Equity in Project</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.projectRows.map(row => {
-                    const netEquity = row.wip_balance - row.loan_balance;
-                    return (
-                      <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                        <td className="px-5 py-3 font-medium text-gray-800">{row.name}</td>
-                        <td className="px-5 py-3 text-right text-gray-600">{fmt(row.wip_balance)}</td>
-                        <td className="px-5 py-3 text-right text-gray-600">{fmt(row.loan_balance)}</td>
-                        <td className={`px-5 py-3 text-right font-medium ${netEquity >= 0 ? "text-green-600" : "text-red-600"}`}>
-                          {fmt(netEquity)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-gray-50 font-semibold text-sm">
-                    <td className="px-5 py-3 text-gray-700">Total</td>
-                    <td className="px-5 py-3 text-right text-gray-700">{fmt(data.projectRows.reduce((s, r) => s + r.wip_balance, 0))}</td>
-                    <td className="px-5 py-3 text-right text-gray-700">{fmt(data.projectRows.reduce((s, r) => s + r.loan_balance, 0))}</td>
-                    <td className="px-5 py-3 text-right text-gray-700">
-                      {fmt(data.projectRows.reduce((s, r) => s + (r.wip_balance - r.loan_balance), 0))}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                      <th className="px-5 py-2 text-left">Project</th>
+                      <th className="px-5 py-2 text-right">WIP Balance</th>
+                      <th className="px-5 py-2 text-right">Loan Balance</th>
+                      <th className="px-5 py-2 text-right">Net Equity in Project</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.projectRows.map((row, idx) => {
+                      const netEquity = row.wip_balance - row.loan_balance;
+                      return (
+                        <tr
+                          key={row.id}
+                          className={`border-b border-gray-50 transition-colors ${
+                            idx % 2 === 0 ? "bg-white" : "bg-gray-50/50"
+                          } hover:bg-gray-50`}
+                        >
+                          <td className="px-5 py-2 font-medium text-gray-800">{row.name}</td>
+                          <td className="px-5 py-2 text-right text-gray-600 font-variant-numeric tabular-nums">{fmt(row.wip_balance)}</td>
+                          <td className="px-5 py-2 text-right text-gray-600 font-variant-numeric tabular-nums">{fmt(row.loan_balance)}</td>
+                          <td className={`px-5 py-2 text-right font-medium tabular-nums ${netEquity >= 0 ? "text-green-600" : "text-red-600"}`}>
+                            {fmt(netEquity)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-100 font-semibold text-sm">
+                      <td className="px-5 py-2 text-gray-700">Total</td>
+                      <td className="px-5 py-2 text-right text-gray-700 tabular-nums">{fmt(data.projectRows.reduce((s, r) => s + r.wip_balance, 0))}</td>
+                      <td className="px-5 py-2 text-right text-gray-700 tabular-nums">{fmt(data.projectRows.reduce((s, r) => s + r.loan_balance, 0))}</td>
+                      <td className="px-5 py-2 text-right text-gray-700 tabular-nums">
+                        {fmt(data.projectRows.reduce((s, r) => s + (r.wip_balance - r.loan_balance), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             )}
           </div>
         </div>
       )}
-    </div>
+    </ReportChrome>
   );
 }
 
-function KpiCard({ label, value, color }: { label: string; value: string; color: string }) {
+function KpiCard({ label, value, color, icon }: { label: string; value: string; color: string; icon: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`text-xl font-semibold ${color}`}>{value}</p>
+    <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 flex items-start gap-3">
+      <div className={`mt-0.5 ${color}`}>{icon}</div>
+      <div>
+        <p className="text-xs text-gray-500 mb-1">{label}</p>
+        <p className={`text-xl font-semibold tabular-nums ${color}`}>{value}</p>
+      </div>
     </div>
   );
 }

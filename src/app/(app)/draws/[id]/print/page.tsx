@@ -183,11 +183,4 @@ export default async function DrawPrintPage({ params }: Props) {
         <tbody>{tableHtml}</tbody>
         <tfoot>
           <tr style={{ fontWeight: 700, fontSize: "11pt", borderTop: "2px solid #1e293b", paddingTop: 10 }}>
-            <td colSpan={5}>Grand Total</td>
-            <td style={{ textAlign: "right" }}>{fmt(grandTotal)}</td>
-          </tr>
-        </tfoot>
-      </table>
-    </DrawPrintClient>
-  );
-}
+        

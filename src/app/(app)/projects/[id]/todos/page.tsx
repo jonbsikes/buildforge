@@ -48,9 +48,4 @@ export default async function ProjectTodosPage({
               log_date: (t.field_logs as { log_date: string } | null)?.log_date ?? null,
               created_at: t.created_at,
             }))}
-          />
-        </div>
-      </main>
-    </>
-  );
-}
+       

@@ -37,5 +37,4 @@ create trigger field_todos_updated_at before update on field_todos
 alter table field_todos enable row level security;
 create policy "Users access field_todos via projects" on field_todos
   for all using (
-    exists (select 1 from projects where projects.id = field_todos.project_id and projects.user_id = auth.uid())
-  );
+    exists (select 1 from projects where projects.id = field_todos.project_id a

@@ -17,6 +17,4 @@ alter table project_cost_codes enable row level security;
 create policy "Users access project_cost_codes via projects" on project_cost_codes
   for all using (
     exists (
-      select 1 from projects where projects.id = project_cost_codes.project_id and projects.user_id = auth.uid()
-    )
-  );
+      select 1 from projects where projects.id = project_cost_codes.project_id and projects.user_id = aut

@@ -85,8 +85,4 @@ export default function MarkVendorPaidForm({ vendorPaymentId, vendorPaymentAmoun
         </span>
       )}
       {error && (
-        <span className="text-xs text-red-600 w-full mt-1">{error}</span>
-      )}
-    </form>
-  );
-}
+        <span c

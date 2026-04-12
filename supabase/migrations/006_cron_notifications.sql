@@ -12,7 +12,4 @@ select cron.schedule(
         'Content-Type', 'application/json',
         'Authorization', 'Bearer ' || current_setting('app.service_role_key', true)
       ),
-      body := '{}'::jsonb
-    )
-  $$
-);
+      body := '{}'::jsonb

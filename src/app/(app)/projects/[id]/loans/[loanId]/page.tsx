@@ -42,8 +42,3 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
             costCodes={costCodesRes.data ?? []}
             contacts={contactsRes.data ?? []}
           />
-        </div>
-      </main>
-    </>
-  );
-}

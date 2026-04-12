@@ -5,20 +5,13 @@ import { notFound } from "next/navigation";
 import { AlertTriangle, Pencil } from "lucide-react";
 import InvoiceDetailActions from "@/components/invoices/InvoiceDetailActions";
 import DeleteInvoiceButton from "@/components/invoices/DeleteInvoiceButton";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  pending_review: "bg-amber-100 text-amber-700",
-  approved:       "bg-blue-100 text-blue-700",
-  scheduled:      "bg-purple-100 text-purple-700",
-  paid:           "bg-green-100 text-green-700",
-  disputed:       "bg-red-100 text-red-600",
-};
 
 function fmt(n: number | null) {
   if (n == null) return "—";
@@ -99,7 +92,8 @@ export default async function InvoiceDetailPage({ params }: Props) {
     <>
       <Header title={invoice.file_name ?? "Invoice"} />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
-        <div className="max-w-3xl mx-auto space-y-5">
+        <div className="max-w-7xl mx-auto space-y-5">
+          {/* Back link */}
           <Link
             href="/invoices"
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
@@ -107,7 +101,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
             ← Accounts Payable
           </Link>
 
-          {/* Low confidence warning */}
+          {/* Low confidence warning — above split view */}
           {isLowConf && invoice.status === "pending_review" && !invoice.manually_reviewed && (
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
               <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
@@ -121,203 +115,235 @@ export default async function InvoiceDetailPage({ params }: Props) {
             </div>
           )}
 
-          {/* Invoice header card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">
-                  {invoice.vendor ?? "Unknown Vendor"}
-                </h2>
-                <p className="text-sm text-gray-400 mt-0.5">
-                  {invoice.invoice_number ? `#${invoice.invoice_number}` : "No invoice number"}
-                </p>
+          {/* Split view: PDF on left (lg:w-1/2), metadata on right (lg:w-1/2) */}
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* LEFT PANEL: PDF Preview (sticky on desktop) */}
+            {signedFileUrl && (
+              <div className="lg:w-1/2 lg:sticky lg:top-6 lg:self-start">
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      {invoice.file_name ?? "Invoice File"}
+                    </h3>
+                    <a
+                      href={signedFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-[#4272EF] hover:underline"
+                    >
+                      Open in new tab ↗
+                    </a>
+                  </div>
+                  {isImage ? (
+                    <div className="p-4">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={signedFileUrl}
+                        alt={invoice.file_name ?? "Invoice"}
+                        className="max-w-full rounded"
+                      />
+                    </div>
+                  ) : (
+                    <iframe
+                      src={signedFileUrl}
+                      title={invoice.file_name ?? "Invoice"}
+                      className="w-full border-0"
+                      style={{ minHeight: 600, height: "calc(100vh - 8rem)" }}
+                    />
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {invoice.pending_draw && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#4272EF]/10 text-[#4272EF]">
-                    Pending Draw
-                  </span>
-                )}
-                {(invoice as { direct_cash_payment?: boolean }).direct_cash_payment && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                    Auto-Draft
-                  </span>
-                )}
-                <span
-                  className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                    STATUS_COLORS[invoice.status] ?? "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  {invoice.status.replace("_", " ")}
-                </span>
-                {isEditable && (
-                  <Link
-                    href={`/invoices/${id}/edit`}
-                    className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-[#4272EF] text-white rounded-lg hover:bg-[#3461de] transition-colors"
-                  >
-                    <Pencil size={14} />
-                    {isFullyEditable ? "Edit Invoice" : "Edit Vendor / #"}
-                  </Link>
-                )}
-                {isDeletable && (
-                  <DeleteInvoiceButton
-                    invoiceId={id}
-                    vendorName={invoice.vendor ?? "Unknown Vendor"}
-                    invoiceNumber={invoice.invoice_number}
-                  />
-                )}
-              </div>
-            </div>
+            )}
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Project</p>
-                <p className="text-gray-800">{project?.name ?? "G&A"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Invoice Date</p>
-                <p className="text-gray-800">{invoice.invoice_date ?? "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Due Date</p>
-                <p className="text-gray-800">{invoice.due_date ?? "—"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 mb-0.5">Total</p>
-                <p className="text-lg font-semibold text-gray-900">{fmt(invoice.amount)}</p>
-                {(invoice.discount_taken as number) > 0 && (
-                  <div className="mt-0.5">
-                    <p className="text-xs text-green-600">
-                      Discount: {fmt(invoice.discount_taken as number)}
+            {/* RIGHT PANEL: Invoice metadata, line items, and actions */}
+            <div className={`space-y-5 ${signedFileUrl ? "lg:w-1/2" : "w-full"}`}>
+              {/* Invoice header card */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                {/* Top row: vendor, status badges, action buttons */}
+                <div className="flex items-start justify-between gap-4 mb-5">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      {invoice.vendor ?? "Unknown Vendor"}
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      {invoice.invoice_number ? `Invoice #${invoice.invoice_number}` : "No invoice number"}
                     </p>
-                    <p className="text-xs text-gray-500">
-                      Net paid: {fmt((invoice.amount ?? 0) - (invoice.discount_taken as number))}
-                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {invoice.pending_draw && (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#4272EF]/10 text-[#4272EF]">
+                        Pending Draw
+                      </span>
+                    )}
+                    {(invoice as { direct_cash_payment?: boolean }).direct_cash_payment && (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                        Auto-Draft
+                      </span>
+                    )}
+                    <StatusBadge status={invoice.status} />
+                  </div>
+                </div>
+
+                {/* Large amount display */}
+                <div className="mb-6 pb-6 border-b border-gray-100">
+                  <p className="text-xs text-gray-400 mb-1">Total Amount</p>
+                  <p className="text-3xl font-bold text-gray-900 tabular-nums">{fmt(invoice.amount)}</p>
+                  {(invoice.discount_taken as number) > 0 && (
+                    <div className="mt-2">
+                      <p className="text-sm text-green-600">
+                        Discount: {fmt(invoice.discount_taken as number)}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Net paid: {fmt((invoice.amount ?? 0) - (invoice.discount_taken as number))}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Metadata grid: invoice date, due date, payment info */}
+                <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Invoice Date</p>
+                    <p className="text-gray-800 font-medium">{invoice.invoice_date ?? "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Due Date</p>
+                    <p className="text-gray-800 font-medium">{invoice.due_date ?? "—"}</p>
+                  </div>
+                  {invoice.payment_date && (
+                    <>
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Payment Date</p>
+                        <p className="text-gray-800 font-medium">{invoice.payment_date}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 mb-0.5">Payment Method</p>
+                        <p className="text-gray-800 font-medium">{invoice.payment_method ?? "—"}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Edit and Delete buttons */}
+                {(isEditable || isDeletable) && (
+                  <div className="flex items-center gap-3">
+                    {isEditable && (
+                      <Link
+                        href={`/invoices/${id}/edit`}
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-[#4272EF] text-white rounded-lg hover:bg-[#3461de] transition-colors"
+                      >
+                        <Pencil size={14} />
+                        {isFullyEditable ? "Edit Invoice" : "Edit Vendor / #"}
+                      </Link>
+                    )}
+                    {isDeletable && (
+                      <DeleteInvoiceButton
+                        invoiceId={id}
+                        vendorName={invoice.vendor ?? "Unknown Vendor"}
+                        invoiceNumber={invoice.invoice_number}
+                      />
+                    )}
                   </div>
                 )}
               </div>
-              {linkedContract && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Contract</p>
-                  <Link
-                    href={`/contracts/${linkedContract.id}/edit`}
-                    className="text-sm text-[#4272EF] hover:underline font-medium"
-                  >
-                    {linkedContract.cost_codes
-                      ? `${linkedContract.cost_codes.code} – ${linkedContract.cost_codes.name}`
-                      : "View Contract"
-                    }
-                  </Link>
-                  <p className="text-xs text-gray-400">{fmt(linkedContract.amount)} · {linkedContract.status}</p>
+
+              {/* Project & Cost Code card */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Project</p>
+                    {project ? (
+                      <p className="text-sm font-medium text-gray-900">{project.name}</p>
+                    ) : (
+                      <p className="text-sm font-medium text-gray-500">G&A (Company-wide)</p>
+                    )}
+                  </div>
+
+                  {linkedContract && (
+                    <div className="pt-4 border-t border-gray-100">
+                      <p className="text-xs text-gray-400 mb-1">Linked Contract</p>
+                      <Link
+                        href={`/contracts/${linkedContract.id}/edit`}
+                        className="text-sm font-medium text-[#4272EF] hover:underline"
+                      >
+                        {linkedContract.cost_codes
+                          ? `${linkedContract.cost_codes.code} – ${linkedContract.cost_codes.name}`
+                          : "View Contract"
+                        }
+                      </Link>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {fmt(linkedContract.amount)} · {linkedContract.status}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* AI Confidence card (only if email/upload source) */}
+              {invoice.ai_confidence && (invoice.source === "email" || invoice.source === "upload") && (
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <p className="text-xs text-gray-400 mb-2">AI Extraction Confidence</p>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs font-medium px-3 py-1 rounded-full ${
+                        invoice.ai_confidence === "high"
+                          ? "bg-green-100 text-green-700"
+                          : invoice.ai_confidence === "medium"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {invoice.ai_confidence.charAt(0).toUpperCase() + invoice.ai_confidence.slice(1)}
+                    </span>
+                    {invoice.ai_notes && (
+                      <p className="text-xs text-gray-600">{invoice.ai_notes}</p>
+                    )}
+                  </div>
                 </div>
               )}
-              {invoice.payment_date && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Paid</p>
-                  <p className="text-gray-800">
-                    {invoice.payment_date}
-                    {invoice.payment_method && ` via ${invoice.payment_method}`}
-                  </p>
-                </div>
-              )}
-              {invoice.ai_confidence && invoice.source === "upload" && (
-                <div>
-                  <p className="text-xs text-gray-400 mb-0.5">AI Confidence</p>
-                  <span
-                    className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                      invoice.ai_confidence === "high"
-                        ? "bg-green-100 text-green-700"
-                        : invoice.ai_confidence === "medium"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {invoice.ai_confidence}
-                  </span>
-                </div>
-              )}
+
+              {/* Line items card */}
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Line Items</h3>
+                {(lineItems ?? []).length === 0 ? (
+                  <p className="text-sm text-gray-400">No line items recorded.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Code</th>
+                        <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Description</th>
+                        <th className="text-right pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {(lineItems ?? []).map((li) => (
+                        <tr key={li.id}>
+                          <td className="py-1.5 pr-4 text-xs font-mono text-gray-500">{li.cost_code}</td>
+                          <td className="py-1.5 pr-4 text-gray-700">{li.description ?? "\u2014"}</td>
+                          <td className="py-1.5 text-right font-medium text-gray-900 tabular-nums">{fmt(li.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-gray-200">
+                        <td colSpan={2} className="pt-2 text-sm font-semibold text-gray-700">Total</td>
+                        <td className="pt-2 text-right text-sm font-semibold text-gray-900 tabular-nums">{fmt(lineTotal)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+
+              {/* Actions */}
+              <InvoiceDetailActions
+                invoiceId={invoice.id}
+                status={invoice.status}
+                invoiceAmount={((invoice.total_amount ?? invoice.amount) as number) ?? 0}
+                discountTaken={(invoice.discount_taken as number) ?? 0}
+              />
             </div>
           </div>
-
-          {/* Line items */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-700 mb-4">Line Items</h3>
-
-            {(lineItems ?? []).length === 0 ? (
-              <p className="text-sm text-gray-400">No line items recorded.</p>
-            ) : (
-              <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Code</th>
-                    <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Description</th>
-                    <th className="text-right pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {(lineItems ?? []).map((li) => (
-                    <tr key={li.id}>
-                      <td className="py-2 pr-4 text-xs font-mono text-gray-500">{li.cost_code}</td>
-                      <td className="py-2 pr-4 text-gray-700">{li.description ?? "—"}</td>
-                      <td className="py-2 text-right font-medium text-gray-900">{fmt(li.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200">
-                    <td colSpan={2} className="pt-3 text-sm font-semibold text-gray-700">Total</td>
-                    <td className="pt-3 text-right text-sm font-semibold text-gray-900">{fmt(lineTotal)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-              </div>
-            )}
-          </div>
-
-          {/* File viewer */}
-          {signedFileUrl && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-700">
-                  {invoice.file_name ?? "Invoice File"}
-                </h3>
-                <a
-                  href={signedFileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-[#4272EF] hover:underline"
-                >
-                  Open in new tab ↗
-                </a>
-              </div>
-              {isImage ? (
-                <div className="p-4">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={signedFileUrl}
-                    alt={invoice.file_name ?? "Invoice"}
-                    className="max-w-full rounded"
-                  />
-                </div>
-              ) : (
-                <iframe
-                  src={signedFileUrl}
-                  title={invoice.file_name ?? "Invoice"}
-                  className="w-full border-0"
-                  style={{ height: 900 }}
-                />
-              )}
-            </div>
-          )}
-
-          {/* Actions */}
-          <InvoiceDetailActions
-            invoiceId={invoice.id}
-            status={invoice.status}
-            invoiceAmount={((invoice.total_amount ?? invoice.amount) as number) ?? 0}
-            discountTaken={(invoice.discount_taken as number) ?? 0}
-          />
         </div>
       </main>
     </>

@@ -187,12 +187,4 @@ export default function VendorDocuments({ vendorId, initialDocs }: Props) {
                 className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
                 title="Delete"
               >
-                {deletingId === doc.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+                {delet

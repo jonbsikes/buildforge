@@ -489,38 +489,4 @@ export async function recordLotCost(
     .single();
 
   if (jeErr || !je) {
-    return { error: jeErr?.message ?? "Failed to create journal entry" };
-  }
-
-  // Create journal entry lines (debit WIP/CIP, credit loan/cash)
-  const { error: lineErr } = await supabase
-    .from("journal_entry_lines")
-    .insert([
-      {
-        journal_entry_id: je.id,
-        account_id: debitAcctId,
-        project_id: input.project_id,
-        description: `Lot cost debit — purchase $${purchasePrice.toFixed(2)} + closing $${closingCosts.toFixed(2)}`,
-        debit: totalAmount,
-        credit: 0,
-      },
-      {
-        journal_entry_id: je.id,
-        account_id: creditAccountId,
-        project_id: input.project_id,
-        description: `Lot cost credit — ${project.name}`,
-        debit: 0,
-        credit: totalAmount,
-      },
-    ]);
-
-  if (lineErr) {
-    return { error: lineErr.message };
-  }
-
-  // Revalidate paths
-  revalidatePath("/banking/loans");
-  revalidatePath(`/projects/${input.project_id}`);
-
-  return { journalEntryId: je.id };
-}
+    return { error: jeErr?.message ?? "Failed to create jour

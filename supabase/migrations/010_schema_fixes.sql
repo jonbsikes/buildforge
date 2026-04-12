@@ -24,7 +24,4 @@ BEGIN
     WHERE enumlabel = 'pre_construction'
       AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'project_status')
   ) THEN
-    ALTER TYPE project_status ADD VALUE 'pre_construction';
-  END IF;
-END;
-$$;
+    ALTER TYPE project_status ADD VALUE 'pre_construc

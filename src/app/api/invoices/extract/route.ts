@@ -177,19 +177,4 @@ export async function POST(req: NextRequest) {
       // Enforce 7-day minimum due date from invoice_date
       if (inv.invoice_date && inv.due_date) {
         const minDue = new Date(inv.invoice_date + "T00:00:00");
-        minDue.setDate(minDue.getDate() + 7);
-        const minDueStr = minDue.toISOString().split("T")[0];
-        if (inv.due_date < minDueStr) inv.due_date = minDueStr;
-      }
-    });
-
-    if (!invoices.length) {
-      return NextResponse.json({ error: "No invoice data extracted" }, { status: 500 });
-    }
-
-    return NextResponse.json({ invoices } satisfies ExtractedInvoiceResponse);
-  } catch (err) {
-    console.error("Invoice extraction error:", err);
-    return NextResponse.json({ error: "Extraction failed" }, { status: 500 });
-  }
-}
+        minDue.setDate(m

@@ -91,10 +91,4 @@ export default function LoginForm() {
             onClick={() => setIsSignUp(!isSignUp)}
             className="text-blue-600 hover:underline font-medium"
           >
-            {isSignUp ? "Sign in" : "Sign up"}
-          </button>
-        </p>
-      </div>
-    </div>
-  );
-}
+            {isSig

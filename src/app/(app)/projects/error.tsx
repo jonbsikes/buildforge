@@ -26,7 +26,4 @@ export default function ProjectsError({
           <RotateCcw size={15} />
           Try again
         </button>
-      </div>
-    </main>
-  );
-}
+    

@@ -7,5 +7,3 @@ export default function NewContactPage() {
       <Header title="Add Contact" />
       <NewContactForm />
     </>
-  );
-}

@@ -7,4 +7,4 @@ ALTER TABLE project_cost_codes
 
 -- Add a comment for documentation
 COMMENT ON COLUMN project_cost_codes.actual_amount IS
-  'Auto-synced from approved/scheduled/paid invoices via syncProjectActualsFromGL()';
+  'Auto-synced from approved/scheduled/paid invoices via syncProjectActualsFr

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Pencil, Trash2, Plus, X, Check } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Check, Building2 } from "lucide-react";
 import {
   createBankAccount,
   updateBankAccount,
@@ -41,6 +41,21 @@ function ic(err = false) {
   return `w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] focus:border-transparent ${err ? "border-red-400" : "border-gray-300"}`;
 }
 
+function getAccountTypeBadgeClasses(type: string | null) {
+  switch (type) {
+    case "checking":
+      return "bg-blue-100 text-blue-700";
+    case "savings":
+      return "bg-green-100 text-green-700";
+    case "money_market":
+      return "bg-purple-100 text-purple-700";
+    case "line_of_credit":
+      return "bg-amber-100 text-amber-700";
+    default:
+      return "bg-gray-100 text-gray-600";
+  }
+}
+
 function AccountForm({
   initial,
   onSave,
@@ -73,8 +88,8 @@ function AccountForm({
   }
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Bank Name *</label>
           <input type="text" value={f.bank_name} onChange={(e) => s("bank_name", e.target.value)} className={ic(!!errs.bank_name)} placeholder="e.g. First National Bank" />
@@ -86,7 +101,7 @@ function AccountForm({
           {errs.account_name && <p className="text-xs text-red-500 mt-0.5">{errs.account_name}</p>}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Last 4 Digits *</label>
           <input
@@ -114,13 +129,13 @@ function AccountForm({
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex items-center gap-2 justify-end">
-        <button onClick={onCancel} className="px-3 py-1.5 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-100">
-          <X size={14} />
+        <button onClick={onCancel} className="p-1.5 text-gray-400 hover:text-gray-600 rounded transition-colors">
+          <X size={16} />
         </button>
         <button
           onClick={handleSave}
           disabled={isPending}
-          className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-[#4272EF] text-white rounded-lg hover:bg-[#3461de] disabled:opacity-60"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[#4272EF] text-white rounded-lg hover:bg-[#3461de] disabled:opacity-60 transition-colors"
         >
           <Check size={14} />
           {isPending ? "Saving…" : "Save"}
@@ -189,77 +204,95 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
       )}
 
       {accounts.length === 0 && !showAdd && (
-        <div className="bg-white rounded-xl border border-gray-200 px-6 py-10 text-center text-sm text-gray-400">
-          No bank accounts yet. Add one to get started.
+        <div className="text-center py-12">
+          <p className="text-sm text-gray-400 mb-4">No bank accounts yet. Add one to get started.</p>
+          <button
+            onClick={() => setShowAdd(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm text-[#4272EF] border border-dashed border-[#4272EF] rounded-lg hover:bg-blue-50 transition-colors"
+          >
+            <Plus size={16} />
+            Add Bank Account
+          </button>
         </div>
       )}
 
       {accounts.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/50">
-                {["Bank", "Account Name", "Account #", "Type", "Notes", ""].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {accounts.map((acct) =>
-                editingId === acct.id ? (
-                  <tr key={acct.id}>
-                    <td colSpan={6} className="p-4">
-                      <AccountForm
-                        initial={{ bank_name: acct.bank_name, account_name: acct.account_name, account_last_four: acct.account_last_four ?? "", account_type: acct.account_type ?? "", notes: acct.notes ?? "" }}
-                        onSave={(data) => handleUpdate(acct.id, data)}
-                        onCancel={() => setEditingId(null)}
-                        isPending={isPending}
-                        error={error}
-                      />
-                    </td>
-                  </tr>
-                ) : deletingId === acct.id ? (
-                  <tr key={acct.id} className="bg-red-50">
-                    <td colSpan={5} className="px-4 py-3 text-sm text-red-700">
-                      Delete <strong>{acct.account_name}</strong> (••••{acct.account_last_four})?
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 justify-end">
-                        <button onClick={() => setDeletingId(null)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 border border-gray-300 rounded">Cancel</button>
-                        <button onClick={() => handleDelete(acct.id)} disabled={isPending} className="text-xs text-white bg-red-600 hover:bg-red-700 px-3 py-1 rounded disabled:opacity-60">
-                          {isPending ? "…" : "Delete"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={acct.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">{acct.bank_name}</td>
-                    <td className="px-4 py-3 text-gray-700">{acct.account_name}</td>
-                    <td className="px-4 py-3 text-gray-600 font-mono">••••{acct.account_last_four}</td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 capitalize">
-                        {ACCOUNT_TYPES.find((t) => t.value === acct.account_type)?.label ?? acct.account_type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400">{acct.notes ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 justify-end">
-                        <button onClick={() => setEditingId(acct.id)} className="p-1.5 text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 rounded transition-colors">
-                          <Pencil size={13} />
-                        </button>
-                        <button onClick={() => setDeletingId(acct.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              )}
-            </tbody>
-          </table>
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {accounts.map((acct) =>
+            editingId === acct.id ? (
+              <div key={acct.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                <AccountForm
+                  initial={{ bank_name: acct.bank_name, account_name: acct.account_name, account_last_four: acct.account_last_four ?? "", account_type: acct.account_type ?? "", notes: acct.notes ?? "" }}
+                  onSave={(data) => handleUpdate(acct.id, data)}
+                  onCancel={() => setEditingId(null)}
+                  isPending={isPending}
+                  error={error}
+                />
+              </div>
+            ) : deletingId === acct.id ? (
+              <div key={acct.id} className="bg-red-50 border border-red-200 rounded-lg p-4 shadow-sm">
+                <div className="space-y-3">
+                  <p className="text-sm text-red-700">
+                    Delete <strong>{acct.account_name}</strong> (••••{acct.account_last_four})?
+                  </p>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      onClick={() => setDeletingId(null)}
+                      className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5 border border-gray-300 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleDelete(acct.id)}
+                      disabled={isPending}
+                      className="text-xs text-white bg-red-600 hover:bg-red-700 px-3 py-1.5 rounded-lg disabled:opacity-60 transition-colors"
+                    >
+                      {isPending ? "Deleting…" : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div key={acct.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-start gap-3 mb-3">
+                  <Building2 size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-medium text-gray-900">{acct.bank_name}</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {acct.account_name} · ••••{acct.account_last_four}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${getAccountTypeBadgeClasses(acct.account_type)}`}>
+                    {ACCOUNT_TYPES.find((t) => t.value === acct.account_type)?.label ?? acct.account_type}
+                  </span>
+                </div>
+
+                {acct.notes && (
+                  <p className="text-xs text-gray-600 mb-3">
+                    {acct.notes}
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2 justify-end pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => setEditingId(acct.id)}
+                    className="p-1.5 text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => setDeletingId(acct.id)}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            )
+          )}
         </div>
       )}
 

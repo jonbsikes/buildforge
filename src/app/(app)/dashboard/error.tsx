@@ -26,7 +26,4 @@ export default function DashboardError({
           <RotateCcw size={15} />
           Try again
         </button>
-      </div>
-    </main>
-  );
-}
+    

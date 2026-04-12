@@ -517,11 +517,4 @@ create policy "Users access loan_payments via loans" on loan_payments
 
 -- ── STEP 14: Storage buckets for stage files ──
 insert into storage.buckets (id, name, public) values ('stage-files', 'stage-files', false)
-  on conflict (id) do nothing;
-
-create policy "Users can upload stage files" on storage.objects
-  for insert with check (bucket_id = 'stage-files' and auth.uid()::text = (storage.foldername(name))[1]);
-create policy "Users can read stage files" on storage.objects
-  for select using (bucket_id = 'stage-files' and auth.uid()::text = (storage.foldername(name))[1]);
-create policy "Users can delete stage files" on storage.objects
-  for delete using (bucket_id = 'stage-files' and auth.uid()::text = (storage.foldername(name))[1]);
+  on confli

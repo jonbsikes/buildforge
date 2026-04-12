@@ -42,9 +42,4 @@ export default function TabNav({ projectId }: { projectId: string }) {
             }`}
           >
             {label}
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
+          </L

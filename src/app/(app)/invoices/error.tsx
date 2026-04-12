@@ -26,7 +26,4 @@ export default function InvoicesError({
           <RotateCcw size={15} />
           Try again
         </button>
-      </div>
-    </main>
-  );
-}
+    

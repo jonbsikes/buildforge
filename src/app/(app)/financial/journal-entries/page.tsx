@@ -9,9 +9,4 @@ export default function JournalEntriesPage() {
     <>
       <Header title="Journal Entries" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
-        <ReadOnlyBanner />
-        <JournalEntriesClient />
-      </main>
-    </>
-  );
-}
+     

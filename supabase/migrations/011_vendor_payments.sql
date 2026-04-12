@@ -43,5 +43,4 @@ CREATE POLICY "authenticated_vendor_payments"
   USING (true) WITH CHECK (true);
 
 CREATE POLICY "authenticated_vendor_payment_invoices"
-  ON vendor_payment_invoices FOR ALL TO authenticated
-  USING (true) WITH CHECK (true);
+  ON vendor_payment_invoices FOR ALL TO aut

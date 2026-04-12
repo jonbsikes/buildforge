@@ -14,4 +14,4 @@
 
 INSERT INTO chart_of_accounts (account_number, name, type, subtype, is_active)
 VALUES ('2060', 'Draws Pending Funding', 'liability', 'current', true)
-ON CONFLICT (account_number) DO NOTHING;
+ON CONFLICT (account_numb

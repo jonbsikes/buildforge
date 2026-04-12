@@ -216,13 +216,4 @@ export default function JobCostReportClient() {
                 <td className="px-4 py-3 text-right text-[#4272EF]">{fmt(totCommitted)}</td>
                 <td className="px-4 py-3 text-right text-gray-900">{fmt(totActual)}</td>
                 <td className={`px-4 py-3 text-right ${totVariance < 0 ? "text-red-600" : "text-green-600"}`}>{fmt(totVariance)}</td>
-                <td className="px-4 py-3 text-right text-xs text-gray-500">{pct(totActual, totBudget)}</td>
-              </tr>
-            </tfoot>
-          </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+         

@@ -25,7 +25,4 @@ export default async function NewFieldLogPage({ params }: { params: Promise<{ id
           </Link>
           <NewFieldLogForm projectId={id} userId={user.id} />
         </div>
-      </main>
-    </>
-  );
-}
+  

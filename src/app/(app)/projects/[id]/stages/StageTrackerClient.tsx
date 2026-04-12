@@ -428,24 +428,4 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                         <Upload size={12} />
                         {uploadingDoc === stageId ? "Uploading…" : "Add Doc"}
                         <input
-                          ref={(el) => { docInputRefs.current[stageId] = el; }}
-                          type="file"
-                          accept=".pdf,.doc,.docx"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) uploadDocument(stageId, file);
-                          }}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+                  

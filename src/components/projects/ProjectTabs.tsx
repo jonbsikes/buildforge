@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  DollarSign, BarChart3, ClipboardList, Palette, FileText, FolderOpen, LayoutGrid,
+} from "lucide-react";
 import GanttTab from "@/components/projects/tabs/GanttTab";
 import StageReportTab from "@/components/projects/tabs/StageReportTab";
 import CostItemsTab from "@/components/projects/tabs/CostItemsTab";
@@ -77,21 +80,31 @@ interface Props {
   actualByCostCodeId: Record<string, number>;
 }
 
+const TAB_ICONS: Record<string, React.ElementType> = {
+  "cost-items":   DollarSign,
+  "gantt":        BarChart3,
+  "stage-report": ClipboardList,
+  "budget":       LayoutGrid,
+  "selections":   Palette,
+  "field-logs":   FileText,
+  "documents":    FolderOpen,
+};
+
 const HOME_TABS = [
   { id: "cost-items",   label: "Job Costs" },
-  { id: "gantt",        label: "Gantt Chart" },
-  { id: "stage-report", label: "Stage Report" },
+  { id: "gantt",        label: "Gantt" },
+  { id: "stage-report", label: "Stages" },
   { id: "selections",   label: "Selections" },
-  { id: "field-logs",   label: "Field Logs" },
-  { id: "documents",    label: "Documents" },
+  { id: "field-logs",   label: "Logs" },
+  { id: "documents",    label: "Docs" },
 ] as const;
 
 const LAND_TABS = [
   { id: "cost-items",   label: "Job Costs" },
-  { id: "gantt",        label: "Gantt Chart" },
-  { id: "stage-report", label: "Stage Report" },
-  { id: "field-logs",   label: "Field Logs" },
-  { id: "documents",    label: "Documents" },
+  { id: "gantt",        label: "Gantt" },
+  { id: "stage-report", label: "Stages" },
+  { id: "field-logs",   label: "Logs" },
+  { id: "documents",    label: "Docs" },
 ] as const;
 
 type HomeTabId = (typeof HOME_TABS)[number]["id"];
@@ -104,54 +117,86 @@ export default function ProjectTabs({
 }: Props) {
   const tabs = isHome ? HOME_TABS : LAND_TABS;
   const [activeTab, setActiveTab] = useState<TabId>("cost-items");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLButtonElement>(null);
+
+  const scrollActiveIntoView = useCallback(() => {
+    if (activeRef.current && scrollRef.current) {
+      const container = scrollRef.current;
+      const el = activeRef.current;
+      const scrollLeft = el.offsetLeft - container.offsetWidth / 2 + el.offsetWidth / 2;
+      container.scrollTo({ left: scrollLeft, behavior: "smooth" });
+    }
+  }, []);
+
+  useEffect(() => {
+    scrollActiveIntoView();
+  }, [activeTab, scrollActiveIntoView]);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      {/* Tab bar */}
-      <div className="border-b border-gray-200 px-1 overflow-x-auto">
-        <nav className="flex gap-0 min-w-max">
-          {tabs.map((tab) => (
+    <div>
+      {/* Mobile pill tabs */}
+      <div
+        ref={scrollRef}
+        className="lg:hidden flex gap-2 px-1 pb-3 overflow-x-auto no-scrollbar snap-x snap-mandatory"
+      >
+        {tabs.map((tab) => {
+          const Icon = TAB_ICONS[tab.id];
+          const isActive = activeTab === tab.id;
+          return (
             <button
               key={tab.id}
+              ref={isActive ? activeRef : undefined}
               onClick={() => setActiveTab(tab.id as TabId)}
-              className={`px-4 py-3.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? "border-[#4272EF] text-[#4272EF]"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap snap-center transition-all ${
+                isActive
+                  ? "bg-[#4272EF] text-white shadow-sm"
+                  : "bg-white text-gray-600 border border-gray-200 active:bg-gray-100"
               }`}
             >
+              {Icon && <Icon size={15} />}
               {tab.label}
             </button>
-          ))}
-        </nav>
+          );
+        })}
+      </div>
+
+      {/* Desktop underline tabs */}
+      <div className="hidden lg:block bg-white rounded-t-xl border border-b-0 border-gray-200">
+        <div className="px-2 overflow-x-auto">
+          <nav className="flex gap-0 min-w-max">
+            {tabs.map((tab) => {
+              const Icon = TAB_ICONS[tab.id];
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as TabId)}
+                  className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px ${
+                    isActive
+                      ? "border-[#4272EF] text-[#4272EF]"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  {Icon && <Icon size={15} />}
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
       </div>
 
       {/* Tab content */}
-      <div className="p-5">
+      <div className="bg-white rounded-xl lg:rounded-t-none border border-gray-200 lg:border-t-0 p-4 lg:p-6">
         {activeTab === "gantt" && (
-          <GanttTab
-            stages={buildStages}
-            startDate={startDate}
-            isHome={isHome}
-          />
+          <GanttTab stages={buildStages} startDate={startDate} isHome={isHome} />
         )}
         {activeTab === "stage-report" && (
-          <StageReportTab
-            stages={buildStages}
-            projectId={projectId}
-            isHome={isHome}
-            startDate={startDate}
-          />
+          <StageReportTab stages={buildStages} projectId={projectId} isHome={isHome} startDate={startDate} />
         )}
         {activeTab === "cost-items" && (
-          <CostItemsTab
-            projectId={projectId}
-            isHome={isHome}
-            costCodes={costCodes}
-            availableCostCodes={availableCostCodes}
-            phases={phases}
-            actualByCostCodeId={actualByCostCodeId}
-          />
+          <CostItemsTab projectId={projectId} isHome={isHome} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} actualByCostCodeId={actualByCostCodeId} />
         )}
         {activeTab === "selections" && isHome && <SelectionsTab projectId={projectId} />}
         {activeTab === "field-logs" && <FieldLogsTab projectId={projectId} />}

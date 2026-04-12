@@ -8,4 +8,4 @@
 
 UPDATE projects
   SET status = 'pre_construction'
-  WHERE status::text = 'planning';
+  WHERE status::text = 'p

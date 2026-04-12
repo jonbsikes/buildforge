@@ -271,7 +271,3 @@ The Gantt chart uses two parallel tracks:
 |18|Postal Service Boxes|
 |19|Irrigation|
 |20|Landscaping|
-|21|Street Signs|
-|22|Street Lights|
-|23|HOA Setup|
-|24|Final Plat Acceptanc

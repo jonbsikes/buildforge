@@ -8,6 +8,4 @@ export default function NewSalePage() {
     <>
       <Header title="Add Sale" />
       <NewSaleForm />
-    </>
-  );
-}
+    <

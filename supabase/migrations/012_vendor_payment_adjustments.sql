@@ -15,4 +15,4 @@ ALTER TABLE vendor_payment_adjustments ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "authenticated_vendor_payment_adjustments"
   ON vendor_payment_adjustments FOR ALL TO authenticated
-  USING (true) WITH CHECK (true);
+  USING (true) WI

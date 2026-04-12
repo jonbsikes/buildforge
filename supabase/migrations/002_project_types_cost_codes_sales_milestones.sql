@@ -108,5 +108,4 @@ create policy "Users access milestones via projects" on milestones
 -- Seed default cost codes for home construction
 -- NOTE: Run this after creating your first user, or use a
 -- function that seeds per-user. These are template defaults —
--- the app will insert them per user on first use.
--- ============================================================
+-- th

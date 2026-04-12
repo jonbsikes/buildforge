@@ -88,16 +88,4 @@ export default async function DrawsPage() {
             No draw requests yet.{" "}
             {eligibleInvoices.length > 0 ? (
               <Link href="/draws/new" className="text-[#4272EF] hover:underline">
-                Create your first draw request
-              </Link>
-            ) : (
-              "Approve invoices and mark them for draw to get started."
-            )}
-          </div>
-        ) : (
-          <DrawsTableClient draws={draws} />
-        )}
-      </main>
-    </>
-  );
-}
+                Create your fir

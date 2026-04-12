@@ -556,17 +556,4 @@ GROUP BY project_id;
 
 ### Company-Level Financial Reports
 - Income Statement: Revenue (4XXX) minus COGS (5XXX) minus Expenses (6XXX) from GL
-- Balance Sheet: Assets (1XXX) minus Liabilities (2XXX) minus Equity (3XXX) from GL
-- Cash Flow: Derived from GL entries to/from cash accounts (1000, 1010, 1020)
-- AP Aging: Invoices with status `approved` grouped by due_date buckets
-
-### Drill-Down
-- All financial reports support drill-down to individual `gl_entries`
-- Each GL entry links back to its source via `source_id` and `source_type`
-- Multi-line entries are grouped by `transaction_group_id`
-
----
-
-## Revision History
-
-- 2026-04-04: Initial SOP created. Covers full invoice lifecycle, draw process, owner contributions, credit memos, disputes, and project opening entries.
+- Balance Sheet: Assets (1XXX) minus Liabilities (2XXX) minus Equity (3XXX) f

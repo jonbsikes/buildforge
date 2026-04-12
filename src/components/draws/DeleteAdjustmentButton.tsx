@@ -28,7 +28,4 @@ export default function DeleteAdjustmentButton({ adjustmentId }: Props) {
       title="Delete adjustment"
       className="ml-1 p-0.5 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-40"
     >
-      <Trash2 size={11} />
-    </button>
-  );
-}
+      <Trash2 size

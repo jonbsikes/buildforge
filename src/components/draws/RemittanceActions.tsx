@@ -76,8 +76,3 @@ export default function RemittanceActions({
       </a>
 
       <span style={{ fontSize: "13px", color: "#64748b" }}>
-        One page per vendor · {lenderName}
-      </span>
-    </div>
-  );
-}

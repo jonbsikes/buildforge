@@ -446,18 +446,4 @@ alter table loan_payments enable row level security;
 do $$ begin
   if not exists (select 1 from pg_policies where tablename = 'loan_payments' and policyname = 'Users access loan_payments via loans') then
     create policy "Users access loan_payments via loans" on loan_payments for all using (
-      exists (
-        select 1 from loans l join projects p on p.id = l.project_id
-        where l.id = loan_payments.loan_id and p.user_id = auth.uid()
-      )
-    );
-  end if;
-end $$;
-
--- ── Storage buckets ──
-insert into storage.buckets (id, name, public) values
-  ('stage-photos', 'stage-photos', true),
-  ('stage-docs', 'stage-docs', false),
-  ('vendor-docs', 'vendor-docs', false),
-  ('invoices', 'invoices', false)
-on conflict (id) do nothing;
+      exists

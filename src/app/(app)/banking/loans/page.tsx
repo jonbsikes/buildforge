@@ -162,16 +162,4 @@ export default async function LoansPage() {
                             <DeleteLoanButton loanId={loan.id} loanNumber={loan.loan_number} />
                           </div>
                         </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              </div>
-            </div>
-          )}
-        </div>
-      </main>
-    </>
-  );
-}
+                      

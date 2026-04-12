@@ -17,10 +17,4 @@ export default async function PaymentRegisterPage() {
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <ReadOnlyBanner />
         <PaymentRegisterClient
-          initialPayments={paymentsResult.payments ?? []}
-          payableInvoices={payableResult.invoices ?? []}
-        />
-      </main>
-    </>
-  );
-}
+          initialPayments={paymentsResult.paymen

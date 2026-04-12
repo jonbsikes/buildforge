@@ -234,19 +234,4 @@ export default function GanttReportClient() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
-      ) : displayedProjects.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 text-sm">No projects found.</div>
-      ) : (
-        displayedProjects.map((p) => (
-          <ProjectGantt
-            key={p.id}
-            project={p}
-            stages={stagesByProject[p.id] ?? []}
-          />
-        ))
-      )}
-    </div>
-  );
-}
+    

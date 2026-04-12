@@ -134,5 +134,4 @@ create policy "Users can upload invoices" on storage.objects
 create policy "Users can read own invoices" on storage.objects
   for select using (bucket_id = 'invoices' and auth.uid()::text = (storage.foldername(name))[1]);
 
-create policy "Users can delete own invoices" on storage.objects
-  for delete using (bucket_id = 'invoices' and auth.uid()::text = (storage.foldername(name))[1]);
+create policy "Users can de

@@ -449,46 +449,4 @@ export default function ProjectsClient({ projects }: { projects: Project[] }) {
           </div>
 
           {homeProjects.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 px-6 py-8 text-center text-sm text-gray-400">
-              No home construction projects match.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {subdivisions.map(([subdivision, projs]) => (
-                <SubdivisionGroup
-                  key={subdivision}
-                  subdivision={subdivision}
-                  projects={projs}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {showLand && (
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <LandIcon size={16} className="text-amber-600" />
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-              Land Development
-            </h2>
-            <span className="text-xs text-gray-400">({landProjects.length})</span>
-          </div>
-
-          {landProjects.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 px-6 py-8 text-center text-sm text-gray-400">
-              No land development projects match.
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-              {landProjects.map((p) => (
-                <LandTile key={p.id} project={p} />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-    </div>
-  );
-}
+            <div className="bg-white rounded-xl border border-gray-200 px-6 py-8 text-center text-s

@@ -199,12 +199,4 @@ export default function VendorSpendClient() {
             );
           })}
 
-          <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-t border-gray-200 font-bold">
-            <span className="text-gray-800">Grand Total</span>
-            <span className="text-gray-900">{fmt(grandTotal)}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+          <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-t border-gray-200 fo
