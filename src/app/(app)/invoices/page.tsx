@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Plus, AlertTriangle } from "lucide-react";
 import InvoicesTable from "@/components/invoices/InvoicesTable";
 import PollEmailButton from "@/components/invoices/PollEmailButton";
+import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
+import AdminOnly from "@/components/ui/AdminOnly";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,7 @@ export default async function InvoicesPage() {
     <>
       <Header title="Accounts Payable" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        <ReadOnlyBanner />
         {/* Alerts */}
         {lowConfCount > 0 && (
           <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
@@ -45,16 +48,18 @@ export default async function InvoicesPage() {
           <p className="text-sm text-gray-500">
             {pendingCount > 0 ? `${pendingCount} pending review` : `${rows.length} invoice${rows.length !== 1 ? "s" : ""}`}
           </p>
-          <div className="flex items-center gap-3">
-            <PollEmailButton />
-            <Link
-              href="/invoices/upload"
-              className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-            >
-              <Plus size={16} />
-              New Invoice
-            </Link>
-          </div>
+          <AdminOnly>
+            <div className="flex items-center gap-3">
+              <PollEmailButton />
+              <Link
+                href="/invoices/upload"
+                className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+              >
+                <Plus size={16} />
+                New Invoice
+              </Link>
+            </div>
+          </AdminOnly>
         </div>
 
         {rows.length === 0 ? (

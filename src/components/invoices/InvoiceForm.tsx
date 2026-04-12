@@ -316,13 +316,21 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
   }
 
   function validate(): string | null {
-    if (!projectId && !vendorId && !vendorName.trim()) return "Select a vendor or enter a vendor name";
+    if (!vendorId) return "A vendor must be selected. Use '+ Create new vendor' if the vendor isn't listed.";
     if (!invoiceDate) return "Invoice date is required";
     if (lineItems.some((li) => !li.cost_code || !li.amount)) {
       return "Each line item needs a cost code and amount";
     }
     if (lineItems.some((li) => isNaN(parseFloat(li.amount)) || parseFloat(li.amount) <= 0)) {
       return "All line item amounts must be positive numbers";
+    }
+    // Enforce 7-day minimum due date
+    if (invoiceDate && dueDate) {
+      const minDue = new Date(invoiceDate + "T00:00:00");
+      minDue.setDate(minDue.getDate() + 7);
+      if (new Date(dueDate + "T00:00:00") < minDue) {
+        return "Due date must be at least 7 days after the invoice date";
+      }
     }
     return null;
   }
@@ -346,7 +354,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     startTransition(async () => {
       const result = await saveInvoice({
         project_id: projectId || null,
-        vendor_id: vendorId || null,
+        vendor_id: vendorId, // mandatory — validated above
         vendor_name: resolvedVendorName,
         invoice_number: invoiceNumber,
         invoice_date: invoiceDate,
@@ -500,13 +508,13 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
             </select>
           </Field>
 
-          <Field label="Vendor">
+          <Field label="Vendor" required>
             <select
               value={vendorId}
               onChange={(e) => { markEdited(); setVendorId(e.target.value); }}
-              className={inputClass(false)}
+              className={inputClass(!vendorId && !!submitError)}
             >
-              <option value="">— Select or type below —</option>
+              <option value="">— Select vendor —</option>
               {vendors.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}
@@ -532,17 +540,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
           </Field>
         </div>
 
-        {!vendorId && (
-          <Field label="Vendor name (if not in list)">
-            <input
-              type="text"
-              value={vendorName}
-              onChange={(e) => { markEdited(); setVendorName(e.target.value); }}
-              placeholder="Enter vendor name"
-              className={inputClass(false)}
-            />
-          </Field>
-        )}
+        {/* Vendor name free-text removed — vendor must be selected from the dropdown for 1099 accuracy */}
 
         <div className="grid grid-cols-3 gap-4">
           <Field label="Invoice Number">
@@ -567,8 +565,10 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               type="date"
               value={dueDate}
               onChange={(e) => { markEdited(); setDueDate(e.target.value); }}
+              min={invoiceDate ? (() => { const d = new Date(invoiceDate + "T00:00:00"); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]; })() : undefined}
               className={inputClass(false)}
             />
+            <p className="text-xs text-gray-500 mt-1">Minimum 7 days after invoice date</p>
           </Field>
         </div>
 

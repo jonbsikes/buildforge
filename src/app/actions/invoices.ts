@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { requireAdmin } from "@/lib/auth";
 
 export interface LineItemInput {
   cost_code: string; // text code, e.g. "47"
@@ -42,11 +43,16 @@ export interface SaveInvoiceInput {
 export async function saveInvoice(
   input: SaveInvoiceInput
 ): Promise<{ error?: string; invoiceId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+
+  if (!input.vendor_id) return { error: "A vendor must be selected. Create the vendor first if they are not in the system." };
 
   if (input.line_items.length === 0) return { error: "At least one line item is required" };
 
@@ -96,8 +102,14 @@ export async function saveInvoice(
     input.invoice_number || "—",
   ].join(" – ");
 
-  // Default due_date to today if not provided
-  const dueDate = input.due_date || new Date().toISOString().split("T")[0];
+  // Default due_date to today if not provided, then enforce 7-day minimum from invoice_date
+  let dueDate = input.due_date || new Date().toISOString().split("T")[0];
+  if (input.invoice_date) {
+    const minDue = new Date(input.invoice_date + "T00:00:00");
+    minDue.setDate(minDue.getDate() + 7);
+    const minDueStr = minDue.toISOString().split("T")[0];
+    if (dueDate < minDueStr) dueDate = minDueStr;
+  }
 
   const { data: invoice, error: invoiceError } = await supabase
     .from("invoices")
@@ -150,6 +162,9 @@ export async function saveInvoice(
 export async function approveInvoice(
   invoiceId: string
 ): Promise<{ error?: string; success?: boolean }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -330,6 +345,9 @@ export async function setPendingDraw(
   invoiceId: string,
   pending: boolean
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -349,6 +367,9 @@ export async function setInvoiceStatus(
   invoiceId: string,
   status: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -430,9 +451,14 @@ export async function updateInvoice(
   invoiceId: string,
   input: UpdateInvoiceInput
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
+
+  if (!input.vendor_id) return { error: "A vendor must be selected. Create the vendor first if they are not in the system." };
 
   if (input.line_items.length === 0) return { error: "At least one line item is required" };
 
@@ -468,7 +494,14 @@ export async function updateInvoice(
     input.invoice_number || "—",
   ].join(" – ");
 
-  const dueDate = input.due_date || new Date().toISOString().split("T")[0];
+  // Default due_date to today if not provided, then enforce 7-day minimum from invoice_date
+  let dueDate = input.due_date || new Date().toISOString().split("T")[0];
+  if (input.invoice_date) {
+    const minDue = new Date(input.invoice_date + "T00:00:00");
+    minDue.setDate(minDue.getDate() + 7);
+    const minDueStr = minDue.toISOString().split("T")[0];
+    if (dueDate < minDueStr) dueDate = minDueStr;
+  }
 
   const { error: updateErr } = await supabase
     .from("invoices")
@@ -531,6 +564,9 @@ export async function updateInvoice(
 // ---------------------------------------------------------------------------
 
 export async function deleteInvoice(invoiceId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -556,6 +592,9 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
 export async function disputeInvoice(
   invoiceId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -582,6 +621,9 @@ export async function disputeInvoice(
 export async function voidInvoice(
   invoiceId: string
 ): Promise<{ error?: string; success?: boolean }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -692,6 +734,9 @@ export async function voidInvoice(
 export async function voidAfterDraw(
   invoiceId: string
 ): Promise<{ error?: string; success?: boolean }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -793,6 +838,9 @@ export async function advanceInvoiceStatus(
   paymentMethod?: string,
   discountTaken?: number
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };

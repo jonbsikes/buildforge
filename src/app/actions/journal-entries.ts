@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth";
 
 export interface JournalLineInput {
   account_id: string;
@@ -24,6 +25,9 @@ export interface JournalEntryInput {
 }
 
 export async function createJournalEntry(input: JournalEntryInput) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Permission denied");
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
@@ -77,6 +81,9 @@ export async function createJournalEntry(input: JournalEntryInput) {
 }
 
 export async function reverseJournalEntry(id: string, reverseDate?: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Permission denied");
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
@@ -150,6 +157,9 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
 }
 
 export async function voidJournalEntry(id: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Permission denied");
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");

@@ -74,7 +74,7 @@ export default async function DashboardPage() {
 
   const pendingInvoices = (invoices ?? []).filter((i) => i.status === "pending_review").length;
   const pastDueInvoices = (invoices ?? []).filter((i) => i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today).length;
-  const outstandingAP = (invoices ?? []).filter((i) => i.status === "approved" || i.status === "pending_review").reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
+  const outstandingAP = (invoices ?? []).filter((i) => i.status === "approved").reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const daysUntil = (d: string | null) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
   const expiringVendors = (vendors ?? []).filter((v) => { const c = daysUntil(v.coi_expiry_date); const l = daysUntil(v.license_expiry_date); return (c !== null && c <= 30) || (l !== null && l <= 30); });
   const overBudgetProjects = allProjects.filter((p) => { const a = actualByProject[p.id] ?? 0; const b = budgetByProject[p.id] ?? 0; return a > b && b > 0; });

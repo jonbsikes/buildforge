@@ -4,6 +4,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { drawDisplayName } from "@/lib/draws";
+import { requireAdmin } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,6 +159,9 @@ export async function createDraw(
   lenderId: string,
   selectedInvoiceIds?: string[]
 ): Promise<{ error?: string; drawId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -256,6 +260,9 @@ export async function removeInvoiceFromDraw(
   drawId: string,
   invoiceId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -304,6 +311,9 @@ export async function removeInvoiceFromDraw(
 // ---------------------------------------------------------------------------
 
 export async function deleteDraw(drawId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -340,6 +350,9 @@ export async function deleteDraw(drawId: string): Promise<{ error?: string }> {
 // ---------------------------------------------------------------------------
 
 export async function submitDraw(drawId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -427,6 +440,9 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
 // ---------------------------------------------------------------------------
 
 export async function fundDraw(drawId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -835,6 +851,9 @@ export async function markVendorPaymentPaid(
   paymentDate: string,
   discountTaken?: number
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -1059,6 +1078,9 @@ export async function adjustVendorPaymentAmount(
   adjustment: number,
   description: string
 ): Promise<{ error?: string; newAmount?: number }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -1233,6 +1255,9 @@ export async function adjustVendorPaymentAmount(
 export async function deleteVendorPaymentAdjustment(
   adjustmentId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };

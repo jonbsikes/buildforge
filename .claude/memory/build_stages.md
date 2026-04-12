@@ -6,7 +6,7 @@ This file defines build stages for two distinct project types. Stages, Gantt tra
 
 # 🏠 Project Type: Home Construction
 
-54 stages total. Used for the per-project `build\\\\\\\_stages` table and the interactive Gantt chart.
+55 stages total. Used for the per-project `build\\\\\\\_stages` table and the interactive Gantt chart.
 
 The Gantt chart uses two parallel tracks:
 
@@ -54,30 +54,31 @@ The Gantt chart uses two parallel tracks:
 |35|Fireplace|
 |36|Construction Clean - 6/7 - Paint \& Tile|
 |37|Flatwork – driveway, walks, patios|
-|38|Flooring Install|
-|39|Tile|
-|40|Electrical - Final|
-|41|Plumbing - Final|
-|42|HVAC - Final|
-|43|Hardware|
-|44|Garage door - Final (operator/opener)|
-|45|Appliances|
-|46|Mirrors/Glass|
-|47|Paint - interior finish \& touch‑ups|
-|48|Gutter install|
-|49|Final grade|
-|50|Landscape/irrigation|
-|51|Construction Clean - 7/7 - Final|
-|52|Punch list \& touch‑ups|
-|53|Final Clean|
-|54|Final inspections \& utility releases|
+|38|Final grade|
+|39|Landscape/Irrigation - Rough|
+|40|Flooring Install|
+|41|Tile|
+|42|Electrical - Final|
+|43|Plumbing - Final|
+|44|HVAC - Final|
+|45|Hardware|
+|46|Garage door - Final (operator/opener)|
+|47|Appliances|
+|48|Mirrors/Glass|
+|49|Paint - interior finish \& touch‑ups|
+|50|Gutter install|
+|51|Landscape - Final|
+|52|Construction Clean - 7/7 - Final|
+|53|Punch list \& touch‑ups|
+|54|Final Clean|
+|55|Final inspections \& utility releases|
 
 ## Gantt Track Assignment
 
 |Track|Stages|
 |-|-|
-|**Exterior**|1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 20, 21, 25, 26, 27, 28, 29, 37, 48, 49, 50|
-|**Interior**|16, 17, 19, 22, 23, 24, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 51, 52, 53, 54|
+|**Exterior**|1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 20, 21, 25, 26, 27, 28, 29, 37, 38, 39, 50, 51|
+|**Interior**|16, 17, 19, 22, 23, 24, 30, 31, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 52, 53, 54, 55|
 
 > Some stages (e.g. clean-up stages) may appear on both tracks or be shown as milestones depending on the Gantt implementation. The above is the default assignment. The stage report below should be the pre populated schedule once a home construction project is created. This schedule should use days from start date input when the project was created. 
 
@@ -178,67 +179,67 @@ The Gantt chart uses two parallel tracks:
 |89|37||Flatwork|
 |90|37||Flatwork|
 |91|37||Flatwork|
-|92|34, 35|Countertops / Fireplace||
-|93|34, 35|Countertops / Fireplace||
-|94|34, 35|Countertops / Fireplace||
-|95|34, 35|Countertops / Fireplace||
-|96|36|Construction Clean - 6/7||
-|97|38|Flooring Install||
-|98|38|Flooring Install||
-|99|38|Flooring Install||
-|100|38|Flooring Install||
-|101|38|Flooring Install||
-|102|38|Flooring Install||
-|103|38|Flooring Install||
-|104|38|Flooring Install||
-|105|38|Flooring Install||
-|106|38|Flooring Install||
-|107|39|Tile||
-|108|39|Tile||
-|109|39|Tile||
-|110|39|Tile||
-|111|40|Electrical - Final||
-|112|40|Electrical - Final||
-|113|40|Electrical - Final||
-|114|40|Electrical - Final||
-|115|41|Plumbing - Final||
-|116|41|Plumbing - Final||
-|117|41|Plumbing - Final||
-|118|41|Plumbing - Final||
-|119|42|HVAC - Final||
-|120|42|HVAC - Final||
-|121|42|HVAC - Final||
-|122|42|HVAC - Final||
-|123|43|Hardware||
-|124|43|Hardware||
-|125|43|Hardware||
-|126|44|Garage door - Final||
-|127|44|Garage door - Final||
-|128|44|Garage door - Final||
-|129|45|Appliances||
-|130|45|Appliances||
-|131|45|Appliances||
-|132|46, 48|Mirrors/Glass|Gutter install|
-|133|46, 48|Mirrors/Glass|Gutter install|
-|134|46, 48|Mirrors/Glass|Gutter install|
-|135|47, 49|Paint - interior finish|Final grade|
-|136|47, 49|Paint - interior finish|Final grade|
-|137|47, 49|Paint - interior finish|Final grade|
-|138|50, 51|Construction Clean - 7/7 (1/3)|Landscape/irrigation|
-|139|50, 52|Punch list \& touch‑ups|Landscape/irrigation|
-|140|50, 52|Punch list \& touch‑ups|Landscape/irrigation|
-|141|50, 52|Punch list \& touch‑ups|Landscape/irrigation|
-|142|50, 52|Punch list \& touch‑ups|Landscape/irrigation|
-|143|50, 52|Punch list \& touch‑ups|Landscape/irrigation|
-|144|50, 52|Punch list \& touch‑ups|Landscape/irrigation|
-|145|52|Punch list \& touch‑ups|Final Inspections / Utility Release|
-|146|52|Punch list \& touch‑ups|Final Inspections / Utility Release|
-|147|53|Final Clean|Final Inspections / Utility Release|
-|148|54||Final Inspections / Utility Release|
-|149|54||Final Inspections / Utility Release|
-|150|54||Final Inspections / Utility Release|
-|151|54||Final Inspections / Utility Release|
-|152|54||Final Inspections / Utility Release|
+|92|34, 35, 38|Countertops / Fireplace|Final grade|
+|93|34, 35, 38|Countertops / Fireplace|Final grade|
+|94|34, 35, 38|Countertops / Fireplace|Final grade|
+|95|34, 35, 39|Countertops / Fireplace|Landscape/Irrigation - Rough|
+|96|36, 39|Construction Clean - 6/7|Landscape/Irrigation - Rough|
+|97|40|Flooring Install||
+|98|40|Flooring Install||
+|99|40|Flooring Install||
+|100|40|Flooring Install||
+|101|40|Flooring Install||
+|102|40|Flooring Install||
+|103|40|Flooring Install||
+|104|40|Flooring Install||
+|105|40|Flooring Install||
+|106|40|Flooring Install||
+|107|41|Tile||
+|108|41|Tile||
+|109|41|Tile||
+|110|41|Tile||
+|111|42|Electrical - Final||
+|112|42|Electrical - Final||
+|113|42|Electrical - Final||
+|114|42|Electrical - Final||
+|115|43|Plumbing - Final||
+|116|43|Plumbing - Final||
+|117|43|Plumbing - Final||
+|118|43|Plumbing - Final||
+|119|44|HVAC - Final||
+|120|44|HVAC - Final||
+|121|44|HVAC - Final||
+|122|44|HVAC - Final||
+|123|45|Hardware||
+|124|45|Hardware||
+|125|45|Hardware||
+|126|46|Garage door - Final||
+|127|46|Garage door - Final||
+|128|46|Garage door - Final||
+|129|47|Appliances||
+|130|47|Appliances||
+|131|47|Appliances||
+|132|48, 50|Mirrors/Glass|Gutter install|
+|133|48, 50|Mirrors/Glass|Gutter install|
+|134|48, 50|Mirrors/Glass|Gutter install|
+|135|49, 51|Paint - interior finish|Landscape - Final|
+|136|49, 51|Paint - interior finish|Landscape - Final|
+|137|49, 51|Paint - interior finish|Landscape - Final|
+|138|51, 52|Construction Clean - 7/7 (1/3)|Landscape - Final|
+|139|51, 53|Punch list \& touch‑ups|Landscape - Final|
+|140|51, 53|Punch list \& touch‑ups|Landscape - Final|
+|141|51, 53|Punch list \& touch‑ups|Landscape - Final|
+|142|53|Punch list \& touch‑ups||
+|143|53|Punch list \& touch‑ups||
+|144|53|Punch list \& touch‑ups||
+|145|53|Punch list \& touch‑ups|Final Inspections / Utility Release|
+|146|53|Punch list \& touch‑ups|Final Inspections / Utility Release|
+|147|54|Final Clean|Final Inspections / Utility Release|
+|148|55||Final Inspections / Utility Release|
+|149|55||Final Inspections / Utility Release|
+|150|55||Final Inspections / Utility Release|
+|151|55||Final Inspections / Utility Release|
+|152|55||Final Inspections / Utility Release|
 
 \---
 

@@ -44,7 +44,8 @@ interface Props {
     ach_account_type: string | null;
   };
   prefillName?: string; // pre-populated from invoice "Create new vendor"
-  returnTo?: string; // "invoice" → redirect back to new invoice with vendor pre-selected
+  returnTo?: string; // "invoice" → redirect back to new invoice with vendor pre-selected; "invoice-upload" → redirect back to upload flow
+  vendorCardIdx?: string; // which invoice card to assign the new vendor to (used with returnTo=invoice-upload)
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +226,7 @@ function ic() {
 // Main form
 // ---------------------------------------------------------------------------
 
-export default function VendorForm({ costCodes, initialData, prefillName, returnTo }: Props) {
+export default function VendorForm({ costCodes, initialData, prefillName, returnTo, vendorCardIdx }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -345,6 +346,12 @@ export default function VendorForm({ costCodes, initialData, prefillName, return
         if (result.error) setError(result.error);
         else if (returnTo === "invoice" && result.vendorId) {
           router.push(`/invoices/new?vendorId=${result.vendorId}`);
+        } else if (returnTo === "invoice-upload" && result.vendorId) {
+          const params = new URLSearchParams();
+          params.set("vendorId", result.vendorId);
+          params.set("vendorName", data.name || "");
+          if (vendorCardIdx != null) params.set("vendorCardIdx", vendorCardIdx);
+          router.push(`/invoices/upload?${params.toString()}`);
         } else {
           router.push("/vendors");
         }
@@ -536,7 +543,7 @@ export default function VendorForm({ costCodes, initialData, prefillName, return
       <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={() => router.push(returnTo === "invoice" ? "/invoices/new" : "/vendors")}
+          onClick={() => router.push(returnTo === "invoice" ? "/invoices/new" : returnTo === "invoice-upload" ? "/invoices/upload" : "/vendors")}
           className="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
         >
           Cancel

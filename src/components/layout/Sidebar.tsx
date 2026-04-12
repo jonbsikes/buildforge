@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
+import { useUserRole } from "./UserRoleContext";
 import { createClient } from "@/lib/supabase/client";
 
 type SubItem = { href: string; label: string };
@@ -133,6 +134,7 @@ export default function Sidebar() {
   const router = useRouter();
   const supabase = createClient();
   const { isOpen, close } = useSidebar();
+  const { isAdmin } = useUserRole();
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
@@ -185,8 +187,13 @@ export default function Sidebar() {
         <div className="space-y-5">
           {sections.map((section) => (
             <div key={section.title}>
-              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+              <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-gray-500 flex items-center gap-2">
                 {section.title}
+                {section.title === "Financial" && !isAdmin && (
+                  <span className="text-[9px] normal-case tracking-normal bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">
+                    View Only
+                  </span>
+                )}
               </p>
 
               <div className="space-y-0.5">

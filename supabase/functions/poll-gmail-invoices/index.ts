@@ -33,6 +33,7 @@ A single document may contain one invoice or multiple invoices. Extract each one
 - If multiple trades appear on one invoice, create one line_item per trade/cost code
 - Dates must be YYYY-MM-DD; if year is ambiguous use current year
 - If due_date is not stated, set it to invoice_date + 30 days
+- IMPORTANT: due_date must ALWAYS be at least 7 days after invoice_date. If the stated due_date is less than invoice_date + 7 days, override it to invoice_date + 7 days
 - Amount values must be plain numbers (no $ signs or commas)
 - ai_confidence: "high" = all key fields clearly readable; "medium" = some fields estimated; "low" = vendor, amount, or date unreadable/conflicting
 - ai_notes: brief explanation if confidence is medium or low; empty string otherwise
@@ -75,6 +76,49 @@ interface GmailPart {
   filename?: string;
   body: { attachmentId?: string; data?: string; size?: number };
   parts?: GmailPart[];
+}
+
+// ---------------------------------------------------------------------------
+// Vendor matching helpers
+// ---------------------------------------------------------------------------
+
+/** Strip suffixes like LLC, Inc, Corp and normalize whitespace / casing */
+function normalizeVendorName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[.,'"]/g, "")
+    .replace(/\b(llc|inc|corp|corporation|incorporated|co|company|ltd|lp|llp|dba)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Find the best matching vendor from the in-memory list.
+ * Match strategy (in order):
+ *   1. Exact normalized match
+ *   2. One name contains the other (catches "ABC Concrete" vs "ABC Concrete LLC")
+ * Returns vendor id if matched, null if no match found (invoice will be flagged for review).
+ */
+function findVendor(
+  extractedName: string,
+  allVendors: { id: string; name: string }[],
+): string | null {
+  const normalized = normalizeVendorName(extractedName);
+
+  // 1) Exact normalized match
+  let best = allVendors.find(
+    (v) => normalizeVendorName(v.name) === normalized
+  );
+
+  // 2) Containment match — one name contains the other
+  if (!best) {
+    best = allVendors.find((v) => {
+      const vNorm = normalizeVendorName(v.name);
+      return vNorm.includes(normalized) || normalized.includes(vNorm);
+    });
+  }
+
+  return best?.id ?? null;
 }
 
 async function getAccessToken(): Promise<string> {
@@ -230,6 +274,13 @@ Deno.serve(async (_req) => {
       .select("id, name, address")
       .eq("user_id", BUILDFORGE_USER_ID);
 
+    // Fetch vendors once for the whole run (mutable — new vendors get pushed in)
+    const { data: vendorRows } = await supabase
+      .from("vendors")
+      .select("id, name")
+      .eq("user_id", BUILDFORGE_USER_ID);
+    const allVendors: { id: string; name: string }[] = vendorRows ?? [];
+
     for (const { id: messageId } of messages) {
       // Fetch full message
       const msgResp = await fetch(
@@ -363,8 +414,18 @@ Deno.serve(async (_req) => {
             costCodeId = cc?.id ?? null;
           }
 
-          const projectName = allProjects?.find((p) => p.id === projectId)?.name ?? "Company";
+          // Match vendor against existing vendors (no auto-creation — unmatched vendors flagged for review)
+          let vendorId: string | null = null;
           const vendorDisplay = extracted.vendor?.trim() || "Unknown Vendor";
+          let vendorUnmatched = false;
+          if (vendorDisplay && vendorDisplay !== "Unknown Vendor") {
+            vendorId = findVendor(vendorDisplay, allVendors);
+            if (!vendorId) {
+              vendorUnmatched = true;
+            }
+          }
+
+          const projectName = allProjects?.find((p) => p.id === projectId)?.name ?? "Company";
           const totalAmount =
             extracted.total_amount ??
             (extracted.line_items ?? []).reduce((s, li) => s + (li.amount ?? 0), 0);
@@ -381,16 +442,32 @@ Deno.serve(async (_req) => {
             .insert({
               user_id: BUILDFORGE_USER_ID,
               project_id: projectId,
+              vendor_id: vendorId,
               vendor: vendorDisplay,
               invoice_number: extracted.invoice_number || null,
               invoice_date: extracted.invoice_date || null,
-              due_date: extracted.due_date || null,
+              due_date: (() => {
+                let dd = extracted.due_date || null;
+                if (extracted.invoice_date && dd) {
+                  const minDue = new Date(extracted.invoice_date + "T00:00:00");
+                  minDue.setDate(minDue.getDate() + 7);
+                  const minDueStr = minDue.toISOString().split("T")[0];
+                  if (dd < minDueStr) dd = minDueStr;
+                } else if (extracted.invoice_date && !dd) {
+                  const minDue = new Date(extracted.invoice_date + "T00:00:00");
+                  minDue.setDate(minDue.getDate() + 7);
+                  dd = minDue.toISOString().split("T")[0];
+                }
+                return dd;
+              })(),
               amount: totalAmount,
               total_amount: totalAmount,
               status: "pending_review",
               source: "email",
-              ai_confidence: extracted.ai_confidence,
-              ai_notes: extracted.ai_notes || null,
+              ai_confidence: vendorUnmatched ? "low" : extracted.ai_confidence,
+              ai_notes: vendorUnmatched
+                ? `${extracted.ai_notes ? extracted.ai_notes + " | " : ""}Vendor "${vendorDisplay}" not found in system — please select or create a vendor.`
+                : (extracted.ai_notes || null),
               file_path: storagePath,
               file_name: displayName,
               cost_code_id: costCodeId,
@@ -418,13 +495,16 @@ Deno.serve(async (_req) => {
             );
           }
 
-          if (extracted.ai_confidence === "low") {
+          if (extracted.ai_confidence === "low" || vendorUnmatched) {
+            const reason = vendorUnmatched
+              ? `vendor "${vendorDisplay}" not found in system`
+              : "AI confidence is low";
             await supabase.from("notifications").insert({
               user_id: BUILDFORGE_USER_ID,
               type: "invoice_review",
               message: `Email invoice from ${vendorDisplay} (${
                 extracted.invoice_number || "no #"
-              }) needs manual review — AI confidence is low.`,
+              }) needs manual review — ${reason}.`,
               reference_id: invoice.id,
               reference_type: "invoice",
               is_read: false,

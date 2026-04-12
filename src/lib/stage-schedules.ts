@@ -2,7 +2,7 @@
 // stage-schedules.ts
 // Source of truth for all stage definitions and date calculations.
 //
-// Home Construction (54 stages):
+// Home Construction (55 stages):
 //   Dates are derived from the day-by-day schedule table in
 //   .claude/memory/build_stages.md.  Each stage has a startOffset
 //   and endOffset (0-indexed days from project start_date).
@@ -40,7 +40,7 @@ export interface CalculatedStage {
 }
 
 // ---------------------------------------------------------------------------
-// Home Construction — 54 stages
+// Home Construction — 55 stages
 // Offsets derived directly from the day-by-day table in build_stages.md.
 // Formula: startOffset = firstDay - 1, endOffset = lastDay - 1
 //
@@ -123,40 +123,42 @@ export const HOME_CONSTRUCTION_STAGES: HomeStageDefinition[] = [
   { stage_number: 36, stage_name: "Construction Clean - 6/7 - Paint & Tile",     track: "interior", startOffset:  95, endOffset:  95 },
   // Stage 37: days 87–91
   { stage_number: 37, stage_name: "Flatwork – driveway, walks, patios",          track: "exterior", startOffset:  86, endOffset:  90 },
-  // Stage 38: days 97–106
-  { stage_number: 38, stage_name: "Flooring Install",                            track: "interior", startOffset:  96, endOffset: 105 },
-  // Stage 39: days 107–110
-  { stage_number: 39, stage_name: "Tile",                                        track: "interior", startOffset: 106, endOffset: 109 },
-  // Stage 40: days 111–114
-  { stage_number: 40, stage_name: "Electrical - Final",                          track: "interior", startOffset: 110, endOffset: 113 },
-  // Stage 41: days 115–118
-  { stage_number: 41, stage_name: "Plumbing - Final",                            track: "interior", startOffset: 114, endOffset: 117 },
-  // Stage 42: days 119–122
-  { stage_number: 42, stage_name: "HVAC - Final",                                track: "interior", startOffset: 118, endOffset: 121 },
-  // Stage 43: days 123–125
-  { stage_number: 43, stage_name: "Hardware",                                    track: "interior", startOffset: 122, endOffset: 124 },
-  // Stage 44: days 126–128
-  { stage_number: 44, stage_name: "Garage door - Final (operator/opener)",       track: "interior", startOffset: 125, endOffset: 127 },
-  // Stage 45: days 129–131
-  { stage_number: 45, stage_name: "Appliances",                                  track: "interior", startOffset: 128, endOffset: 130 },
-  // Stage 46: days 132–134
-  { stage_number: 46, stage_name: "Mirrors/Glass",                               track: "interior", startOffset: 131, endOffset: 133 },
-  // Stage 47: days 135–137
-  { stage_number: 47, stage_name: "Paint - interior finish & touch‑ups",         track: "interior", startOffset: 134, endOffset: 136 },
-  // Stage 48: days 132–134 (exterior, parallel with stage 46)
-  { stage_number: 48, stage_name: "Gutter install",                              track: "exterior", startOffset: 131, endOffset: 133 },
-  // Stage 49: days 135–137 (exterior, parallel with stage 47)
-  { stage_number: 49, stage_name: "Final grade",                                 track: "exterior", startOffset: 134, endOffset: 136 },
-  // Stage 50: days 138–144
-  { stage_number: 50, stage_name: "Landscape/irrigation",                        track: "exterior", startOffset: 137, endOffset: 143 },
-  // Stage 51: day 138 (interior, starts same day as stage 50)
-  { stage_number: 51, stage_name: "Construction Clean - 7/7 - Final",            track: "interior", startOffset: 137, endOffset: 137 },
-  // Stage 52: days 139–146
-  { stage_number: 52, stage_name: "Punch list & touch‑ups",                      track: "interior", startOffset: 138, endOffset: 145 },
-  // Stage 53: day 147
-  { stage_number: 53, stage_name: "Final Clean",                                 track: "interior", startOffset: 146, endOffset: 146 },
-  // Stage 54: days 148–152
-  { stage_number: 54, stage_name: "Final inspections & utility releases",        track: "interior", startOffset: 147, endOffset: 151 },
+  // Stage 38: days 92–94 (exterior, parallel with countertops/fireplace)
+  { stage_number: 38, stage_name: "Final grade",                                 track: "exterior", startOffset:  91, endOffset:  93 },
+  // Stage 39: days 95–96 (exterior, parallel with clean 6/7)
+  { stage_number: 39, stage_name: "Landscape/Irrigation - Rough",                track: "exterior", startOffset:  94, endOffset:  95 },
+  // Stage 40: days 97–106
+  { stage_number: 40, stage_name: "Flooring Install",                            track: "interior", startOffset:  96, endOffset: 105 },
+  // Stage 41: days 107–110
+  { stage_number: 41, stage_name: "Tile",                                        track: "interior", startOffset: 106, endOffset: 109 },
+  // Stage 42: days 111–114
+  { stage_number: 42, stage_name: "Electrical - Final",                          track: "interior", startOffset: 110, endOffset: 113 },
+  // Stage 43: days 115–118
+  { stage_number: 43, stage_name: "Plumbing - Final",                            track: "interior", startOffset: 114, endOffset: 117 },
+  // Stage 44: days 119–122
+  { stage_number: 44, stage_name: "HVAC - Final",                                track: "interior", startOffset: 118, endOffset: 121 },
+  // Stage 45: days 123–125
+  { stage_number: 45, stage_name: "Hardware",                                    track: "interior", startOffset: 122, endOffset: 124 },
+  // Stage 46: days 126–128
+  { stage_number: 46, stage_name: "Garage door - Final (operator/opener)",       track: "interior", startOffset: 125, endOffset: 127 },
+  // Stage 47: days 129–131
+  { stage_number: 47, stage_name: "Appliances",                                  track: "interior", startOffset: 128, endOffset: 130 },
+  // Stage 48: days 132–134
+  { stage_number: 48, stage_name: "Mirrors/Glass",                               track: "interior", startOffset: 131, endOffset: 133 },
+  // Stage 49: days 135–137
+  { stage_number: 49, stage_name: "Paint - interior finish & touch‑ups",         track: "interior", startOffset: 134, endOffset: 136 },
+  // Stage 50: days 132–134 (exterior, parallel with stage 48)
+  { stage_number: 50, stage_name: "Gutter install",                              track: "exterior", startOffset: 131, endOffset: 133 },
+  // Stage 51: days 135–141 (exterior, fills gap left by final grade move)
+  { stage_number: 51, stage_name: "Landscape - Final",                           track: "exterior", startOffset: 134, endOffset: 140 },
+  // Stage 52: day 138 (interior, overlaps with Landscape - Final)
+  { stage_number: 52, stage_name: "Construction Clean - 7/7 - Final",            track: "interior", startOffset: 137, endOffset: 137 },
+  // Stage 53: days 139–146
+  { stage_number: 53, stage_name: "Punch list & touch‑ups",                      track: "interior", startOffset: 138, endOffset: 145 },
+  // Stage 54: day 147
+  { stage_number: 54, stage_name: "Final Clean",                                 track: "interior", startOffset: 146, endOffset: 146 },
+  // Stage 55: days 148–152
+  { stage_number: 55, stage_name: "Final inspections & utility releases",        track: "interior", startOffset: 147, endOffset: 151 },
 ];
 
 // ---------------------------------------------------------------------------

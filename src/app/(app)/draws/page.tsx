@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { getDrawableInvoices } from "@/app/actions/draws";
 import DrawsTableClient from "@/components/draws/DrawsTableClient";
+import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
+import AdminOnly from "@/components/ui/AdminOnly";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,7 @@ export default async function DrawsPage() {
     <>
       <Header title="Draw Requests" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        <ReadOnlyBanner />
         {/* Pending draw banner */}
         {eligibleInvoices.length > 0 && (
           <div className="flex items-center justify-between bg-[#4272EF]/5 border border-[#4272EF]/20 rounded-xl px-5 py-4 mb-5">
@@ -47,13 +50,15 @@ export default async function DrawsPage() {
               </p>
               <p className="text-sm text-gray-500 mt-0.5">{fmt(eligibleTotal)} total approved &amp; pending</p>
             </div>
-            <Link
-              href="/draws/new"
-              className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-            >
-              <Plus size={16} />
-              New Draw Request
-            </Link>
+            <AdminOnly>
+              <Link
+                href="/draws/new"
+                className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+              >
+                <Plus size={16} />
+                New Draw Request
+              </Link>
+            </AdminOnly>
           </div>
         )}
 
@@ -65,13 +70,15 @@ export default async function DrawsPage() {
                 ? `${draws.length} draw${draws.length !== 1 ? "s" : ""}`
                 : "No draws yet"}
             </p>
-            <Link
-              href="/draws/new"
-              className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-            >
-              <Plus size={16} />
-              New Draw Request
-            </Link>
+            <AdminOnly>
+              <Link
+                href="/draws/new"
+                className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+              >
+                <Plus size={16} />
+                New Draw Request
+              </Link>
+            </AdminOnly>
           </div>
         )}
 

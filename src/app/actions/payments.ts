@@ -3,6 +3,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,6 +88,9 @@ async function getGLAccounts(
 export async function createPayment(
   input: CreatePaymentInput
 ): Promise<{ error?: string; paymentId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -233,6 +237,9 @@ export async function clearPayment(
   paymentId: string,
   clearedDate: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -333,6 +340,9 @@ export async function clearPayment(
 export async function voidPayment(
   paymentId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },

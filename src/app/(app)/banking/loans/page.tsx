@@ -3,6 +3,8 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { Plus, Pencil } from "lucide-react";
 import DeleteLoanButton from "@/components/banking/DeleteLoanButton";
+import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
+import AdminOnly from "@/components/ui/AdminOnly";
 
 export const dynamic = "force-dynamic";
 
@@ -65,17 +67,20 @@ export default async function LoansPage() {
       <Header title="Loans" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-6xl mx-auto">
+          <ReadOnlyBanner />
           <div className="flex items-center justify-between mb-5">
             <p className="text-sm text-gray-500">
               {loans.length} loan{loans.length !== 1 ? "s" : ""}
             </p>
-            <Link
-              href="/banking/loans/new"
-              className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-            >
-              <Plus size={15} />
-              New Loan
-            </Link>
+            <AdminOnly>
+              <Link
+                href="/banking/loans/new"
+                className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+              >
+                <Plus size={15} />
+                New Loan
+              </Link>
+            </AdminOnly>
           </div>
 
           {loans.length === 0 ? (

@@ -296,7 +296,7 @@ function BuildStageRow({ projectId, masterStage, buildStage }: {
   );
 }
 
-// Master list of all 54 build stages
+// Master list of all 55 build stages
 const MASTER_BUILD_STAGES = [
   { number: 1, name: "Lot prep and layout" },
   { number: 2, name: "Pad grading" },
@@ -335,23 +335,24 @@ const MASTER_BUILD_STAGES = [
   { number: 35, name: "Fireplace" },
   { number: 36, name: "Construction Clean - 6/7 - Paint & Tile" },
   { number: 37, name: "Flatwork – driveway, walks, patios" },
-  { number: 38, name: "Flooring Install" },
-  { number: 39, name: "Tile" },
-  { number: 40, name: "Electrical - Final" },
-  { number: 41, name: "Plumbing - Final" },
-  { number: 42, name: "HVAC - Final" },
-  { number: 43, name: "Hardware" },
-  { number: 44, name: "Garage door - Final (operator/opener)" },
-  { number: 45, name: "Appliances" },
-  { number: 46, name: "Mirrors/Glass" },
-  { number: 47, name: "Paint - interior finish & touch‑ups" },
-  { number: 48, name: "Gutter install" },
-  { number: 49, name: "Final grade" },
-  { number: 50, name: "Landscape/irrigation" },
-  { number: 51, name: "Construction Clean - 7/7 - Final" },
-  { number: 52, name: "Punch list & touch‑ups" },
-  { number: 53, name: "Final Clean" },
-  { number: 54, name: "Final inspections & utility releases" },
+  { number: 38, name: "Final grade" },
+  { number: 39, name: "Landscape/Irrigation - Rough" },
+  { number: 40, name: "Flooring Install" },
+  { number: 41, name: "Tile" },
+  { number: 42, name: "Electrical - Final" },
+  { number: 43, name: "Plumbing - Final" },
+  { number: 44, name: "HVAC - Final" },
+  { number: 45, name: "Hardware" },
+  { number: 46, name: "Garage door - Final (operator/opener)" },
+  { number: 47, name: "Appliances" },
+  { number: 48, name: "Mirrors/Glass" },
+  { number: 49, name: "Paint - interior finish & touch‑ups" },
+  { number: 50, name: "Gutter install" },
+  { number: 51, name: "Landscape - Final" },
+  { number: 52, name: "Construction Clean - 7/7 - Final" },
+  { number: 53, name: "Punch list & touch‑ups" },
+  { number: 54, name: "Final Clean" },
+  { number: 55, name: "Final inspections & utility releases" },
 ];
 
 // ---- Tabs ----
@@ -513,7 +514,7 @@ export default function ProjectDetailClient({
         {/* Build Stages Tab */}
         {activeTab === "build_stages" && (
           <div className="space-y-2">
-            <p className="text-xs text-gray-400 mb-3">54-stage master build tracker. Click the pencil to update status and dates for each stage.</p>
+            <p className="text-xs text-gray-400 mb-3">55-stage master build tracker. Click the pencil to update status and dates for each stage.</p>
             {MASTER_BUILD_STAGES.map((ms) => (
               <BuildStageRow
                 key={ms.number}

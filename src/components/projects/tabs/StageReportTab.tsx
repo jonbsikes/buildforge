@@ -263,7 +263,7 @@ function ResetScheduleButton({ projectId }: { projectId: string }) {
 // ---------------------------------------------------------------------------
 // Date correctness detection
 // Home construction schedule is 152 days: start_date + 151 = final planned_end_date.
-// If stage 54's planned_end_date doesn't match, the stored dates are stale.
+// If stage 55's planned_end_date doesn't match, the stored dates are stale.
 // ---------------------------------------------------------------------------
 
 function addDaysStr(dateStr: string, days: number): string {
@@ -274,10 +274,10 @@ function addDaysStr(dateStr: string, days: number): string {
 
 function hasOutOfSpecDates(stages: StageRow[], startDate: string | null): boolean {
   if (!startDate) return false;
-  const stage54 = stages.find((s) => s.stage_number === 54);
-  if (!stage54 || !stage54.planned_end_date) return false;
+  const stage55 = stages.find((s) => s.stage_number === 55);
+  if (!stage55 || !stage55.planned_end_date) return false;
   const expectedEnd = addDaysStr(startDate, 151); // day 152 = offset 151
-  return stage54.planned_end_date !== expectedEnd;
+  return stage55.planned_end_date !== expectedEnd;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
           <div>
             <p className="font-medium">Build schedule dates are out of sync</p>
             <p className="mt-0.5 text-amber-700 text-xs">
-              Stage dates don&apos;t match the master 152-day schedule (start + 151 days for Stage 54).
+              Stage dates don&apos;t match the master 152-day schedule (start + 151 days for Stage 55).
               Click <span className="font-semibold">Reset Schedule</span> to recalculate all planned dates from the project start date.
             </p>
           </div>

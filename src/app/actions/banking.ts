@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Bank Accounts
@@ -18,6 +19,9 @@ export interface BankAccountInput {
 export async function createBankAccount(
   input: BankAccountInput
 ): Promise<{ error?: string; id?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -42,6 +46,9 @@ export async function updateBankAccount(
   id: string,
   input: BankAccountInput
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -62,6 +69,9 @@ export async function updateBankAccount(
 }
 
 export async function deleteBankAccount(id: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -94,6 +104,9 @@ export interface LoanInput {
 export async function createLoan(
   input: LoanInput
 ): Promise<{ error?: string; id?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -182,6 +195,9 @@ export async function updateLoan(
   id: string,
   input: LoanInput
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -221,6 +237,9 @@ export async function updateLoan(
 }
 
 export async function deleteLoan(id: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -258,6 +277,9 @@ export interface AccrueInterestInput {
 export async function accrueConstructionInterest(
   input: AccrueInterestInput
 ): Promise<{ error?: string; journalEntryId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
@@ -354,6 +376,9 @@ export interface LotCostInput {
 export async function recordLotCost(
   input: LotCostInput
 ): Promise<{ error?: string; journalEntryId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };

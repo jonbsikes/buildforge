@@ -27,6 +27,7 @@ Extract structured data from the provided invoice PDF and return ONLY valid JSON
 - Dates must be YYYY-MM-DD format; if year is ambiguous use current year
 - If the invoice shows "terms", "payment terms", "net", or similar followed by a number (e.g. "Net 30", "Terms: 45", "Payment Terms: 60"), set due_date = invoice_date + that number of days
 - If due_date is not stated and no payment terms found, set it to invoice_date + 30 days
+- IMPORTANT: due_date must ALWAYS be at least 7 days after invoice_date. If the calculated or stated due_date is less than invoice_date + 7 days, override it to invoice_date + 7 days
 - All amount values must be plain numbers (no $ signs, no commas)
 - ai_confidence: "high" = all key fields clearly readable; "medium" = some fields estimated/unclear; "low" = vendor, amount, or date unreadable/conflicting
 - ai_notes: brief explanation only if confidence is medium or low; empty string otherwise
@@ -172,6 +173,13 @@ export async function POST(req: NextRequest) {
       if (!inv.vendor || !inv.total_amount) {
         inv.ai_confidence = "low";
         inv.ai_notes = ((inv.ai_notes ?? "") + " Key fields missing or unreadable.").trim();
+      }
+      // Enforce 7-day minimum due date from invoice_date
+      if (inv.invoice_date && inv.due_date) {
+        const minDue = new Date(inv.invoice_date + "T00:00:00");
+        minDue.setDate(minDue.getDate() + 7);
+        const minDueStr = minDue.toISOString().split("T")[0];
+        if (inv.due_date < minDueStr) inv.due_date = minDueStr;
       }
     });
 

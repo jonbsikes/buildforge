@@ -1783,6 +1783,35 @@ export type Database = {
           },
         ]
       }
+      user_profiles: {
+        Row: {
+          id: string
+          display_name: string
+          role: string
+          created_at: string
+        }
+        Insert: {
+          id: string
+          display_name: string
+          role?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          display_name?: string
+          role?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendors: {
         Row: {
           accounting_contact_email: string | null
