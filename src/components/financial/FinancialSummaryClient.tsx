@@ -19,8 +19,8 @@ interface ProjectRow {
 interface SummaryData {
   cash: number;
   totalWIP: number;
-  landInventory: number;
   totalAssets: number;
+  totalLiabilities: number;
   totalLoans: number;
   totalEquity: number;
   apOutstanding: number;
@@ -35,16 +35,14 @@ export default function FinancialSummaryClient() {
     async function load() {
       const supabase = createClient();
 
-      // Fetch all GL data and AP invoices in parallel
-      const [ledgerRes, invoicesRes, projectsRes] = await Promise.all([
+      // Fetch all GL data, loans, and projects in parallel
+      const [ledgerRes, loansRes, projectsRes] = await Promise.all([
         supabase.from("journal_entry_lines").select(`
           debit, credit, project_id,
           account:chart_of_accounts(account_number, name, type),
           journal_entry:journal_entries(id, entry_date, status)
         `),
-        supabase.from("invoices")
-          .select("amount, status, project_id")
-          .in("status", ["pending_review", "approved", "released"]),
+        supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
         supabase.from("projects").select("id, name").order("name"),
       ]);
 
@@ -70,11 +68,21 @@ export default function FinancialSummaryClient() {
       };
 
       const cash = getBalance("1000");
-      const landInventory = getBalance("1200");
-      const wip = getBalance("1210");
+      const wip1210 = getBalance("1210");
+      const wip1230 = getBalance("1230");
       const capInterest = getBalance("1220");
-      const totalWIP = wip + capInterest;
-      const totalLoans = getBalance("2100");
+      const totalWIP = wip1210 + wip1230 + capInterest;
+
+      // Construction Loans: sum all loan payable accounts (2100 fallback + 220x per-loan accounts)
+      let totalLoans = 0;
+      for (const [acctNum, a] of Object.entries(acctTotals)) {
+        if (a.type === "liability" && acctNum >= "2100") {
+          totalLoans += a.credit - a.debit;
+        }
+      }
+
+      // AP Outstanding from GL account 2000 (consistent with balance sheet)
+      const apOutstanding = getBalance("2000");
 
       // Calculate total assets and equity from all accounts
       let totalAssets = 0;
@@ -93,12 +101,8 @@ export default function FinancialSummaryClient() {
       }
       const totalEquity = totalEquityAccounts + retainedEarnings;
 
-      // AP outstanding from invoices table (not in GL yet)
-      const apOutstanding = (invoicesRes.data ?? []).reduce((s: number, i: any) => s + (i.amount ?? 0), 0);
-
-      // WIP and loan balance per project from GL
+      // WIP per project from GL (1210 + 1220 + 1230)
       const projectWIP: Record<string, number> = {};
-      const projectLoans: Record<string, number> = {};
       for (const line of lines) {
         const acc = line.account as any;
         if (!acc || !line.project_id) continue;
@@ -106,11 +110,16 @@ export default function FinancialSummaryClient() {
         const debit = Number(line.debit ?? 0);
         const credit = Number(line.credit ?? 0);
 
-        if (acc.account_number === "1210" || acc.account_number === "1220") {
+        if (acc.account_number === "1210" || acc.account_number === "1220" || acc.account_number === "1230") {
           projectWIP[pid] = (projectWIP[pid] ?? 0) + debit - credit;
         }
-        if (acc.account_number === "2100") {
-          projectLoans[pid] = (projectLoans[pid] ?? 0) + credit - debit;
+      }
+
+      // Loan balance per project from loans table (loan JEs don't carry project_id)
+      const projectLoans: Record<string, number> = {};
+      for (const loan of loansRes.data ?? []) {
+        if (loan.project_id) {
+          projectLoans[loan.project_id] = (projectLoans[loan.project_id] ?? 0) + (loan.current_balance ?? 0);
         }
       }
 
@@ -124,7 +133,7 @@ export default function FinancialSummaryClient() {
         }))
         .filter(p => Math.abs(p.wip_balance) > 0.01 || Math.abs(p.loan_balance) > 0.01);
 
-      setData({ cash, totalWIP, landInventory, totalAssets, totalLoans, totalEquity, apOutstanding, projectRows });
+      setData({ cash, totalWIP, totalAssets, totalLiabilities, totalLoans, totalEquity, apOutstanding, projectRows });
       setLoading(false);
     }
     load();
@@ -149,11 +158,11 @@ export default function FinancialSummaryClient() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <KpiCard label="Cash on Hand" value={fmt(data.cash)} color="text-green-600" />
-            <KpiCard label="Construction WIP" value={fmt(data.totalWIP)} color="text-[#4272EF]" />
-            <KpiCard label="Land Inventory" value={fmt(data.landInventory)} color="text-[#4272EF]" />
+            <KpiCard label="Total WIP / CIP" value={fmt(data.totalWIP)} color="text-[#4272EF]" />
             <KpiCard label="Total Assets" value={fmt(data.totalAssets)} color="text-gray-800" />
             <KpiCard label="Construction Loans" value={fmt(data.totalLoans)} color="text-amber-600" />
             <KpiCard label="AP Outstanding" value={fmt(data.apOutstanding)} color="text-red-600" />
+            <KpiCard label="Total Liabilities" value={fmt(data.totalLiabilities)} color="text-amber-600" />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -163,8 +172,8 @@ export default function FinancialSummaryClient() {
             </div>
             <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
               <p className="text-xs text-gray-500 mb-1">Balance Check (A − L − E)</p>
-              <p className={`text-xl font-semibold ${Math.abs(data.totalAssets - data.totalLoans - data.totalEquity - data.apOutstanding) < 1 ? "text-green-600" : "text-amber-600"}`}>
-                {Math.abs(data.totalAssets - data.totalLoans - data.totalEquity - data.apOutstanding) < 1 ? "✓ Balanced" : fmt(data.totalAssets - data.totalLoans - data.totalEquity)}
+              <p className={`text-xl font-semibold ${Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1 ? "text-green-600" : "text-amber-600"}`}>
+                {Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1 ? "✓ Balanced" : fmt(data.totalAssets - data.totalLiabilities - data.totalEquity)}
               </p>
             </div>
           </div>
