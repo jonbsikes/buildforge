@@ -52,4 +52,8 @@ export async function requireAdmin(): Promise<{ authorized: boolean; error?: str
   }
 
   if (profile.role !== "admin") {
-    return { authorized: false, error: "You don't have permission to perform 
+    return { authorized: false, error: "You don't have permission to perform this action" };
+  }
+
+  return { authorized: true };
+}

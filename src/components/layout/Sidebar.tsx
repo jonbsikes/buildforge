@@ -293,4 +293,19 @@ export default function Sidebar() {
       </aside>
 
       {/* Mobile overlay */}
-    
+      {isOpen && (
+        <div data-sidebar className="lg:hidden fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50"
+            onClick={close}
+          />
+          {/* Drawer */}
+          <aside className="relative w-72 bg-gray-900 flex flex-col flex-shrink-0 overflow-y-auto">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+    </>
+  );
+}

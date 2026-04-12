@@ -834,4 +834,27 @@ export default function JournalEntriesClient() {
                               ))}
                             </tbody>
                             <tfoot>
-                   
+                              <tr className="border-t border-gray-200">
+                                <td colSpan={4} className="pt-2 text-gray-500 font-medium">Total</td>
+                                <td className="pt-2 text-right text-gray-900 font-semibold pr-4">
+                                  ${fmt(entry.lines.reduce((s, l) => s + Number(l.debit), 0))}
+                                </td>
+                                <td className="pt-2 text-right text-gray-900 font-semibold">
+                                  ${fmt(entry.lines.reduce((s, l) => s + Number(l.credit), 0))}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

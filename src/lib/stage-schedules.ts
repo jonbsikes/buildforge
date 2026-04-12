@@ -260,4 +260,7 @@ export function calculateLandDevDates(
 }
 
 // ---------------------------------------------------------------------------
-// Legacy shim —
+// Legacy shim — kept so existing callers don't break during migration.
+// Delegates to the correct function based on stage count.
+// ---------------------------------------------------------------------------
+export { calculateHomeConstructionDates as calculateStageDates };

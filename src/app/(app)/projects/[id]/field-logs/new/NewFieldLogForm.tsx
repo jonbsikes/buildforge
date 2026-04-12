@@ -183,4 +183,11 @@ export default function NewFieldLogForm({ projectId, userId }: { projectId: stri
         <button
           type="button"
           onClick={() => router.back()}
-          c
+          className="px-5 py-2.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}

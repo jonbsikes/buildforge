@@ -107,3 +107,10 @@ export default function AdjustVendorAmountForm({ vendorPaymentId, currentAmount 
           <X size={13} />
         </button>
       </div>
+
+      {error && (
+        <span className="text-xs text-red-600">{error}</span>
+      )}
+    </form>
+  );
+}

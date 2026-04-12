@@ -45,11 +45,12 @@ function DisputedActions({
         <p className="text-xs text-gray-500 mt-1">No payment actions available. Choose how to resolve:</p>
       </div>
 
+      {/* Option 1: Void after draw — drawn on but vendor won't be paid */}
       <div className="border border-orange-100 rounded-lg p-4 space-y-2">
-        <p className="text-sm font-medium text-orange-700">Void - Bank drew on this, vendor won&apos;t be paid</p>
+        <p className="text-sm font-medium text-orange-700">Void — Bank drew on this, vendor won&apos;t be paid</p>
         <p className="text-xs text-gray-500">
           Posts <strong>DR Accounts Payable / CR WIP</strong> to clear the AP balance and reduce project cost.
-          Cash and loan payable are unaffected - the draw stays on the books.
+          Cash and loan payable are unaffected — the draw stays on the books.
         </p>
         {!showVoidDrawn ? (
           <button
@@ -70,7 +71,7 @@ function DisputedActions({
                 disabled={isPending}
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors disabled:opacity-60"
               >
-                {isPending ? "Posting..." : "Confirm Void"}
+                {isPending ? "Posting…" : "Confirm Void"}
               </button>
               <button
                 onClick={() => setShowVoidDrawn(false)}
@@ -83,8 +84,9 @@ function DisputedActions({
         )}
       </div>
 
+      {/* Option 2: Simple void — never drawn, just close it out */}
       <div className="border border-gray-100 rounded-lg p-4 space-y-2">
-        <p className="text-sm font-medium text-gray-700">Void - Invoice was never drawn or paid</p>
+        <p className="text-sm font-medium text-gray-700">Void — Invoice was never drawn or paid</p>
         <p className="text-xs text-gray-500">
           Reverses any posted WIP/AP entry and marks the invoice void. Use this if the invoice was
           not included in a funded draw.
@@ -94,7 +96,7 @@ function DisputedActions({
           disabled={isPending}
           className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-60"
         >
-          {isPending ? "Voiding..." : "Void Invoice"}
+          {isPending ? "Voiding…" : "Void Invoice"}
         </button>
       </div>
 
@@ -119,7 +121,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
   if (status === "cleared") {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <p className="text-sm text-green-600 font-medium">Check cleared - invoice closed.</p>
+        <p className="text-sm text-green-600 font-medium">✓ Check cleared — invoice closed.</p>
         {existingDiscount != null && existingDiscount > 0 && (
           <p className="text-xs text-green-600 mt-1">
             Early-pay discount taken: {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(existingDiscount)}
@@ -178,6 +180,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
     <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
       <h3 className="text-sm font-semibold text-gray-700">Actions</h3>
 
+      {/* Step 1: approved → released (check written, DR AP / CR 2050) */}
       {status === "approved" && !showClearForm && !showReleaseForm && (
         <div className="space-y-2">
           <button
@@ -222,7 +225,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
               disabled={isPending}
               className="px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
             >
-              {isPending ? "Saving..." : "Confirm Issue Check"}
+              {isPending ? "Saving…" : "Confirm Issue Check"}
             </button>
             <button
               onClick={() => { setShowReleaseForm(false); setDiscountAmount(""); }}
@@ -234,6 +237,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
         </div>
       )}
 
+      {/* Step 2: released → cleared (check clears bank, DR 2050 / CR Cash) */}
       {status === "released" && !showClearForm && (
         <div className="space-y-2">
           <button
@@ -249,7 +253,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
 
       {showClearForm && (
         <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <p className="text-sm font-medium text-gray-700">Check Cleared - Record Bank Date</p>
+          <p className="text-sm font-medium text-gray-700">Check Cleared — Record Bank Date</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Date Cleared</label>
@@ -280,7 +284,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
               disabled={isPending}
               className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-60"
             >
-              {isPending ? "Saving..." : "Confirm Cleared"}
+              {isPending ? "Saving…" : "Confirm Cleared"}
             </button>
             <button
               onClick={() => setShowClearForm(false)}

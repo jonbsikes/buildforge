@@ -163,4 +163,14 @@ export default function TodosClient({ projectId, todos: initial }: { projectId: 
                     disabled={updating === todo.id}
                     className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${statusStyles[todo.status]} hover:opacity-80`}
                   >
-                    {sta
+                    {statusLabels[todo.status]}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}

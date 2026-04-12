@@ -200,4 +200,15 @@ export default function DrawPrintClient({
       {notes && (
         <div style={{ marginTop: 24, padding: "12px 16px", border: "1px solid #e2e8f0", borderRadius: 6 }}>
           <p style={{ fontSize: "9pt", textTransform: "uppercase", letterSpacing: ".05em", color: "#94a3b8", marginBottom: 6 }}>Notes</p>
-          <
+          <p>{notes}</p>
+        </div>
+      )}
+
+      <div className="doc-footer">
+        <span>{drawName} &middot; {lenderName}</span>
+        <span>Generated {drawDate}</span>
+      </div>
+
+    </div>
+  );
+}

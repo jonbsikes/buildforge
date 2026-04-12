@@ -904,4 +904,31 @@ function NewPaymentModal({
 
       {/* Footer */}
       <div className="flex items-center justify-between">
-       
+        <div>
+          {selectedInvoices.size > 0 && (
+            <p className="text-sm font-semibold text-gray-900">
+              Total: {fmt(selectedTotal)}
+            </p>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isPending || selectedInvoices.size === 0}
+            className="px-5 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] disabled:opacity-50 transition-colors"
+          >
+            {isPending
+              ? "Processing..."
+              : `Record Payment${selectedInvoices.size > 0 ? ` (${fmt(selectedTotal)})` : ""}`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

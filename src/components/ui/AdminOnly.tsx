@@ -12,4 +12,5 @@ export default function AdminOnly({ children }: { children: React.ReactNode }) {
 
   if (loading || !isAdmin) return null;
 
-  return <>{ch
+  return <>{children}</>;
+}

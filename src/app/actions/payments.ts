@@ -569,4 +569,32 @@ export async function getPayableInvoices(): Promise<{
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  // Get invoices that are approved (ready for payment) or released 
+  // Get invoices that are approved (ready for payment) or released (checks already issued but could be re-linked)
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(`
+      id, vendor, vendor_id, invoice_number, invoice_date, due_date,
+      amount, total_amount, project_id,
+      projects ( name ),
+      cost_codes ( code )
+    `)
+    .in("status", ["approved"])
+    .order("due_date", { ascending: true, nullsFirst: false });
+
+  if (error) return { error: error.message };
+
+  const invoices = (data ?? []).map((inv) => ({
+    id: inv.id,
+    vendor: inv.vendor,
+    vendor_id: inv.vendor_id,
+    invoice_number: inv.invoice_number,
+    invoice_date: inv.invoice_date,
+    due_date: inv.due_date,
+    amount: (inv.total_amount ?? inv.amount ?? 0) as number,
+    project_name: (inv.projects as { name: string } | null)?.name ?? null,
+    project_id: inv.project_id,
+    cost_code: (inv.cost_codes as { code: number } | null)?.code?.toString() ?? null,
+  }));
+
+  return { invoices };
+}

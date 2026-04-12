@@ -1,10 +1,9 @@
 // @ts-nocheck
 "use client";
 
-import { useEffect, useState, useCallback, ReactNode } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { X, ChevronDown } from "lucide-react";
-import ReportChrome from "@/components/ui/ReportChrome";
+import { FileDown, X, ChevronDown } from "lucide-react";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -128,40 +127,65 @@ export default function IncomeStatementClient() {
 
   useEffect(() => { load(); }, [load]);
 
+  const rangeLabel = preset === "custom"
+    ? `${customStart} – ${customEnd}`
+    : preset.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
   return (
-    <ReportChrome
-      title="Income Statement"
-      showDateRange={true}
-      dateMode="range"
-      onDateChange={(range) => {
-        setPreset("custom");
-        setCustomStart(range.start);
-        setCustomEnd(range.end);
-      }}
-      loading={loading}
-    >
-      {!data ? null : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="p-6 space-y-6">
-            <ISSection title="Revenue" lines={data.revenue} total={data.totalRevenue} totalLabel="Total Revenue" onDrill={setDrillEntry} colorClass="text-green-700" />
-            <ISSection title="Cost of Goods Sold" lines={data.cogs} total={data.totalCOGS} totalLabel="Total COGS" onDrill={setDrillEntry} colorClass="text-red-700" />
-            <div className="flex justify-between items-center border-t border-gray-200 pt-3">
-              <span className="font-semibold text-gray-800 text-sm">Gross Profit</span>
-              <span className={`font-semibold text-sm ${data.grossProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(data.grossProfit)}</span>
+    <>
+      <div className="max-w-4xl mx-auto">
+        <div className="flex flex-wrap items-center gap-3 mb-6 print:hidden">
+          <div className="flex items-center gap-2">
+            {(["this_month", "this_quarter", "this_year", "all_time", "custom"] as DatePreset[]).map(p => (
+              <button key={p} onClick={() => setPreset(p)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${preset === p ? "bg-[#4272EF] text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                {p.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
+              </button>
+            ))}
+          </div>
+          {preset === "custom" && (
+            <div className="flex items-center gap-2">
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs" />
+              <span className="text-gray-400 text-xs">to</span>
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-xs" />
             </div>
-            <ISSection title="Operating Expenses" lines={data.expenses} total={data.totalExpenses} totalLabel="Total Operating Expenses" onDrill={setDrillEntry} colorClass="text-orange-700" />
-            <div className="border-t-2 border-[#4272EF]/20 pt-4">
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-gray-900 text-base">Net Income</span>
-                <span className={`font-bold text-base tabular-nums ${data.netIncome >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(data.netIncome)}</span>
+          )}
+          <div className="ml-auto">
+            <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              <FileDown size={15} /> Export PDF
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
+        ) : !data ? null : (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 text-center" style={{ backgroundColor: "#4272EF" }}>
+              <h2 className="text-base font-bold text-white">Income Statement</h2>
+              <p className="text-xs text-blue-100 mt-0.5">{rangeLabel}</p>
+            </div>
+            <div className="p-6 space-y-6">
+              <ISSection title="Revenue" lines={data.revenue} total={data.totalRevenue} totalLabel="Total Revenue" onDrill={setDrillEntry} colorClass="text-green-700" />
+              <ISSection title="Cost of Goods Sold" lines={data.cogs} total={data.totalCOGS} totalLabel="Total COGS" onDrill={setDrillEntry} colorClass="text-red-700" />
+              <div className="flex justify-between items-center border-t border-gray-200 pt-3">
+                <span className="font-semibold text-gray-800 text-sm">Gross Profit</span>
+                <span className={`font-semibold text-sm ${data.grossProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(data.grossProfit)}</span>
+              </div>
+              <ISSection title="Operating Expenses" lines={data.expenses} total={data.totalExpenses} totalLabel="Total Operating Expenses" onDrill={setDrillEntry} colorClass="text-orange-700" />
+              <div className="border-t-2 border-gray-300 pt-4">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-gray-900 text-base">Net Income</span>
+                  <span className={`font-bold text-base ${data.netIncome >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(data.netIncome)}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {drillEntry && <DrillPanel line={drillEntry} onClose={() => setDrillEntry(null)} />}
-    </ReportChrome>
+      {drillEntry && <DrillModal line={drillEntry} onClose={() => setDrillEntry(null)} />}
+    </>
   );
 }
 
@@ -176,77 +200,67 @@ function ISSection({ title, lines, total, totalLabel, onDrill, colorClass }: {
         <p className="text-sm text-gray-400 py-2 pl-2">No entries for this period.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm mb-2">
-            <tbody>
-              {lines.map((line, idx) => (
-                <tr
-                  key={line.account}
-                  className={`border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors group ${idx % 2 === 0 ? "bg-gray-50/50" : ""}`}
-                  onClick={() => onDrill(line)}
-                >
-                  <td className="py-2 pl-4 text-gray-700 flex items-center gap-1">
-                    {line.account}
-                    <ChevronDown size={12} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </td>
-                  <td className="py-2 pr-2 text-right font-medium text-gray-800 tabular-nums">{fmt(line.total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <table className="w-full text-sm mb-2">
+          <tbody>
+            {lines.map(line => (
+              <tr key={line.account} className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors group" onClick={() => onDrill(line)}>
+                <td className="py-2 pl-4 text-gray-700 flex items-center gap-1">
+                  {line.account}
+                  <ChevronDown size={12} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </td>
+                <td className="py-2 pr-2 text-right font-medium text-gray-800">{fmt(line.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         </div>
       )}
-      <div className="flex justify-between items-center border-t-2 border-[#4272EF]/20 pt-2">
+      <div className="flex justify-between items-center border-t border-gray-200 pt-2">
         <span className="text-sm font-semibold text-gray-700">{totalLabel}</span>
-        <span className={`text-sm font-semibold tabular-nums ${colorClass}`}>{fmt(total)}</span>
+        <span className={`text-sm font-semibold ${colorClass}`}>{fmt(total)}</span>
       </div>
     </div>
   );
 }
 
-function DrillPanel({ line, onClose }: { line: AccountLine; onClose: () => void }) {
+function DrillModal({ line, onClose }: { line: AccountLine; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex justify-end animate-fade-in" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
-      <div
-        className="relative w-full max-w-xl bg-white shadow-2xl flex flex-col animate-slide-in-right"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-[#4272EF]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100" style={{ backgroundColor: "#4272EF" }}>
           <div>
             <h3 className="font-semibold text-white">{line.account}</h3>
             <p className="text-xs text-blue-100 mt-0.5">{line.entries.length} entries · Total: {fmtFull(line.total)}</p>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white transition-colors">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={18} /></button>
         </div>
         <div className="overflow-auto flex-1">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
-                <tr className="text-xs text-gray-500 uppercase tracking-wide">
-                  <th className="px-5 py-3 text-left">Date</th>
-                  <th className="px-5 py-3 text-left">Ref</th>
-                  <th className="px-5 py-3 text-left">Description</th>
-                  <th className="px-5 py-3 text-right">Amount</th>
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-gray-50 border-b border-gray-100">
+              <tr className="text-xs text-gray-500 uppercase tracking-wide">
+                <th className="px-5 py-3 text-left">Date</th>
+                <th className="px-5 py-3 text-left">Ref</th>
+                <th className="px-5 py-3 text-left">Description</th>
+                <th className="px-5 py-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {line.entries.map((e, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.date}</td>
+                  <td className="px-5 py-2.5 text-gray-400 font-mono text-xs">{e.reference ?? "—"}</td>
+                  <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
+                  <td className="px-5 py-2.5 text-right font-medium text-gray-800">{fmtFull(e.amount)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {line.entries.map((e, i) => (
-                  <tr key={i} className={`border-b border-gray-50 ${i % 2 === 0 ? "bg-gray-50/50" : ""}`}>
-                    <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.date}</td>
-                    <td className="px-5 py-2.5 text-gray-400 font-mono text-xs">{e.reference ?? "—"}</td>
-                    <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
-                    <td className="px-5 py-2.5 text-right font-medium text-gray-800 tabular-nums">{fmtFull(e.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </table>
           </div>
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
           <span className="text-sm font-semibold text-gray-700">Total</span>
-          <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtFull(line.total)}</span>
+          <span className="text-sm font-semibold text-gray-900">{fmtFull(line.total)}</span>
         </div>
       </div>
     </div>

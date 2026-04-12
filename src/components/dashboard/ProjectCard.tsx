@@ -1,8 +1,22 @@
 import Link from "next/link";
-import { HardHat, TreePine, ClipboardList } from "lucide-react";
-import ProgressRing from "@/components/ui/ProgressRing";
-import BudgetBar from "@/components/ui/BudgetBar";
-import StageStrip, { type StageStripStage } from "@/components/ui/StageStrip";
+import {
+  ChevronRight,
+  Clock,
+  HardHat,
+  TreePine,
+  CheckCircle2,
+  Circle,
+  AlertCircle,
+  ClipboardList,
+} from "lucide-react";
+
+function fmt(n: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
 
 function fmtDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", {
@@ -17,6 +31,18 @@ function daysAgo(d: string) {
   );
 }
 
+const STAGE_STATUS_ICON: Record<string, React.ReactNode> = {
+  complete: <CheckCircle2 size={14} className="text-green-500" />,
+  in_progress: <Circle size={14} className="text-[#4272EF] fill-[#4272EF]" />,
+  delayed: <AlertCircle size={14} className="text-amber-500" />,
+  not_started: <Circle size={14} className="text-gray-300" />,
+};
+
+const PROJECT_TYPE_ICON: Record<string, React.ReactNode> = {
+  home_construction: <HardHat size={16} className="text-[#4272EF]" />,
+  land_development: <TreePine size={16} className="text-emerald-600" />,
+};
+
 export interface ProjectCardProps {
   project: {
     id: string;
@@ -24,7 +50,6 @@ export interface ProjectCardProps {
     project_type: string;
     address: string | null;
     start_date: string | null;
-    subdivision: string | null;
     block: string | null;
     lot: string | null;
     plan: string | null;
@@ -45,99 +70,124 @@ export interface ProjectCardProps {
   budget: number;
   spent: number;
   todoCount: number;
-  extStages?: StageStripStage[];
-  intStages?: StageStripStage[];
-  delayedCount?: number;
 }
 
 export default function ProjectCard({
   project,
+  currentStage,
+  nextStage,
   progress,
   budget,
   spent,
   todoCount,
-  extStages = [],
-  intStages = [],
-  delayedCount = 0,
 }: ProjectCardProps) {
-  const daysUnder = project.start_date ? daysAgo(project.start_date) : null;
-  const isHome = project.project_type === "home_construction";
+  const daysUnderConstruction = project.start_date
+    ? daysAgo(project.start_date)
+    : null;
+  const isOver = budget > 0 && spent > budget;
 
-  const subtitle = isHome
-    ? [
-        project.block && project.lot
-          ? `Block ${project.block}, Lot ${project.lot}`
-          : null,
-        project.plan,
-        project.home_size_sf
-          ? `${project.home_size_sf.toLocaleString()} SF`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" \u00b7 ") || (project.address ?? "")
-    : [
-        project.size_acres ? `${project.size_acres} acres` : null,
-        project.number_of_lots ? `${project.number_of_lots} lots` : null,
-      ]
-        .filter(Boolean)
-        .join(" \u00b7 ") || (project.address ?? "");
+  const subtitle =
+    project.project_type === "home_construction"
+      ? [
+          project.block && project.lot
+            ? `Blk ${project.block} / Lot ${project.lot}`
+            : null,
+          project.plan,
+          project.home_size_sf
+            ? `${project.home_size_sf.toLocaleString()} SF`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" \u00b7 ") || (project.address ?? "")
+      : [
+          project.size_acres ? `${project.size_acres} acres` : null,
+          project.number_of_lots ? `${project.number_of_lots} lots` : null,
+        ]
+          .filter(Boolean)
+          .join(" \u00b7 ") || (project.address ?? "");
 
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="block bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all group"
+      className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-[#4272EF]/30 hover:shadow-sm transition-all group"
     >
-      {/* Header: name + progress ring */}
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0 mr-3">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            {isHome ? (
-              <HardHat size={13} className="text-[#4272EF] shrink-0" />
-            ) : (
-              <TreePine size={13} className="text-emerald-500 shrink-0" />
-            )}
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider truncate">
-              {project.subdivision || (isHome ? "Home" : "Land Dev")}
-            </span>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            {PROJECT_TYPE_ICON[project.project_type]}
+            <h3 className="text-sm font-semibold text-gray-900 truncate group-hover:text-[#4272EF] transition-colors">
+              {project.name}
+            </h3>
           </div>
-          <h3 className="text-sm font-bold text-gray-900 truncate group-hover:text-[#4272EF] transition-colors">
-            {project.name}
-          </h3>
           {subtitle && (
             <p className="text-xs text-gray-400 truncate">{subtitle}</p>
           )}
         </div>
-        <ProgressRing progress={progress} size={48} strokeWidth={4} />
+        {daysUnderConstruction !== null && daysUnderConstruction >= 0 && (
+          <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 ml-2">
+            <Clock size={12} />
+            <span>Day {daysUnderConstruction}</span>
+          </div>
+        )}
       </div>
 
-      {/* Stage strip — the two-track EXT/INT view */}
-      {extStages.length > 0 && (
-        <div className="mb-3 py-2 px-2.5 bg-gray-50 rounded-lg">
-          <StageStrip
-            extStages={extStages}
-            intStages={intStages}
-            delayedCount={delayedCount}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-gray-500">Stage Progress</span>
+          <span className="text-xs font-medium text-gray-700">{progress}%</span>
+        </div>
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-[#4272EF] rounded-full transition-all"
+            style={{ width: `${progress}%` }}
           />
+        </div>
+      </div>
+
+      {currentStage && (
+        <div className="flex items-center gap-2 mb-2">
+          {STAGE_STATUS_ICON[currentStage.status] ?? STAGE_STATUS_ICON.not_started}
+          <span className="text-xs font-medium text-gray-700 truncate">
+            {currentStage.stage_name}
+          </span>
+          {currentStage.planned_end_date && (
+            <span className="text-xs text-gray-400 ml-auto shrink-0">
+              ends {fmtDate(currentStage.planned_end_date)}
+            </span>
+          )}
         </div>
       )}
 
-      {/* Budget bar */}
-      {budget > 0 ? (
-        <BudgetBar spent={spent} budget={budget} />
-      ) : (
-        <div className="text-xs text-gray-300 py-1">No budget set</div>
+      {nextStage && (
+        <div className="flex items-center gap-2 mb-3 opacity-60">
+          <ChevronRight size={14} className="text-gray-300" />
+          <span className="text-xs text-gray-500 truncate">
+            Next: {nextStage.stage_name}
+          </span>
+          {nextStage.planned_start_date && (
+            <span className="text-xs text-gray-400 ml-auto shrink-0">
+              {fmtDate(nextStage.planned_start_date)}
+            </span>
+          )}
+        </div>
       )}
 
-      {/* Footer: days + todos */}
-      <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-gray-100">
-        <span className="text-xs text-gray-400">
-          {daysUnder !== null && daysUnder >= 0
-            ? `${daysUnder} days`
-            : "Pre-construction"}
-        </span>
+      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+        {budget > 0 ? (
+          <div className="text-xs">
+            <span className="text-gray-500">
+              {fmt(spent)} / {fmt(budget)}
+            </span>
+            {isOver && (
+              <span className="ml-1 text-red-500 font-medium">Over</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-xs text-gray-300">No budget set</span>
+        )}
         {todoCount > 0 && (
-          <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
-            <ClipboardList size={11} />
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <ClipboardList size={12} />
             {todoCount} to-do{todoCount !== 1 ? "s" : ""}
           </span>
         )}

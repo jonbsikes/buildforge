@@ -3,8 +3,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { X } from "lucide-react";
-import ReportChrome from "@/components/ui/ReportChrome";
+import { FileDown, X, BookOpen } from "lucide-react";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -226,116 +225,131 @@ export default function BalanceSheetClient() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <ReportChrome
-      title="Balance Sheet"
-      showDateRange={true}
-      dateMode="asOf"
-      onAsOfChange={setAsOf}
-      loading={loading}
-    >
-      {!data ? null : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
-            {/* LEFT COLUMN - ASSETS */}
-            <div className="p-6">
-              <BSSectionHeader title="Assets" />
+    <>
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center gap-4 mb-6 print:hidden">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600 font-medium">As of:</label>
+            <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm" />
+          </div>
+          <div className="ml-auto">
+            <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              <FileDown size={15} /> Export PDF
+            </button>
+          </div>
+        </div>
 
-              {data.currentAssets.length > 0 && (
-                <BSGroup label="Current Assets" items={data.currentAssets.map(a => ({
-                  label: a.name,
-                  amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
-                }))} />
-              )}
-
-              {data.longTermAssets.length > 0 && (
-                <BSGroup label="Long-Term Assets" items={data.longTermAssets.map(a => ({
-                  label: a.name,
-                  amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
-                }))} />
-              )}
-
-              <TotalRow label="Total Assets" amount={data.totalAssets} />
+        {loading ? (
+          <div className="text-center py-16 text-gray-400 text-sm">Loading...</div>
+        ) : !data ? null : (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 text-center" style={{ backgroundColor: "#4272EF" }}>
+              <h2 className="text-base font-bold text-white">Balance Sheet</h2>
+              <p className="text-xs text-blue-100 mt-0.5">As of {asOf}</p>
             </div>
 
-            {/* RIGHT COLUMN - LIABILITIES & EQUITY */}
-            <div className="p-6">
-              <BSSectionHeader title="Liabilities" />
+            <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+              {/* LEFT COLUMN - ASSETS */}
+              <div className="p-6">
+                <BSSectionHeader title="Assets" />
 
-              <BSGroup label="Current Liabilities" items={[
-                ...data.currentLiabilities.map(a => ({
-                  label: a.name,
-                  amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
+                {data.currentAssets.length > 0 && (
+                  <BSGroup label="Current Assets" items={data.currentAssets.map(a => ({
                     label: a.name,
                     amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
-                })),
-              ]} />
-
-              {data.longTermLiabilities.length > 0 && (
-                <BSGroup label="Long-Term Liabilities" items={data.longTermLiabilities.map(a => ({
-                  label: a.name,
-                  amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
-                }))} />
-              )}
-
-              <TotalRow label="Total Liabilities" amount={data.totalLiabilities} />
-
-              <div className="mt-6">
-                <BSSectionHeader title="Equity" />
-                <BSGroup label="Member Capital (Net)" items={[
-                  ...data.equityAccounts.map(e => ({
-                    label: `${e.name}`,
-                    amount: e.balance,
-                    drillable: e.lines.length > 0,
+                    drillable: a.lines.length > 0,
                     onDrill: () => setDrill({
-                      label: e.name,
-                      amount: e.balance,
-                      entries: acctToGLEntries(e),
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
                     }),
-                  })),
-                  ...(Math.abs(data.retainedEarnings) > 0.01 ? [{
-                    label: "Retained Earnings (Net Income)",
-                    amount: data.retainedEarnings,
-                    drillable: false,
-                  }] : []),
-                ]} />
-                <TotalRow label="Total Equity" amount={data.totalEquity} />
-                <TotalRow label="Total Liabilities + Equity" amount={data.totalLiabilities + data.totalEquity} />
+                  }))} />
+                )}
+
+                {data.longTermAssets.length > 0 && (
+                  <BSGroup label="Long-Term Assets" items={data.longTermAssets.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  }))} />
+                )}
+
+                <TotalRow label="Total Assets" amount={data.totalAssets} />
               </div>
 
-              <div className={`mt-4 px-3 py-2 rounded-lg text-xs font-medium text-center ${Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)) < 1 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
-                {Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)) < 1
-                  ? "\u2713 Balance sheet is balanced"
-                  : `\u26A0 Difference: ${fmt(Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)))}`}
+              {/* RIGHT COLUMN - LIABILITIES & EQUITY */}
+              <div className="p-6">
+                <BSSectionHeader title="Liabilities" />
+
+                <BSGroup label="Current Liabilities" items={[
+                  ...data.currentLiabilities.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  })),
+                ]} />
+
+                {data.longTermLiabilities.length > 0 && (
+                  <BSGroup label="Long-Term Liabilities" items={data.longTermLiabilities.map(a => ({
+                    label: a.name,
+                    amount: a.balance,
+                    drillable: a.lines.length > 0,
+                    onDrill: () => setDrill({
+                      label: a.name,
+                      amount: a.balance,
+                      entries: acctToGLEntries(a),
+                    }),
+                  }))} />
+                )}
+
+                <TotalRow label="Total Liabilities" amount={data.totalLiabilities} />
+
+                <div className="mt-6">
+                  <BSSectionHeader title="Equity" />
+                  <BSGroup label="Member Capital (Net)" items={[
+                    ...data.equityAccounts.map(e => ({
+                      label: `${e.name}`,
+                      amount: e.balance,
+                      drillable: e.lines.length > 0,
+                      onDrill: () => setDrill({
+                        label: e.name,
+                        amount: e.balance,
+                        entries: acctToGLEntries(e),
+                      }),
+                    })),
+                    ...(Math.abs(data.retainedEarnings) > 0.01 ? [{
+                      label: "Retained Earnings (Net Income)",
+                      amount: data.retainedEarnings,
+                      drillable: false,
+                    }] : []),
+                  ]} />
+                  <TotalRow label="Total Equity" amount={data.totalEquity} />
+                  <TotalRow label="Total Liabilities + Equity" amount={data.totalLiabilities + data.totalEquity} />
+                </div>
+
+                <div className={`mt-4 px-3 py-2 rounded-lg text-xs font-medium text-center ${Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)) < 1 ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>
+                  {Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)) < 1
+                    ? "\u2713 Balance sheet is balanced"
+                    : `\u26A0 Difference: ${fmt(Math.abs(data.totalAssets - (data.totalLiabilities + data.totalEquity)))}`}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {drill && <BSdrillPanel item={drill} onClose={() => setDrill(null)} />}
-    </ReportChrome>
+      {drill && <BSdrillModal item={drill} onClose={() => setDrill(null)} />}
+    </>
   );
 }
 
@@ -374,23 +388,17 @@ function TotalRow({ label, amount }: { label: string; amount: number }) {
   );
 }
 
-function BSdrillPanel({ item, onClose }: { item: DrillItem; onClose: () => void }) {
+function BSdrillModal({ item, onClose }: { item: DrillItem; onClose: () => void }) {
   const isGLDrill = item.entries.length > 0 && item.entries[0].source_type === "journal_entry";
   return (
-    <div className="fixed inset-0 z-50 flex justify-end animate-fade-in" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
-      <div
-        className="relative w-full max-w-xl bg-white shadow-2xl flex flex-col animate-slide-in-right"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-[#4272EF]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100" style={{ backgroundColor: "#4272EF" }}>
           <div>
             <h3 className="font-semibold text-white">{item.label}</h3>
             <p className="text-xs text-blue-100 mt-0.5">{item.entries.length} entries · Balance: {fmtFull(item.amount)}</p>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white transition-colors">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} className="text-white/80 hover:text-white transition-colors"><X size={18} /></button>
         </div>
         <div className="overflow-auto flex-1">
           {item.entries.length === 0 ? (
@@ -408,16 +416,16 @@ function BSdrillPanel({ item, onClose }: { item: DrillItem; onClose: () => void 
                   </tr>
                 </thead>
                 <tbody>
-                  {item.entries.map((e, idx) => {
+                  {item.entries.map(e => {
                     const debit = e.amount > 0 ? e.amount : 0;
                     const credit = e.amount < 0 ? -e.amount : 0;
                     return (
-                      <tr key={e.id} className={`border-b border-gray-50 ${idx % 2 === 0 ? "bg-gray-50/50" : ""}`}>
+                      <tr key={e.id} className="border-b border-gray-50">
                         <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{e.entry_date}</td>
                         <td className="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap">{e.debit_account}</td>
                         <td className="px-4 py-2.5 text-gray-700">{e.description}</td>
-                        <td className="px-4 py-2.5 text-right font-medium text-gray-800 tabular-nums">{debit > 0 ? fmtFull(debit) : ""}</td>
-                        <td className="px-4 py-2.5 text-right font-medium text-gray-800 tabular-nums">{credit > 0 ? fmtFull(credit) : ""}</td>
+                        <td className="px-4 py-2.5 text-right font-medium text-gray-800">{debit > 0 ? fmtFull(debit) : ""}</td>
+                        <td className="px-4 py-2.5 text-right font-medium text-gray-800">{credit > 0 ? fmtFull(credit) : ""}</td>
                       </tr>
                     );
                   })}
@@ -435,11 +443,11 @@ function BSdrillPanel({ item, onClose }: { item: DrillItem; onClose: () => void 
                   </tr>
                 </thead>
                 <tbody>
-                  {item.entries.map((e, idx) => (
-                    <tr key={e.id} className={`border-b border-gray-50 ${idx % 2 === 0 ? "bg-gray-50/50" : ""}`}>
+                  {item.entries.map(e => (
+                    <tr key={e.id} className="border-b border-gray-50">
                       <td className="px-5 py-2.5 text-gray-500 whitespace-nowrap">{e.entry_date}</td>
                       <td className="px-5 py-2.5 text-gray-700">{e.description}</td>
-                      <td className="px-5 py-2.5 text-right font-medium text-gray-800 tabular-nums">{fmtFull(e.amount)}</td>
+                      <td className="px-5 py-2.5 text-right font-medium text-gray-800">{fmtFull(e.amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -449,7 +457,7 @@ function BSdrillPanel({ item, onClose }: { item: DrillItem; onClose: () => void 
         </div>
         <div className="flex justify-between items-center px-5 py-3 border-t border-gray-100 bg-gray-50">
           <span className="text-sm font-semibold text-gray-700">Balance</span>
-          <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtFull(item.amount)}</span>
+          <span className="text-sm font-semibold text-gray-900">{fmtFull(item.amount)}</span>
         </div>
       </div>
     </div>

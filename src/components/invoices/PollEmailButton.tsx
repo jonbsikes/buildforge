@@ -76,4 +76,10 @@ export default function PollEmailButton() {
         )}
       </button>
       {result && (
-        <div className="absolute right-0 top-full mt-2 bg-gray-900 text-white text-xs px-3 py-2 rounded-lg whitespace-nowrap 
+        <div className="absolute right-0 top-full mt-2 bg-gray-900 text-white text-xs px-3 py-2 rounded-lg whitespace-nowrap z-10 shadow-lg">
+          {result}
+        </div>
+      )}
+    </div>
+  );
+}
