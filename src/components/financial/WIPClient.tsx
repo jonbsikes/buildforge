@@ -26,7 +26,7 @@ interface WIPRow {
   remaining: number;
   loanAmount: number;
   underOver: number;
-  ledgerWip: number;           // net balance of 1210 + 1220 from journal entries
+  ledgerWip: number;           // net balance of 1210 + 1230 + 1220 from journal entries
   capitalizedInterest: number; // balance of 1220 specifically
 }
 
@@ -45,7 +45,7 @@ export default function WIPClient() {
         supabase.from("contracts").select("project_id, amount"),
         supabase.from("invoices").select("project_id, amount, total_amount").in("status", ["approved", "released", "cleared"]),
         supabase.from("loans").select("project_id, loan_amount"),
-        supabase.from("chart_of_accounts").select("id, account_number").in("account_number", ["1210", "1220"]),
+        supabase.from("chart_of_accounts").select("id, account_number").in("account_number", ["1210", "1220", "1230"]),
       ]);
 
       const projects = projectsRes.data ?? [];
@@ -75,13 +75,14 @@ export default function WIPClient() {
 
       // Pull ledger WIP balances (1210 + 1220) by project from posted journal entries
       const wipAcctId = (coaRes.data ?? []).find((a: any) => a.account_number === "1210")?.id;
+      const cipAcctId = (coaRes.data ?? []).find((a: any) => a.account_number === "1230")?.id;
       const intAcctId = (coaRes.data ?? []).find((a: any) => a.account_number === "1220")?.id;
 
       const ledgerWipMap: Record<string, number> = {};
       const capIntMap: Record<string, number> = {};
 
-      if (wipAcctId || intAcctId) {
-        const acctIds = [wipAcctId, intAcctId].filter(Boolean) as string[];
+      if (wipAcctId || cipAcctId || intAcctId) {
+        const acctIds = [wipAcctId, cipAcctId, intAcctId].filter(Boolean) as string[];
         const { data: ledgerLines } = await supabase
           .from("journal_entry_lines")
           .select("account_id, project_id, debit, credit, journal_entry:journal_entries(status)")
@@ -92,7 +93,7 @@ export default function WIPClient() {
           const pid = line.project_id;
           if (!pid) continue;
           const net = Number(line.debit) - Number(line.credit);
-          if (line.account_id === wipAcctId) ledgerWipMap[pid] = (ledgerWipMap[pid] ?? 0) + net;
+          if (line.account_id === wipAcctId || line.account_id === cipAcctId) ledgerWipMap[pid] = (ledgerWipMap[pid] ?? 0) + net;
           if (line.account_id === intAcctId) capIntMap[pid] = (capIntMap[pid] ?? 0) + net;
         }
       }
