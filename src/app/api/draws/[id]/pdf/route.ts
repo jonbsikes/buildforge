@@ -365,4 +365,15 @@ export async function GET(
   }
 
   const pdfBytes = await mergedDoc.save();
-  const drawName = drawDis
+  const drawName = drawDisplayName(draw.draw_date);
+  const filename = `Draw-Request-${draw.draw_date}.pdf`.replace(/\s+/g, "-");
+
+  return new NextResponse(Buffer.from(pdfBytes), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": pdfBytes.byteLength.toString(),
+    },
+  });
+}

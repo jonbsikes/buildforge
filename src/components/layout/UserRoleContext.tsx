@@ -52,4 +52,6 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function us
+export function useUserRole() {
+  return useContext(UserRoleContext);
+}

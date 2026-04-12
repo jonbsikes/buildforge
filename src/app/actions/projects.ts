@@ -351,4 +351,41 @@ export async function getInvoicesForCostCode(
   costCodeId: string
 ): Promise<{ error?: string; invoices?: CostCodeInvoice[] }> {
   const supabase = await createClient();
-  c
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data, error } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, vendor, invoice_date, due_date, amount, status, pending_draw")
+    .eq("project_id", projectId)
+    .eq("cost_code_id", costCodeId)
+    .not("status", "in", "(void,disputed)")
+    .order("invoice_date", { ascending: false });
+
+  if (error) return { error: error.message };
+  return { invoices: (data ?? []) as CostCodeInvoice[] };
+}
+
+// ---------------------------------------------------------------------------
+// deleteDocument
+// ---------------------------------------------------------------------------
+export async function deleteDocument(
+  docId: string,
+  storagePath: string,
+  projectId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+
+  // Delete from storage
+  const { error: storageErr } = await supabase.storage
+    .from("documents")
+    .remove([storagePath]);
+  if (storageErr) return { error: storageErr.message };
+
+  // Delete DB record
+  const { error } = await supabase.from("documents").delete().eq("id", docId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/projects/${projectId}`);
+  return {};
+}

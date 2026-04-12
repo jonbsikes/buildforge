@@ -243,4 +243,17 @@ export default function SubdivisionOverviewClient() {
 
                     {/* Recent field log */}
                     {home.recentLog && (
-                      <p className="text-xs text-gray-400 mt-2 line-clamp-2 border-t borde
+                      <p className="text-xs text-gray-400 mt-2 line-clamp-2 border-t border-gray-50 pt-2">
+                        {home.recentLog}
+                      </p>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}

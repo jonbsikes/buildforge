@@ -16,4 +16,7 @@ export default async function NewMilestonePage({ params }: { params: Promise<{ i
   return (
     <>
       <Header title="Add Milestone" />
-      <NewMilestoneForm stages={stages} 
+      <NewMilestoneForm stages={stages} />
+    </>
+  );
+}

@@ -262,4 +262,12 @@ export default function TaxExportClient() {
         <button
           onClick={exportAll}
           disabled={isPending}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#4272EF] t
+          className="flex items-center gap-2 px-5 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
+        >
+          <Download size={15} />
+          {isPending ? "Generating…" : `Download ${year} Tax Package`}
+        </button>
+      </div>
+    </div>
+  );
+}

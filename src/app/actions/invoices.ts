@@ -905,4 +905,103 @@ export async function advanceInvoiceStatus(
       const { data: je } = await supabase
         .from("journal_entries")
         .insert({
-     
+          entry_date: today,
+          reference: `CHK-ISSUED-${invoiceId.slice(0, 8)}`,
+          description: savedDiscount > 0
+            ? `Check issued w/ early-pay discount $${savedDiscount.toFixed(2)} — ${desc}`
+            : `Check issued — ${desc}`,
+          status: "posted",
+          source_type: "invoice_payment",
+          source_id: invoiceId,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (je) {
+        const lines = [
+          {
+            journal_entry_id: je.id,
+            account_id: acct2000,
+            project_id: invoice.project_id ?? null,
+            description: `AP — ${desc}`,
+            debit: invoiceAmount,
+            credit: 0,
+          },
+          {
+            journal_entry_id: je.id,
+            account_id: acct2050,
+            project_id: invoice.project_id ?? null,
+            description: `Check issued — ${desc}`,
+            debit: 0,
+            credit: netAmount,
+          },
+        ];
+
+        if (savedDiscount > 0 && wipAcct) {
+          lines.push({
+            journal_entry_id: je.id,
+            account_id: wipAcct,
+            project_id: invoice.project_id ?? null,
+            description: `Early-pay discount — ${desc}`,
+            debit: 0,
+            credit: savedDiscount,
+          });
+        }
+
+        await supabase.from("journal_entry_lines").insert(lines);
+      }
+    }
+  }
+
+  if (to === "cleared") {
+    const clearedDate = updates.payment_date as string;
+    const { data: glAccounts } = await supabase
+      .from("chart_of_accounts")
+      .select("id, account_number")
+      .in("account_number", ["2050", "1000"]);
+
+    const acct2050 = glAccounts?.find(a => a.account_number === "2050")?.id;
+    const acct1000 = glAccounts?.find(a => a.account_number === "1000")?.id;
+
+    if (acct2050 && acct1000) {
+      const { data: je } = await supabase
+        .from("journal_entries")
+        .insert({
+          entry_date: clearedDate,
+          reference: `CHK-CLR-${invoiceId.slice(0, 8)}`,
+          description: `Check cleared — ${desc}`,
+          status: "posted",
+          source_type: "invoice_payment",
+          source_id: invoiceId,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (je) {
+        await supabase.from("journal_entry_lines").insert([
+          {
+            journal_entry_id: je.id,
+            account_id: acct2050,
+            project_id: invoice.project_id ?? null,
+            description: `Outstanding check cleared — ${desc}`,
+            debit: netAmount,
+            credit: 0,
+          },
+          {
+            journal_entry_id: je.id,
+            account_id: acct1000,
+            project_id: invoice.project_id ?? null,
+            description: `Cash — ${desc}`,
+            debit: 0,
+            credit: netAmount,
+          },
+        ]);
+      }
+    }
+  }
+
+  revalidatePath("/invoices");
+  return {};
+}

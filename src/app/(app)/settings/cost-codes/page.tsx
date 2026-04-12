@@ -15,4 +15,7 @@ export default async function CostCodesPage() {
   return (
     <>
       <Header title="Cost Codes" />
-      <CostCodesClient costCodes={costCodes} /
+      <CostCodesClient costCodes={costCodes} />
+    </>
+  );
+}

@@ -37,4 +37,9 @@ export default async function NewVendorPage({ searchParams }: Props) {
           >
             {returnTo === "invoice" || returnTo === "invoice-upload" ? "← Back to Invoice" : "← Vendors"}
           </Link>
-          <VendorF
+          <VendorForm costCodes={costCodes} prefillName={prefillName} returnTo={returnTo} vendorCardIdx={vendorCardIdx} />
+        </div>
+      </main>
+    </>
+  );
+}

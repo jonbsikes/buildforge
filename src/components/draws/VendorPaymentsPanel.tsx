@@ -232,4 +232,12 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
         <p className="text-xs text-gray-400">
           {paidCount === total
             ? "All checks written — draw will close automatically."
-            : `${total - paidCount} check${total 
+            : `${total - paidCount} check${total - paidCount !== 1 ? "s" : ""} remaining`}
+        </p>
+        <p className="text-sm font-semibold text-gray-900">
+          {fmt(vendorPayments.reduce((s, vp) => s + (vp.amount ?? 0), 0))}
+        </p>
+      </div>
+    </div>
+  );
+}

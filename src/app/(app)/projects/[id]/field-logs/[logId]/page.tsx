@@ -96,4 +96,12 @@ export default async function FieldLogDetailPage({
                   priority: t.priority as "low" | "normal" | "urgent",
                   due_date: t.due_date,
                 }))}
-                priorityStyles={prioritySty
+                priorityStyles={priorityStyles}
+              />
+            )}
+          </div>
+        </div>
+      </main>
+    </>
+  );
+}

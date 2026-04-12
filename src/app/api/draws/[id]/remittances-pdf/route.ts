@@ -517,4 +517,17 @@ export async function GET(
     });
   }
 
-  // ── Return PDF ─────────�
+  // ── Return PDF ────────────────────────────────────────────────────────────
+
+  const pdfBytes = await pdfDoc.save();
+  const filename = `Check-Remittances-${draw.draw_date}.pdf`;
+
+  return new NextResponse(Buffer.from(pdfBytes), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": pdfBytes.byteLength.toString(),
+    },
+  });
+}

@@ -261,4 +261,16 @@ export default function WIPClient() {
                   <td className="px-5 py-3 text-right text-amber-700">{fmt(totals.committed)}</td>
                   <td className="px-5 py-3 text-right text-blue-700">{fmt(totals.actual)}</td>
                   <td className="px-5 py-3 text-right font-semibold" style={{ color: "#4272EF" }}>{fmt(filtered.reduce((s, r) => s + r.ledgerWip, 0))}</td>
-                  <td className="px-5 py-3 text-right text-gray-700
+                  <td className="px-5 py-3 text-right text-gray-700">{fmt(filtered.reduce((s, r) => s + r.capitalizedInterest, 0))}</td>
+                  <td />
+                  <td className="px-5 py-3 text-right text-gray-900">{fmt(totals.budget - totals.actual)}</td>
+                  <td className="px-5 py-3 text-right text-gray-900">{fmt(totals.loanAmount)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -193,4 +193,16 @@ export default function BudgetVarianceReportClient() {
                           </div>
                           <span className="text-xs text-gray-500 w-10 text-right">{r.pct.toFixed(0)}%</span>
                         </div>
-                      ) : <span className="text-gray-300">—
+                      ) : <span className="text-gray-300">—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

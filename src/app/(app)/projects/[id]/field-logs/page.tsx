@@ -106,4 +106,12 @@ export default async function FieldLogsPage({ params }: { params: Promise<{ id: 
                       </div>
                     </div>
                   </Link>
-     
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
+    </>
+  );
+}

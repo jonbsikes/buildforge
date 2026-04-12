@@ -534,4 +534,31 @@ export default function VendorForm({ costCodes, initialData, prefillName, return
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Account Number</label>
-            <input type="text" value={form.ach_account_number} 
+            <input type="text" value={form.ach_account_number} onChange={(e) => set("ach_account_number", e.target.value)} placeholder="••••••••1234" className={ic()} />
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => router.push(returnTo === "invoice" ? "/invoices/new" : returnTo === "invoice-upload" ? "/invoices/upload" : "/vendors")}
+          className="px-4 py-2.5 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+        >
+          Cancel
+        </button>
+        <div className="flex items-center gap-3">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button
+            type="submit"
+            disabled={isPending || isExtracting}
+            className="px-5 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
+          >
+            {isPending ? "Saving…" : isEdit ? "Save Changes" : "Add Vendor"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}

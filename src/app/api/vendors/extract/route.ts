@@ -120,4 +120,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (err) {
-    console.err
+    console.error("Vendor extraction error:", err);
+    return NextResponse.json({ error: "Extraction failed" }, { status: 500 });
+  }
+}

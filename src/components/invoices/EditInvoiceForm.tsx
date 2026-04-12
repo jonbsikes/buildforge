@@ -406,4 +406,11 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
           <iframe
             src={signedFileUrl}
             title={fileName ?? "Invoice"}
-            class
+            className="w-full border-0"
+            style={{ height: 900 }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}

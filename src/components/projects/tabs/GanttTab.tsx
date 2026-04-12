@@ -369,4 +369,10 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
       {/* Print styles */}
       <style>{`
         @media print {
-          .gantt-tab .print\\:hidden { disp
+          .gantt-tab .print\\:hidden { display: none !important; }
+          body > *:not(.gantt-print-target) { display: none; }
+        }
+      `}</style>
+    </div>
+  );
+}

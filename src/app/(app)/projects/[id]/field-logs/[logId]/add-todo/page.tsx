@@ -31,4 +31,8 @@ export default async function AddTodoPage({
             <ArrowLeft size={15} /> Back to Log
           </Link>
           <AddTodoForm projectId={id} logId={logId} userId={user.id} />
-        </d
+        </div>
+      </main>
+    </>
+  );
+}
