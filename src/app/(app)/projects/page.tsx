@@ -19,42 +19,61 @@ export default async function ProjectsPage() {
     .order("start_date", { ascending: true })
     .order("address", { ascending: true });
 
-  // Fetch all build stages for each project (for last completed, delayed, and next stage)
+  // Fetch all build stages for each project — compute per-track summaries
+  // Each track (exterior / interior) gets: last completed, in-progress, and next stage
   const projectIds = (projects ?? []).map((p) => p.id);
-  let lastStageByProject: Record<string, string> = {};
-  let delayedStagesByProject: Record<string, { stage_name: string; planned_end_date: string }[]> = {};
-  let nextStageByProject: Record<string, { stage_name: string; planned_start_date: string | null }> = {};
+  type TrackSummary = {
+    lastCompleted: string | null;
+    inProgress: string | null;
+    next: { stage_name: string; planned_start_date: string | null } | null;
+  };
+  type ProjectStageInfo = {
+    exterior: TrackSummary;
+    interior: TrackSummary;
+    delayedStages: { stage_name: string; planned_end_date: string }[];
+  };
+  const emptyTrack = (): TrackSummary => ({ lastCompleted: null, inProgress: null, next: null });
+  let stageInfoByProject: Record<string, ProjectStageInfo> = {};
+
   if (projectIds.length > 0) {
     const { data: allStages } = await supabase
       .from("build_stages")
-      .select("project_id, stage_name, stage_number, status, planned_start_date, planned_end_date, actual_end_date")
+      .select("project_id, stage_name, stage_number, status, track, planned_start_date, planned_end_date, actual_end_date")
       .in("project_id", projectIds)
       .order("stage_number", { ascending: true });
 
     const today = new Date().toISOString().split("T")[0];
 
     for (const s of allStages ?? []) {
-      if (s.status === "complete") {
-        if (!lastStageByProject[s.project_id]) {
-          lastStageByProject[s.project_id] = s.stage_name;
-        } else {
-          lastStageByProject[s.project_id] = s.stage_name;
-        }
-      }
-
-      if (s.status !== "complete" && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today) {
-        if (!delayedStagesByProject[s.project_id]) delayedStagesByProject[s.project_id] = [];
-        delayedStagesByProject[s.project_id].push({
-          stage_name: s.stage_name,
-          planned_end_date: s.planned_end_date,
-        });
-      }
-
-      if (s.status === "not_started" && !nextStageByProject[s.project_id]) {
-        nextStageByProject[s.project_id] = {
-          stage_name: s.stage_name,
-          planned_start_date: s.planned_start_date,
+      if (!stageInfoByProject[s.project_id]) {
+        stageInfoByProject[s.project_id] = {
+          exterior: emptyTrack(),
+          interior: emptyTrack(),
+          delayedStages: [],
         };
+      }
+      const info = stageInfoByProject[s.project_id];
+      const track = (s.track === "interior" ? "interior" : "exterior") as "exterior" | "interior";
+      const t = info[track];
+
+      // Last completed (keeps overwriting — stages are ordered, so last write wins)
+      if (s.status === "complete") {
+        t.lastCompleted = s.stage_name;
+      }
+
+      // In-progress (first one per track)
+      if (s.status === "in_progress" && !t.inProgress) {
+        t.inProgress = s.stage_name;
+      }
+
+      // Next not_started (first one per track)
+      if (s.status === "not_started" && !t.next) {
+        t.next = { stage_name: s.stage_name, planned_start_date: s.planned_start_date };
+      }
+
+      // Delayed stages (any track)
+      if (s.status !== "complete" && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today) {
+        info.delayedStages.push({ stage_name: s.stage_name, planned_end_date: s.planned_end_date });
       }
     }
   }
@@ -92,13 +111,19 @@ export default async function ProjectsPage() {
         </div>
 
         <ProjectsClient
-          projects={(projects ?? []).map((p) => ({
-            ...p,
-            lastStageCompleted: lastStageByProject[p.id] ?? null,
-            delayedStages: delayedStagesByProject[p.id] ?? [],
-            nextStage: nextStageByProject[p.id] ?? null,
-            phases: phasesByProject[p.id] ?? [],
-          }))}
+          projects={(projects ?? []).map((p) => {
+            const si = stageInfoByProject[p.id];
+            return {
+              ...p,
+              lastStageCompleted: null, // legacy — replaced by trackStages
+              delayedStages: si?.delayedStages ?? [],
+              nextStage: null, // legacy — replaced by trackStages
+              trackStages: si
+                ? { exterior: si.exterior, interior: si.interior }
+                : { exterior: emptyTrack(), interior: emptyTrack() },
+              phases: phasesByProject[p.id] ?? [],
+            };
+          })}
         />
       </main>
     </>

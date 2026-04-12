@@ -22,6 +22,12 @@ type NextStage = {
   planned_start_date: string | null;
 };
 
+type TrackSummary = {
+  lastCompleted: string | null;
+  inProgress: string | null;
+  next: NextStage | null;
+};
+
 type Project = {
   id: string;
   name: string;
@@ -43,6 +49,7 @@ type Project = {
   lastStageCompleted: string | null;
   delayedStages: DelayedStage[];
   nextStage: NextStage | null;
+  trackStages: { exterior: TrackSummary; interior: TrackSummary };
   phases: Phase[];
 };
 
@@ -104,30 +111,54 @@ function LandIcon({ size = 16, className = "" }: { size?: number; className?: st
   );
 }
 
-function WhatsNext({ project }: { project: Project }) {
-  const hasDelayed = project.delayedStages.length > 0;
-  const hasNext = project.nextStage !== null;
-  if (!hasDelayed && !hasNext) return null;
+function TrackLine({ label, track }: { label: string; track: TrackSummary }) {
+  const hasContent = track.lastCompleted || track.inProgress || track.next;
+  if (!hasContent) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
-      {hasDelayed && (
-        <span className="inline-flex items-center gap-1 text-xs text-red-600 font-medium">
-          <AlertTriangle size={11} className="shrink-0" />
-          {project.delayedStages.length === 1
-            ? project.delayedStages[0].stage_name
-            : `${project.delayedStages.length} delayed`}
-        </span>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className="text-[10px] font-semibold text-gray-400 uppercase w-10 shrink-0">{label}</span>
+      {track.lastCompleted && (
+        <span className="text-xs text-green-600 font-medium">✓ {track.lastCompleted}</span>
       )}
-      {hasNext && (
+      {track.inProgress && (
+        <span className="text-xs text-[#4272EF] font-medium">● {track.inProgress}</span>
+      )}
+      {track.next && (
         <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-          <ArrowRight size={11} className="shrink-0 text-gray-400" />
-          Next: {project.nextStage!.stage_name}
-          {project.nextStage!.planned_start_date && (
-            <span className="text-gray-400">({formatDate(project.nextStage!.planned_start_date)})</span>
+          <ArrowRight size={10} className="shrink-0 text-gray-400" />
+          {track.next.stage_name}
+          {track.next.planned_start_date && (
+            <span className="text-gray-400">({formatDate(track.next.planned_start_date)})</span>
           )}
         </span>
       )}
+    </div>
+  );
+}
+
+function WhatsNext({ project }: { project: Project }) {
+  const hasDelayed = project.delayedStages.length > 0;
+  const { exterior, interior } = project.trackStages;
+  const hasTrackData = exterior.lastCompleted || exterior.inProgress || exterior.next ||
+    interior.lastCompleted || interior.inProgress || interior.next;
+
+  if (!hasDelayed && !hasTrackData) return null;
+
+  return (
+    <div className="mt-1 space-y-0.5">
+      {hasDelayed && (
+        <div className="flex items-center gap-1">
+          <span className="inline-flex items-center gap-1 text-xs text-red-600 font-medium">
+            <AlertTriangle size={11} className="shrink-0" />
+            {project.delayedStages.length === 1
+              ? project.delayedStages[0].stage_name
+              : `${project.delayedStages.length} delayed`}
+          </span>
+        </div>
+      )}
+      <TrackLine label="Ext" track={exterior} />
+      <TrackLine label="Int" track={interior} />
     </div>
   );
 }
@@ -158,11 +189,6 @@ function HomeTile({ project }: { project: Project }) {
           )}
           {project.lot_size_acres && (
             <span className="text-xs text-gray-400">{project.lot_size_acres} ac lot</span>
-          )}
-          {project.lastStageCompleted && (
-            <span className="text-xs text-[#4272EF] font-medium">
-              ✓ {project.lastStageCompleted}
-            </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">

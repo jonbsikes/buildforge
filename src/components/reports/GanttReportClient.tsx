@@ -111,13 +111,22 @@ function ProjectGantt({ project, stages }: { project: Project; stages: Stage[] }
             const hasBaseline = s.baseline_start_date && s.baseline_end_date;
             const hasActual   = s.actual_start_date && s.actual_end_date;
             const hasPlanned  = s.planned_start_date && s.planned_end_date;
+            const isInProgress = s.status === "in_progress" && s.actual_start_date;
 
             // Planned or actual bar (front)
-            const frontStart = hasActual ? s.actual_start_date! : (hasPlanned ? s.planned_start_date! : null);
-            const frontEnd   = hasActual ? s.actual_end_date!   : (hasPlanned ? s.planned_end_date!   : null);
-            const frontColor = hasActual
-              ? (s.status === "complete" ? "bg-green-500" : "bg-[#4272EF]")
-              : "bg-gray-300";
+            // In-progress stages have actual_start_date but no actual_end_date yet —
+            // use actual start with planned end, matching GanttTab logic.
+            const frontStart = isInProgress
+              ? s.actual_start_date!
+              : hasActual ? s.actual_start_date! : (hasPlanned ? s.planned_start_date! : null);
+            const frontEnd = isInProgress
+              ? (s.planned_end_date ?? s.actual_start_date!)
+              : hasActual ? s.actual_end_date! : (hasPlanned ? s.planned_end_date! : null);
+            const frontColor = isInProgress
+              ? "bg-[#4272EF]"
+              : hasActual
+                ? (s.status === "complete" ? "bg-green-500" : "bg-[#4272EF]")
+                : "bg-gray-300";
 
             const baseStartOff = hasBaseline ? dayOffset(base, s.baseline_start_date!) : null;
             const baseEndOff   = hasBaseline ? dayOffset(base, s.baseline_end_date!)   : null;
