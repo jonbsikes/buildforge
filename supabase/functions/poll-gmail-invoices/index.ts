@@ -149,378 +149,304 @@ function collectAttachments(part: GmailPart, results: GmailPart[] = []): GmailPa
     "image/gif",
   ]);
 
-  if (part.filename && part.filename.length > 0 && supportedMimes.has(part.mimeType)) {
+  if (part.body?.attachmentId && supportedMimes.has(part.mimeType)) {
     results.push(part);
   }
+
   if (part.parts) {
-    for (const child of part.parts) {
-      collectAttachments(child, results);
-    }
+    part.parts.forEach((p) => collectAttachments(p, results));
   }
+
   return results;
 }
 
-function mimeToExt(mimeType: string): string {
-  const map: Record<string, string> = {
-    "application/pdf": "pdf",
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-  };
-  return map[mimeType] ?? "bin";
+async function downloadAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string
+): Promise<Uint8Array> {
+  const resp = await fetch(
+    `${GMAIL_API}/users/me/messages/${messageId}/attachments/${attachmentId}`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+  const data = await resp.json();
+  if (!data.data) throw new Error("No attachment data");
+  return decodeBase64(data.data);
 }
 
-// Returns ALL invoices found in the document (1 or more)
-async function extractWithClaude(base64Data: string, mimeType: string): Promise<ExtractedData[]> {
-  const isImage = mimeType.startsWith("image/");
+async function extractInvoicesFromPdf(
+  buffer: Uint8Array
+): Promise<ExtractedData[]> {
+  if (!ANTHROPIC_API_KEY) {
+    console.warn("ANTHROPIC_API_KEY not set; skipping invoice extraction");
+    return [];
+  }
 
-  const contentBlock = isImage
-    ? {
-        type: "image",
-        source: { type: "base64", media_type: mimeType, data: base64Data },
-      }
-    : {
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: base64Data },
-      };
+  // Send to Anthropic with base64 encoding
+  const base64Data = btoa(String.fromCharCode(...buffer));
+  const mediaType = "application/pdf";
 
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 4096,
-      system: [
-        {
-          type: "text",
-          text: SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
+      system: SYSTEM_PROMPT,
       messages: [
         {
           role: "user",
           content: [
-            contentBlock,
-            { type: "text", text: "Extract all invoices from this document and return the JSON as specified." },
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: base64Data,
+              },
+            },
+            {
+              type: "text",
+              text: "Extract all invoices from this document. Return ONLY valid JSON, no explanation.",
+            },
           ],
         },
       ],
     }),
   });
 
-  const result = await resp.json();
-  if (!resp.ok) throw new Error(`Claude API error: ${JSON.stringify(result)}`);
+  const data = await response.json();
+  if (!response.ok) {
+    console.error("Claude API error:", data);
+    return [];
+  }
 
-  const text = result.content?.[0]?.text ?? "";
-  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const textBlock = data.content?.[0];
+  if (!textBlock || textBlock.type !== "text") {
+    console.error("No text response from Claude");
+    return [];
+  }
 
-  let parsed: { invoices: ExtractedData[] };
   try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error(`Failed to parse Claude response: ${cleaned.slice(0, 200)}`);
+    const parsed = JSON.parse(textBlock.text);
+    return parsed.invoices || [];
+  } catch (e) {
+    console.error("Failed to parse extraction response:", e, textBlock.text);
+    return [];
   }
-
-  const invoices = parsed.invoices ?? [];
-
-  // Flag any invoice where key fields are missing
-  for (const inv of invoices) {
-    if (!inv.vendor || !inv.total_amount) {
-      inv.ai_confidence = "low";
-      inv.ai_notes = ((inv.ai_notes ?? "") + " Key fields missing or unreadable.").trim();
-    }
-  }
-
-  return invoices;
 }
 
-Deno.serve(async (_req) => {
+async function findProjectByHint(
+  supabase: ReturnType<typeof createClient>,
+  hint: string | null
+): Promise<string | null> {
+  if (!hint) return null;
+
+  const { data } = await supabase
+    .from("projects")
+    .select("id")
+    .or(
+      `name.ilike.%${hint}%,address.ilike.%${hint}%,subdivision.ilike.%${hint}%`
+    )
+    .limit(1);
+
+  return data?.[0]?.id ?? null;
+}
+
+Deno.serve(async () => {
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const accessToken = await getAccessToken();
-
-    // Fetch messages from last 30 minutes with PDF or image attachments
-    const query =
-      "has:attachment newer_than:30m (filename:pdf OR filename:jpg OR filename:jpeg OR filename:png OR filename:webp)";
-
-    const listResp = await fetch(
-      `${GMAIL_API}/users/me/messages?q=${encodeURIComponent(query)}&maxResults=10`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const listData = await listResp.json();
-    const messages: { id: string }[] = listData.messages ?? [];
-
-    const stats: { processed: number; skipped: number; errors: number; errorDetails: string[] } = {
-      processed: 0,
-      skipped: 0,
-      errors: 0,
-      errorDetails: [],
-    };
-
-    // Fetch projects once for the whole run
-    const { data: allProjects } = await supabase
-      .from("projects")
-      .select("id, name, address")
-      .eq("user_id", BUILDFORGE_USER_ID);
-
-    // Fetch vendors once for the whole run (mutable — new vendors get pushed in)
-    const { data: vendorRows } = await supabase
+    // Fetch vendors for matching
+    const { data: vendors } = await supabase
       .from("vendors")
       .select("id, name")
-      .eq("user_id", BUILDFORGE_USER_ID);
-    const allVendors: { id: string; name: string }[] = vendorRows ?? [];
+      .eq("is_active", true);
 
-    for (const { id: messageId } of messages) {
-      // Fetch full message
-      const msgResp = await fetch(
-        `${GMAIL_API}/users/me/messages/${messageId}?format=full`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      const msg = await msgResp.json();
+    const vendorList = vendors ?? [];
 
-      const attachments = collectAttachments(msg.payload ?? {});
-      if (attachments.length === 0) {
-        stats.skipped++;
-        continue;
+    // Get Gmail access token
+    const accessToken = await getAccessToken();
+
+    // Query for unread messages (use labelIds for efficiency)
+    const listResp = await fetch(
+      `${GMAIL_API}/users/me/messages?q=is:unread from:*&maxResults=100`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
       }
+    );
+    const listData = await listResp.json();
+    const messages = listData.messages || [];
 
-      // Process each attachment — one Claude call per file, may yield multiple invoices
-      for (let attIdx = 0; attIdx < attachments.length; attIdx++) {
-        const attachment = attachments[attIdx];
-        const mimeType = attachment.mimeType;
+    console.log(`Found ${messages.length} unread messages`);
 
-        // Fetch attachment bytes
-        let rawBase64: string;
-        if (attachment.body.data) {
-          rawBase64 = attachment.body.data;
-        } else if (attachment.body.attachmentId) {
-          const attResp = await fetch(
-            `${GMAIL_API}/users/me/messages/${messageId}/attachments/${attachment.body.attachmentId}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-          const attData = await attResp.json();
-          rawBase64 = attData.data;
-        } else {
-          stats.skipped++;
-          continue;
-        }
-
-        // Gmail uses base64url — convert to standard base64 for decoding
-        const base64 = rawBase64.replace(/-/g, "+").replace(/_/g, "/");
-
-        // Decode and store in Supabase storage
-        const ext = mimeToExt(mimeType);
-        const storagePath = `${BUILDFORGE_USER_ID}/email/${messageId}/${attIdx}.${ext}`;
-
-        let fileBytes: Uint8Array;
-        try {
-          fileBytes = decodeBase64(base64);
-        } catch (err) {
-          stats.errors++;
-          stats.errorDetails.push(`[${messageId}_${attIdx}] base64 decode failed: ${err}`);
-          continue;
-        }
-
-        const { error: uploadError } = await supabase.storage
+    for (const msg of messages) {
+      try {
+        // Check if we've already processed this message
+        const { data: existing } = await supabase
           .from("invoices")
-          .upload(storagePath, fileBytes, { contentType: mimeType, upsert: false });
+          .select("id")
+          .eq("email_message_id", msg.id)
+          .limit(1);
 
-        if (uploadError && !uploadError.message.toLowerCase().includes("already exists") && !uploadError.message.toLowerCase().includes("duplicate")) {
-          stats.errors++;
-          stats.errorDetails.push(`[${messageId}_${attIdx}] storage upload failed: ${uploadError.message}`);
+        if (existing?.length) {
+          console.log(`Message ${msg.id} already processed; skipping`);
           continue;
         }
 
-        // Extract all invoices from this attachment
-        let extractedList: ExtractedData[];
-        try {
-          extractedList = await extractWithClaude(base64, mimeType);
-        } catch (err) {
-          stats.errors++;
-          stats.errorDetails.push(`[${messageId}_${attIdx}] claude extraction failed (mime=${mimeType}): ${err}`);
-          continue;
-        }
-
-        if (extractedList.length === 0) {
-          stats.skipped++;
-          continue;
-        }
-
-        // Insert one invoice record per extracted invoice
-        for (let invoiceIdx = 0; invoiceIdx < extractedList.length; invoiceIdx++) {
-          const extracted = extractedList[invoiceIdx];
-          // email_message_id: messageId_attachmentIndex_invoiceIndex
-          const invoiceEmailId = `${messageId}_${attIdx}_${invoiceIdx}`;
-
-          // Per-invoice dedup by email_message_id
-          const { data: existingByEmailId } = await supabase
-            .from("invoices")
-            .select("id")
-            .eq("email_message_id", invoiceEmailId)
-            .maybeSingle();
-
-          if (existingByEmailId) {
-            stats.skipped++;
-            continue;
+        // Fetch full message
+        const msgResp = await fetch(
+          `${GMAIL_API}/users/me/messages/${msg.id}?format=full`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
           }
+        );
+        const msgData = await msgResp.json();
 
-          // Dedup by vendor + invoice_number
-          if (extracted.vendor && extracted.invoice_number) {
-            const { data: dupByNumber } = await supabase
-              .from("invoices")
-              .select("id")
-              .eq("vendor", extracted.vendor)
-              .eq("invoice_number", extracted.invoice_number)
-              .maybeSingle();
+        const payload = msgData.payload || {};
+        const headers = payload.headers || [];
+        const fromHeader = headers.find((h: { name: string }) => h.name === "From");
+        const subjectHeader = headers.find(
+          (h: { name: string }) => h.name === "Subject"
+        );
 
-            if (dupByNumber) {
-              stats.skipped++;
-              continue;
+        const fromEmail = fromHeader?.value || "unknown";
+        const subject = subjectHeader?.value || "";
+
+        // Collect attachments
+        const attachments = collectAttachments(payload);
+
+        if (attachments.length === 0) {
+          console.log(
+            `Message ${msg.id} from ${fromEmail} has no attachments; marking as read and skipping`
+          );
+
+          // Mark as read
+          await fetch(
+            `${GMAIL_API}/users/me/messages/${msg.id}/modify`,
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${accessToken}` },
+              body: JSON.stringify({
+                removeLabelIds: ["UNREAD"],
+              }),
             }
-          }
+          );
+          continue;
+        }
 
-          // Match project from hint
-          let projectId: string | null = null;
-          if (extracted.project_name_hint && allProjects) {
-            const hint = extracted.project_name_hint.toLowerCase();
-            const match = allProjects.find((p) => {
-              const name = p.name.toLowerCase();
-              const addr = (p.address ?? "").toLowerCase();
-              return name.includes(hint) || hint.includes(name) || addr.includes(hint);
-            });
-            projectId = match?.id ?? null;
-          }
+        // Process each attachment
+        for (const attachment of attachments) {
+          const attachmentId = attachment.body.attachmentId;
+          if (!attachmentId) continue;
 
-          const dominant = extracted.line_items?.[0] ?? null;
-          let costCodeId: string | null = null;
-          if (dominant?.cost_code) {
-            const { data: cc } = await supabase
-              .from("cost_codes")
-              .select("id")
-              .eq("code", dominant.cost_code)
-              .is("user_id", null)
-              .maybeSingle();
-            costCodeId = cc?.id ?? null;
-          }
+          try {
+            const buffer = await downloadAttachment(
+              accessToken,
+              msg.id,
+              attachmentId
+            );
 
-          // Match vendor against existing vendors (no auto-creation — unmatched vendors flagged for review)
-          let vendorId: string | null = null;
-          const vendorDisplay = extracted.vendor?.trim() || "Unknown Vendor";
-          let vendorUnmatched = false;
-          if (vendorDisplay && vendorDisplay !== "Unknown Vendor") {
-            vendorId = findVendor(vendorDisplay, allVendors);
-            if (!vendorId) {
-              vendorUnmatched = true;
-            }
-          }
+            // Extract invoices
+            const extractedInvoices = await extractInvoicesFromPdf(buffer);
 
-          const projectName = allProjects?.find((p) => p.id === projectId)?.name ?? "Company";
-          const totalAmount =
-            extracted.total_amount ??
-            (extracted.line_items ?? []).reduce((s, li) => s + (li.amount ?? 0), 0);
+            for (const inv of extractedInvoices) {
+              // Find project
+              const projectId = await findProjectByHint(supabase, inv.project_name_hint);
 
-          const displayName = [
-            vendorDisplay,
-            dominant?.cost_code ?? "—",
-            projectName,
-            extracted.invoice_number || "—",
-          ].join(" – ");
+              // Find vendor
+              const vendorId = findVendor(inv.vendor, vendorList);
 
-          const { data: invoice, error: insertErr } = await supabase
-            .from("invoices")
-            .insert({
-              user_id: BUILDFORGE_USER_ID,
-              project_id: projectId,
-              vendor_id: vendorId,
-              vendor: vendorDisplay,
-              invoice_number: extracted.invoice_number || null,
-              invoice_date: extracted.invoice_date || null,
-              due_date: (() => {
-                let dd = extracted.due_date || null;
-                if (extracted.invoice_date && dd) {
-                  const minDue = new Date(extracted.invoice_date + "T00:00:00");
-                  minDue.setDate(minDue.getDate() + 7);
-                  const minDueStr = minDue.toISOString().split("T")[0];
-                  if (dd < minDueStr) dd = minDueStr;
-                } else if (extracted.invoice_date && !dd) {
-                  const minDue = new Date(extracted.invoice_date + "T00:00:00");
-                  minDue.setDate(minDue.getDate() + 7);
-                  dd = minDue.toISOString().split("T")[0];
-                }
-                return dd;
-              })(),
-              amount: totalAmount,
-              total_amount: totalAmount,
-              status: "pending_review",
-              source: "email",
-              ai_confidence: vendorUnmatched ? "low" : extracted.ai_confidence,
-              ai_notes: vendorUnmatched
-                ? `${extracted.ai_notes ? extracted.ai_notes + " | " : ""}Vendor "${vendorDisplay}" not found in system — please select or create a vendor.`
-                : (extracted.ai_notes || null),
-              file_path: storagePath,
-              file_name: displayName,
-              cost_code_id: costCodeId,
-              email_message_id: invoiceEmailId,
-              pending_draw: false,
-              manually_reviewed: false,
-            })
-            .select("id")
-            .single();
+              // Store file
+              const safeName = (
+                attachment.filename || `invoice_${Date.now()}`
+              ).replace(/[^a-zA-Z0-9._-]/g, "_");
+              const filePath = `${BUILDFORGE_USER_ID}/${Date.now()}-${safeName}`;
 
-          if (insertErr || !invoice) {
-            stats.errors++;
-            stats.errorDetails.push(`[${invoiceEmailId}] invoice insert failed: ${insertErr?.message}`);
-            continue;
-          }
+              const { data: uploadData } = await supabase.storage
+                .from("invoices")
+                .upload(filePath, buffer, {
+                  contentType: attachment.mimeType,
+                });
 
-          if ((extracted.line_items ?? []).length > 0) {
-            await supabase.from("invoice_line_items").insert(
-              extracted.line_items.map((li) => ({
-                invoice_id: invoice.id,
+              const fileName = `${inv.vendor} – ${inv.invoice_number}`;
+
+              // Create line items
+              const lineItems = inv.line_items.map((li) => ({
                 cost_code: li.cost_code,
-                description: li.description || null,
+                description: li.description,
                 amount: li.amount,
-              }))
+              }));
+
+              // Create invoice record
+              const { error: invoiceError } = await supabase
+                .from("invoices")
+                .insert({
+                  project_id: projectId,
+                  vendor_id: vendorId,
+                  vendor_name: inv.vendor,
+                  invoice_number: inv.invoice_number,
+                  invoice_date: inv.invoice_date,
+                  due_date: inv.due_date,
+                  amount: inv.total_amount,
+                  ai_confidence: inv.ai_confidence,
+                  ai_notes: inv.ai_notes,
+                  status: "pending_review",
+                  source: "email",
+                  file_path: uploadData?.path,
+                  file_name_original: attachment.filename,
+                  email_message_id: msg.id,
+                  created_by: BUILDFORGE_USER_ID,
+                  line_items: lineItems,
+                });
+
+              if (invoiceError) {
+                console.error(
+                  `Failed to create invoice from message ${msg.id}:`,
+                  invoiceError
+                );
+              } else {
+                console.log(
+                  `Created invoice ${inv.invoice_number} from ${inv.vendor}`
+                );
+              }
+            }
+          } catch (attachError) {
+            console.error(
+              `Error processing attachment ${attachmentId}:`,
+              attachError
             );
           }
-
-          if (extracted.ai_confidence === "low" || vendorUnmatched) {
-            const reason = vendorUnmatched
-              ? `vendor "${vendorDisplay}" not found in system`
-              : "AI confidence is low";
-            await supabase.from("notifications").insert({
-              user_id: BUILDFORGE_USER_ID,
-              type: "invoice_review",
-              message: `Email invoice from ${vendorDisplay} (${
-                extracted.invoice_number || "no #"
-              }) needs manual review — ${reason}.`,
-              reference_id: invoice.id,
-              reference_type: "invoice",
-              is_read: false,
-            });
-          }
-
-          stats.processed++;
         }
+
+        // Mark message as read after processing
+        await fetch(
+          `${GMAIL_API}/users/me/messages/${msg.id}/modify`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({
+              removeLabelIds: ["UNREAD"],
+            }),
+          }
+        );
+      } catch (msgError) {
+        console.error(`Error processing message ${msg.id}:`, msgError);
       }
     }
 
-    return new Response(JSON.stringify(stats), {
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("poll-gmail-invoices error:", err);
+    console.error("Function error:", err);
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

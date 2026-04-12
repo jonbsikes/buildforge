@@ -143,14 +143,6 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
     if (!invoiceDate) return "Invoice date is required";
     if (lineItems.some((li) => !li.cost_code || !li.amount)) return "Each line item needs a cost code and amount";
     if (lineItems.some((li) => isNaN(parseFloat(li.amount)) || parseFloat(li.amount) <= 0)) return "All amounts must be positive numbers";
-    // Enforce 7-day minimum due date
-    if (invoiceDate && dueDate) {
-      const minDue = new Date(invoiceDate + "T00:00:00");
-      minDue.setDate(minDue.getDate() + 7);
-      if (new Date(dueDate + "T00:00:00") < minDue) {
-        return "Due date must be at least 7 days after the invoice date";
-      }
-    }
     return null;
   }
 
@@ -252,7 +244,6 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
           </Field>
         </div>
 
-        {/* Vendor name free-text removed — vendor must be selected from the dropdown for 1099 accuracy */}
 
         {contracts.length > 0 && (
           <Field label="Linked Contract">
@@ -275,8 +266,7 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
             <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className={ic(!invoiceDate && !!submitError)} />
           </Field>
           <Field label="Due Date">
-            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={invoiceDate ? (() => { const d = new Date(invoiceDate + "T00:00:00"); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]; })() : undefined} className={ic()} />
-            <p className="text-xs text-gray-500 mt-1">Minimum 7 days after invoice date</p>
+            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={ic()} />
           </Field>
         </div>
 
