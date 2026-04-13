@@ -97,20 +97,21 @@ export default async function ProjectsPage() {
     <>
       <Header title="Projects" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-gray-500">
-            {(projects ?? []).length} project{(projects ?? []).length !== 1 ? "s" : ""}
-          </p>
-          <Link
-            href="/projects/new"
-            className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
-          >
-            <Plus size={16} />
-            New Project
-          </Link>
-        </div>
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-bold text-gray-900">
+              {(projects ?? []).length} Project{(projects ?? []).length !== 1 ? "s" : ""}
+            </h2>
+            <Link
+              href="/projects/new"
+              className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+            >
+              <Plus size={16} />
+              New Project
+            </Link>
+          </div>
 
-        <ProjectsClient
+          <ProjectsClient
           projects={(projects ?? []).map((p) => {
             const si = stageInfoByProject[p.id];
             return {
@@ -124,7 +125,8 @@ export default async function ProjectsPage() {
               phases: phasesByProject[p.id] ?? [],
             };
           })}
-        />
+          />
+        </div>
       </main>
     </>
   );

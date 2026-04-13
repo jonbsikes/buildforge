@@ -2,9 +2,13 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Building2, Landmark, MapPin, Calendar, Home, Ruler, Pencil, ArrowRight } from "lucide-react";
+import {
+  Building2, Landmark, MapPin, Calendar, Home, Ruler, Pencil, ArrowRight,
+  ChevronLeft, Clock, HardHat,
+} from "lucide-react";
 import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
+import { ProgressRing } from "@/components/ui/ProgressRing";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +17,12 @@ interface Props {
 }
 
 const STATUS_COLOR: Record<string, string> = {
-  planning:  "bg-gray-100 text-gray-700",
-  active:    "bg-green-100 text-green-700",
-  on_hold:   "bg-amber-100 text-amber-700",
-  completed: "bg-blue-100 text-blue-700",
-  cancelled: "bg-red-100 text-red-600",
+  planning:       "bg-gray-100 text-gray-700",
+  active:         "bg-green-100 text-green-700",
+  pre_construction: "bg-gray-100 text-gray-600",
+  on_hold:        "bg-amber-100 text-amber-700",
+  completed:      "bg-blue-100 text-blue-700",
+  cancelled:      "bg-red-100 text-red-600",
 };
 
 function daysUnderConstruction(startDate: string | null): number | null {
@@ -183,8 +188,16 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const days = daysUnderConstruction(project.start_date);
 
-  // What's Next data — show in-progress and next-up per track (Exterior / Interior)
-  const today = new Date().toISOString().split("T")[0];
+  // Stage progress
+  const activeStages = buildStages.filter((s) => s.status !== "skipped");
+  const completedStages = activeStages.filter((s) => s.status === "complete" || s.status === "completed").length;
+  const stageProgress = activeStages.length > 0 ? Math.round((completedStages / activeStages.length) * 100) : 0;
+
+  // Budget progress
+  const totalBudget = costCodes.reduce((s, c) => s + (c.budgeted_amount ?? 0), 0);
+  const totalActual = Object.values(actualByCostCodeId).reduce((s, v) => s + v, 0);
+
+  // What's Next
   const tracks = ["Exterior", "Interior"] as const;
   const whatsNextItems: { stage: typeof buildStages[number]; type: "in_progress" | "next" }[] = [];
   for (const track of tracks) {
@@ -194,7 +207,6 @@ export default async function ProjectDetailPage({ params }: Props) {
     const next = trackStages.find((s) => s.status === "not_started");
     if (next) whatsNextItems.push({ stage: next, type: "next" });
   }
-  // Also include stages with no track (shared/general)
   const noTrackStages = buildStages.filter((s) => !s.track && s.status !== "skipped");
   const noTrackInProgress = noTrackStages.find((s) => s.status === "in_progress");
   if (noTrackInProgress) whatsNextItems.push({ stage: noTrackInProgress, type: "in_progress" });
@@ -202,170 +214,227 @@ export default async function ProjectDetailPage({ params }: Props) {
   if (noTrackNext) whatsNextItems.push({ stage: noTrackNext, type: "next" });
   const showWhatsNext = whatsNextItems.length > 0;
 
+  const fmtCurrency = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+
   return (
     <>
       <Header title={project.name} />
-      <main className="flex-1 p-4 lg:p-6 overflow-auto">
-        <div className="max-w-6xl mx-auto space-y-5">
-          <Link
-            href="/projects"
-            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            &larr; Projects
-          </Link>
+      <main className="flex-1 overflow-auto">
+        <div className="max-w-6xl mx-auto">
 
-          {/* Project header card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isHome ? "bg-blue-50" : "bg-emerald-50"}`}>
-                  {isHome
-                    ? <Building2 size={20} className="text-[#4272EF]" />
-                    : <Landmark size={20} className="text-emerald-600" />
-                  }
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-gray-900">{project.name}</h1>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {isHome ? "Home Construction" : "Land Development"}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-100 text-gray-600"}`}>
-                  {project.status.replace(/_/g, " ")}
-                </span>
-                <Link
-                  href={`/projects/${id}/edit`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-[#4272EF] hover:bg-blue-50 border border-gray-200 rounded-lg transition-colors"
-                >
-                  <Pencil size={13} />
-                  Edit
+          {/* MOBILE HEADER */}
+          <div className="lg:hidden">
+            <div className="flex items-center justify-between px-4 pt-3 pb-2">
+              <Link href="/projects" className="flex items-center gap-1 text-sm text-gray-500 active:text-gray-700 min-h-[44px]">
+                <ChevronLeft size={18} />
+                Projects
+              </Link>
+              <div className="flex items-center gap-2">
+                <Link href={`/projects/${id}/edit`} className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-100 active:bg-gray-200 transition-colors">
+                  <Pencil size={15} className="text-gray-600" />
                 </Link>
-                <DeleteProjectButton projectId={id} projectName={project.name} />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-4 text-sm">
-              {project.address && (
-                <DetailField icon={<MapPin size={13} />} label="Address" value={project.address} wide />
-              )}
-              {project.start_date && (
-                <DetailField icon={<Calendar size={13} />} label="Start Date" value={
-                  new Date(project.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                } />
-              )}
-              {days !== null && (
-                <DetailField label="Days Under Construction" value={`${days.toLocaleString()} days`} highlight />
-              )}
-              {lender && (
-                <DetailField label="Lender" value={lender.name} />
-              )}
+            <div className="px-4 pb-3">
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isHome ? "bg-blue-50" : "bg-emerald-50"}`}>
+                  {isHome ? <Building2 size={20} className="text-[#4272EF]" /> : <Landmark size={20} className="text-emerald-600" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-lg font-bold text-gray-900 truncate">{project.name}</h1>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-100 text-gray-600"}`}>
+                      {project.status.replace(/_/g, " ")}
+                    </span>
+                    {project.subdivision && <span className="text-xs text-gray-400">{project.subdivision}</span>}
+                  </div>
+                </div>
+                {activeStages.length > 0 && <ProgressRing progress={stageProgress} size={48} strokeWidth={4} />}
+              </div>
 
-              {isHome && project.subdivision && <DetailField label="Subdivision" value={project.subdivision} />}
-              {isHome && (project.block || project.lot) && (
-                <DetailField label="Block / Lot" value={[project.block, project.lot].filter(Boolean).join(" / ")} />
-              )}
-              {isHome && project.lot_size_acres != null && (
-                <DetailField icon={<Ruler size={13} />} label="Lot Size" value={`${project.lot_size_acres} acres`} />
-              )}
-              {isHome && project.plan && <DetailField label="Plan" value={project.plan} />}
-              {isHome && project.home_size_sf != null && (
-                <DetailField icon={<Home size={13} />} label="Home Size" value={`${project.home_size_sf.toLocaleString()} SF`} />
-              )}
+              <div className="flex gap-3 mt-3 overflow-x-auto no-scrollbar">
+                {days !== null && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg border border-gray-100 shrink-0">
+                    <Clock size={13} className="text-[#4272EF]" />
+                    <span className="text-xs font-semibold text-gray-900 tabular-nums">{days}</span>
+                    <span className="text-xs text-gray-400">days</span>
+                  </div>
+                )}
+                {totalBudget > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg border border-gray-100 shrink-0">
+                    <span className="text-xs text-gray-400">Spent</span>
+                    <span className="text-xs font-semibold text-gray-900 tabular-nums">{fmtCurrency(totalActual)}</span>
+                    <span className="text-xs text-gray-400">/ {fmtCurrency(totalBudget)}</span>
+                  </div>
+                )}
+                {isHome && project.plan && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg border border-gray-100 shrink-0">
+                    <HardHat size={13} className="text-gray-400" />
+                    <span className="text-xs font-medium text-gray-700">{project.plan}</span>
+                  </div>
+                )}
+                {isHome && project.home_size_sf != null && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg border border-gray-100 shrink-0">
+                    <Home size={13} className="text-gray-400" />
+                    <span className="text-xs font-medium text-gray-700">{project.home_size_sf.toLocaleString()} SF</span>
+                  </div>
+                )}
+                {!isHome && project.number_of_lots != null && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-lg border border-gray-100 shrink-0">
+                    <span className="text-xs font-semibold text-gray-900 tabular-nums">{totalSoldLots}/{project.number_of_lots}</span>
+                    <span className="text-xs text-gray-400">lots sold</span>
+                  </div>
+                )}
+              </div>
+            </div>
 
-              {!isHome && project.size_acres != null && (
-                <DetailField label="Size" value={`${project.size_acres} acres`} />
-              )}
-              {!isHome && project.number_of_lots != null && (
-                <DetailField label="Total Lots" value={String(project.number_of_lots)} />
-              )}
-              {!isHome && (
-                <DetailField label="Lots Sold" value={String(totalSoldLots)} />
-              )}
-              {!isHome && project.number_of_lots != null && (
-                <DetailField label="Remaining Lots" value={String(remainingLots >= 0 ? remainingLots : 0)} />
-              )}
-              {!isHome && project.number_of_phases != null && (
-                <DetailField label="Phases" value={String(project.number_of_phases)} />
-              )}
+            {showWhatsNext && (
+              <div className="px-4 pb-4">
+                <div className="space-y-2">
+                  {whatsNextItems.map((item) => {
+                    const s = item.stage;
+                    const trackLabel = s.track ?? "";
+                    if (item.type === "in_progress") {
+                      return (
+                        <div key={s.id} className="flex items-center gap-3 px-4 py-3.5 bg-blue-50 border border-blue-100 rounded-xl active:bg-blue-100 transition-colors">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#4272EF] shrink-0 animate-pulse" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm text-blue-800 font-semibold">{s.stage_name}</span>
+                            {trackLabel && <span className="ml-2 text-[10px] text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
+                          </div>
+                          <span className="text-xs text-blue-400 font-medium shrink-0">In progress</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={s.id} className="flex items-center gap-3 px-4 py-3 bg-white border border-gray-100 rounded-xl">
+                        <ArrowRight size={14} className="text-gray-300 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-gray-700 font-medium">{s.stage_name}</span>
+                          {trackLabel && <span className="ml-2 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
+                        </div>
+                        {s.planned_start_date && (
+                          <span className="text-xs text-gray-400 shrink-0">
+                            {new Date(s.planned_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 pb-6">
+              <ProjectTabs projectId={id} isHome={isHome} startDate={project.start_date} buildStages={buildStages} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} documents={documents} committedByCostCodeId={committedByCostCodeId} actualByCostCodeId={actualByCostCodeId} />
             </div>
           </div>
 
-          {showWhatsNext && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-sm font-semibold text-gray-700 mb-3">{"What's Next"}</h2>
-              <div className="space-y-2">
-                {whatsNextItems.map((item) => {
-                  const s = item.stage;
-                  const trackLabel = s.track ? `${s.track}` : "";
-                  if (item.type === "in_progress") {
-                    return (
-                      <div key={s.id} className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
-                        <div className="w-2 h-2 rounded-full bg-[#4272EF] shrink-0" />
-                        <span className="text-sm text-blue-700 font-medium">{s.stage_name}</span>
-                        {trackLabel && <span className="text-[10px] text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
-                        <span className="text-xs text-blue-400 ml-auto">In progress</span>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={s.id} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg">
-                      <ArrowRight size={14} className="text-gray-400 shrink-0" />
-                      <span className="text-sm text-gray-700 font-medium">{s.stage_name}</span>
-                      {trackLabel && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
-                      {s.planned_start_date && (
-                        <span className="text-xs text-gray-400 ml-auto">
-                          Starts {new Date(s.planned_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
+          {/* DESKTOP LAYOUT */}
+          <div className="hidden lg:block p-6 space-y-5">
+            <Link href="/projects" className="text-sm text-gray-400 hover:text-gray-600 transition-colors inline-flex items-center gap-1">
+              <ChevronLeft size={14} />
+              Projects
+            </Link>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div className="flex items-center gap-3">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${isHome ? "bg-blue-50" : "bg-emerald-50"}`}>
+                    {isHome ? <Building2 size={22} className="text-[#4272EF]" /> : <Landmark size={22} className="text-emerald-600" />}
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold text-gray-900">{project.name}</h1>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {isHome ? "Home Construction" : "Land Development"}
+                      {project.subdivision && ` \u2014 ${project.subdivision}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-100 text-gray-600"}`}>
+                    {project.status.replace(/_/g, " ")}
+                  </span>
+                  <Link href={`/projects/${id}/edit`} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-[#4272EF] hover:bg-blue-50 border border-gray-200 rounded-lg transition-colors">
+                    <Pencil size={13} />
+                    Edit
+                  </Link>
+                  <DeleteProjectButton projectId={id} projectName={project.name} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-4 text-sm">
+                {project.address && <DetailField icon={<MapPin size={13} />} label="Address" value={project.address} wide />}
+                {project.start_date && (
+                  <DetailField icon={<Calendar size={13} />} label="Start Date" value={new Date(project.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} />
+                )}
+                {days !== null && <DetailField label="Days Under Construction" value={`${days.toLocaleString()} days`} highlight />}
+                {lender && <DetailField label="Lender" value={lender.name} />}
+                {isHome && project.subdivision && <DetailField label="Subdivision" value={project.subdivision} />}
+                {isHome && (project.block || project.lot) && <DetailField label="Block / Lot" value={[project.block, project.lot].filter(Boolean).join(" / ")} />}
+                {isHome && project.lot_size_acres != null && <DetailField icon={<Ruler size={13} />} label="Lot Size" value={`${project.lot_size_acres} acres`} />}
+                {isHome && project.plan && <DetailField label="Plan" value={project.plan} />}
+                {isHome && project.home_size_sf != null && <DetailField icon={<Home size={13} />} label="Home Size" value={`${project.home_size_sf.toLocaleString()} SF`} />}
+                {!isHome && project.size_acres != null && <DetailField label="Size" value={`${project.size_acres} acres`} />}
+                {!isHome && project.number_of_lots != null && <DetailField label="Total Lots" value={String(project.number_of_lots)} />}
+                {!isHome && <DetailField label="Lots Sold" value={String(totalSoldLots)} />}
+                {!isHome && project.number_of_lots != null && <DetailField label="Remaining Lots" value={String(remainingLots >= 0 ? remainingLots : 0)} />}
+                {!isHome && project.number_of_phases != null && <DetailField label="Phases" value={String(project.number_of_phases)} />}
               </div>
             </div>
-          )}
 
-          <ProjectTabs
-            projectId={id}
-            isHome={isHome}
-            startDate={project.start_date}
-            buildStages={buildStages}
-            costCodes={costCodes}
-            availableCostCodes={availableCostCodes}
-            phases={phases}
-            documents={documents}
-            committedByCostCodeId={committedByCostCodeId}
-            actualByCostCodeId={actualByCostCodeId}
-          />
+            {showWhatsNext && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h2 className="text-sm font-semibold text-gray-700 mb-3">{"What's Next"}</h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {whatsNextItems.map((item) => {
+                    const s = item.stage;
+                    const trackLabel = s.track ?? "";
+                    if (item.type === "in_progress") {
+                      return (
+                        <div key={s.id} className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-lg">
+                          <div className="w-2 h-2 rounded-full bg-[#4272EF] shrink-0" />
+                          <span className="text-sm text-blue-700 font-medium">{s.stage_name}</span>
+                          {trackLabel && <span className="text-[10px] text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
+                          <span className="text-xs text-blue-400 ml-auto">In progress</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={s.id} className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-lg">
+                        <ArrowRight size={14} className="text-gray-400 shrink-0" />
+                        <span className="text-sm text-gray-700 font-medium">{s.stage_name}</span>
+                        {trackLabel && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{trackLabel}</span>}
+                        {s.planned_start_date && (
+                          <span className="text-xs text-gray-400 ml-auto">
+                            Starts {new Date(s.planned_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <ProjectTabs projectId={id} isHome={isHome} startDate={project.start_date} buildStages={buildStages} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} documents={documents} committedByCostCodeId={committedByCostCodeId} actualByCostCodeId={actualByCostCodeId} />
+          </div>
+
         </div>
       </main>
     </>
   );
 }
 
-function DetailField({
-  label,
-  value,
-  icon,
-  wide,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  icon?: React.ReactNode;
-  wide?: boolean;
-  highlight?: boolean;
+function DetailField({ label, value, icon, wide, highlight }: {
+  label: string; value: string; icon?: React.ReactNode; wide?: boolean; highlight?: boolean;
 }) {
   return (
     <div className={wide ? "col-span-2" : ""}>
-      <p className="text-xs text-gray-400 mb-0.5 flex items-center gap-1">
-        {icon}
-        {label}
-      </p>
-      <p className={`text-sm font-medium ${highlight ? "text-[#4272EF]" : "text-gray-800"}`}>
-        {value}
-      </p>
+      <p className="text-xs text-gray-400 mb-0.5 flex items-center gap-1">{icon}{label}</p>
+      <p className={`text-sm font-medium ${highlight ? "text-[#4272EF]" : "text-gray-800"}`}>{value}</p>
     </div>
   );
 }

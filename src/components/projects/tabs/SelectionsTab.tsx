@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
-import { Plus, Trash2, Loader2, ChevronDown } from "lucide-react";
+import { useState, useTransition, useEffect, useRef } from "react";
+import { Plus, Trash2, Loader2, ChevronRight, Palette } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   createSelection,
@@ -24,15 +24,21 @@ const CATEGORIES = [
 
 const STATUS_ORDER = ["pending", "confirmed", "ordered", "installed"];
 
-const STATUS_STYLES: Record<string, string> = {
-  pending:   "bg-gray-100 text-gray-600",
-  confirmed: "bg-blue-100 text-blue-700",
-  ordered:   "bg-purple-100 text-purple-700",
-  installed: "bg-green-100 text-green-700",
+const STATUS_CONFIG: Record<string, { bg: string; text: string; activeBg: string; border: string; dot: string }> = {
+  pending:   { bg: "bg-gray-50",    text: "text-gray-600",   activeBg: "active:bg-gray-100",   border: "border-gray-200", dot: "bg-gray-400" },
+  confirmed: { bg: "bg-blue-50",    text: "text-blue-700",   activeBg: "active:bg-blue-100",   border: "border-blue-200", dot: "bg-blue-500" },
+  ordered:   { bg: "bg-purple-50",  text: "text-purple-700", activeBg: "active:bg-purple-100", border: "border-purple-200", dot: "bg-purple-500" },
+  installed: { bg: "bg-green-50",   text: "text-green-700",  activeBg: "active:bg-green-100",  border: "border-green-200", dot: "bg-green-500" },
 };
 
-// ── Status cycle button ───────────────────────────────────────────────────────
-function StatusBadge({ selectionId, status, projectId, onChange }: {
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Pending",
+  confirmed: "Confirmed",
+  ordered: "Ordered",
+  installed: "Installed",
+};
+
+function StatusStepper({ selectionId, status, projectId, onChange }: {
   selectionId: string; status: string; projectId: string; onChange: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -46,21 +52,27 @@ function StatusBadge({ selectionId, status, projectId, onChange }: {
     });
   }
 
+  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
+  const currentIdx = STATUS_ORDER.indexOf(status);
+
   return (
     <button
       onClick={advance}
       disabled={isPending}
-      title="Click to advance status"
-      aria-label={`Status: ${status} — click to advance`}
-      className={`text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 transition-opacity ${STATUS_STYLES[status] ?? "bg-gray-100 text-gray-600"} ${isPending ? "opacity-50" : "hover:opacity-80"}`}
+      aria-label={`Status: ${status} — tap to advance`}
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all min-h-[40px] ${config.bg} ${config.text} ${config.border} ${config.activeBg} ${isPending ? "opacity-50" : ""}`}
     >
-      {status}
-      <ChevronDown size={10} />
+      <div className="flex items-center gap-1">
+        {STATUS_ORDER.map((_, i) => (
+          <div key={i} className={`w-1.5 h-1.5 rounded-full ${i <= currentIdx ? config.dot : "bg-gray-200"}`} />
+        ))}
+      </div>
+      <span>{STATUS_LABELS[status] ?? status}</span>
+      <ChevronRight size={12} className="opacity-50" />
     </button>
   );
 }
 
-// ── Delete button ─────────────────────────────────────────────────────────────
 function DeleteButton({ selectionId, projectId, onDeleted }: {
   selectionId: string; projectId: string; onDeleted: () => void;
 }) {
@@ -75,28 +87,30 @@ function DeleteButton({ selectionId, projectId, onDeleted }: {
         });
       }}
       disabled={isPending}
-      className="text-gray-300 hover:text-red-400 transition-colors disabled:opacity-40"
+      className="text-gray-300 hover:text-red-400 active:text-red-500 transition-colors disabled:opacity-40 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
       aria-label="Remove selection"
     >
-      <Trash2 size={13} />
+      <Trash2 size={14} />
     </button>
   );
 }
 
-// ── New selection form (inline at bottom of category) ────────────────────────
 function AddSelectionForm({ projectId, category, onCreated }: {
   projectId: string; category: string; onCreated: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="text-xs text-[#4272EF] flex items-center gap-1 hover:underline py-1 px-4"
+        className="flex items-center gap-1.5 text-xs text-[#4272EF] font-medium active:text-[#3461de] py-2.5 px-4 min-h-[44px]"
       >
-        <Plus size={12} /> Add item to {category}
+        <Plus size={14} /> Add item
       </button>
     );
   }
@@ -113,43 +127,52 @@ function AddSelectionForm({ projectId, category, onCreated }: {
           onCreated();
         });
       }}
-      className="flex flex-wrap items-center gap-2 px-4 py-2 bg-gray-50 border-t border-gray-100"
+      className="px-4 py-3 bg-gray-50/50 border-t border-gray-100 space-y-2"
     >
       <input type="hidden" name="category" value={category} />
       <input
+        ref={inputRef}
         name="item_name"
-        placeholder="Item name *"
+        placeholder="Item name"
         required
-        className="flex-1 min-w-40 border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#4272EF]"
+        className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30 min-h-[44px]"
       />
-      <select
-        name="status"
-        defaultValue="pending"
-        className="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-[#4272EF]"
-      >
-        {STATUS_ORDER.map((s) => <option key={s} value={s}>{s}</option>)}
-      </select>
-      <input
-        name="notes"
-        placeholder="Notes (optional)"
-        className="flex-1 min-w-32 border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#4272EF]"
-      />
-      <button
-        type="submit"
-        disabled={isPending}
-        className="px-3 py-1.5 bg-[#4272EF] text-white rounded-lg text-xs font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60 flex items-center gap-1"
-      >
-        {isPending && <Loader2 size={11} className="animate-spin" />}
-        Add
-      </button>
-      <button type="button" onClick={() => setOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">
-        Cancel
-      </button>
+      <div className="flex items-center gap-2">
+        <input
+          name="notes"
+          placeholder="Notes (optional)"
+          className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30 min-h-[44px]"
+        />
+        <input type="hidden" name="status" value="pending" />
+        <button type="button" onClick={() => setOpen(false)}
+          className="px-3 py-2.5 text-sm text-gray-400 active:text-gray-600 min-h-[44px]">Cancel</button>
+        <button type="submit" disabled={isPending}
+          className="px-4 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-semibold active:bg-[#3461de] transition-colors disabled:opacity-60 flex items-center gap-1 min-h-[44px]">
+          {isPending && <Loader2 size={12} className="animate-spin" />}
+          Add
+        </button>
+      </div>
     </form>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+function SelectionItem({ sel, projectId, onRefresh }: {
+  sel: Selection; projectId: string; onRefresh: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 group min-h-[56px]">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{sel.item_name}</p>
+        {sel.notes && <p className="text-xs text-gray-400 truncate mt-0.5">{sel.notes}</p>}
+      </div>
+      <StatusStepper selectionId={sel.id} status={sel.status} projectId={projectId} onChange={onRefresh} />
+      <div className="lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+        <DeleteButton selectionId={sel.id} projectId={projectId} onDeleted={onRefresh} />
+      </div>
+    </div>
+  );
+}
+
 export default function SelectionsTab({ projectId }: { projectId: string }) {
   const [selections, setSelections] = useState<Selection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,75 +194,56 @@ export default function SelectionsTab({ projectId }: { projectId: string }) {
     return acc;
   }, {} as Record<string, Selection[]>);
 
-  const totalInstalled = selections.filter((s) => s.status === "installed").length;
-  const totalPending   = selections.filter((s) => s.status === "pending").length;
-
   if (loading) {
-    return <div className="py-12 text-center text-sm text-gray-400">Loading…</div>;
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-white rounded-xl border border-gray-100 h-16 animate-pulse" />
+        ))}
+      </div>
+    );
   }
 
   return (
     <div className="space-y-4">
-      {/* Summary */}
       {selections.length > 0 && (
-        <div className="flex flex-wrap gap-2 text-xs">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
           {STATUS_ORDER.map((st) => {
             const count = selections.filter((s) => s.status === st).length;
-            if (count === 0) return null;
+            const config = STATUS_CONFIG[st] ?? STATUS_CONFIG.pending;
             return (
-              <span key={st} className={`px-2.5 py-1 rounded-full font-medium ${STATUS_STYLES[st]}`}>
-                {count} {st}
-              </span>
+              <div key={st} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shrink-0 ${config.bg} ${config.border}`}>
+                <div className={`w-2 h-2 rounded-full ${config.dot}`} />
+                <span className={`text-xs font-semibold tabular-nums ${config.text}`}>{count}</span>
+                <span className={`text-xs ${config.text} opacity-70`}>{STATUS_LABELS[st]}</span>
+              </div>
             );
           })}
         </div>
       )}
 
       {selections.length === 0 && (
-        <div className="py-8 text-center text-sm text-gray-400 border border-dashed border-gray-200 rounded-xl">
-          No selections yet. Use the buttons below to add items by category.
+        <div className="py-16 text-center border border-dashed border-gray-200 rounded-xl">
+          <Palette size={28} className="mx-auto text-gray-300 mb-2" />
+          <p className="text-sm text-gray-400">No selections yet</p>
+          <p className="text-xs text-gray-300 mt-1">Add items in any category below to start tracking</p>
         </div>
       )}
 
-      {/* Category groups */}
       <div className="space-y-3">
         {CATEGORIES.map((cat) => {
           const items = byCategory[cat] ?? [];
           return (
-            <div key={cat} className="rounded-xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
+            <div key={cat} className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-100">
                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{cat}</span>
                 {items.length > 0 && (
                   <span className="text-xs text-gray-400">{items.length} item{items.length !== 1 ? "s" : ""}</span>
                 )}
               </div>
-
-              {items.length > 0 && (
-                <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <tbody className="divide-y divide-gray-50">
-                    {items.map((s) => (
-                      <tr key={s.id} className="hover:bg-gray-50 transition-colors group">
-                        <td className="px-4 py-2.5 text-gray-800 font-medium">{s.item_name}</td>
-                        <td className="px-3 py-2.5 w-28">
-                          <StatusBadge
-                            selectionId={s.id}
-                            status={s.status}
-                            projectId={projectId}
-                            onChange={load}
-                          />
-                        </td>
-                        <td className="px-3 py-2.5 text-xs text-gray-400 max-w-xs truncate">{s.notes ?? ""}</td>
-                        <td className="px-3 py-2.5 w-8 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                          <DeleteButton selectionId={s.id} projectId={projectId} onDeleted={load} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-              )}
-
+              {items.map((s) => (
+                <SelectionItem key={s.id} sel={s} projectId={projectId} onRefresh={load} />
+              ))}
               <AddSelectionForm projectId={projectId} category={cat} onCreated={load} />
             </div>
           );
@@ -247,8 +251,8 @@ export default function SelectionsTab({ projectId }: { projectId: string }) {
       </div>
 
       {selections.length > 0 && (
-        <p className="text-xs text-gray-400">
-          Click a status badge to advance it: pending → confirmed → ordered → installed
+        <p className="text-xs text-gray-400 text-center">
+          {"Tap a status to advance: Pending \u2192 Confirmed \u2192 Ordered \u2192 Installed"}
         </p>
       )}
     </div>
