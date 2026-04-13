@@ -1,6 +1,6 @@
 {
   "framework": "nextjs",
-  "buildCommand": "rm -rf .next && npm run build",
+  "buildCommand": "rm -rf .next node_modules/.cache && npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install"
 }

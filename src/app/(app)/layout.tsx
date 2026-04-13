@@ -12,7 +12,7 @@ export default function AppLayout({
 }) {
   return (
     <UserRoleProvider>
-      <div className="flex min-h-screen bg-slate-50">
+      <div data-layout-version="3" className="flex min-h-screen bg-slate-50">
         {/* Desktop: icon rail (+ flyout on hover) */}
         <DesktopNavRail />
 
