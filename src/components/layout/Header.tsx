@@ -27,7 +27,10 @@ export default async function Header({ title }: { title: string }) {
       data-header
       className="bg-white border-b border-gray-200 px-4 lg:px-8 py-4 flex items-center justify-between"
     >
-      <h1 className="text-lg lg:text-2xl font-bold text-gray-900">{title}</h1>
+      <div className="flex items-center gap-2">
+        <img src="/prairie-sky-logo.png" alt="Prairie Sky Homes" className="h-6 lg:h-8 w-auto" />
+        <h1 className="text-lg lg:text-2xl font-bold text-gray-900">{title}</h1>
+      </div>
       <div className="flex items-center gap-3 lg:gap-4">
         <NotificationBell />
         <div className="flex items-center gap-2 pl-3 lg:pl-4 border-l border-gray-200">

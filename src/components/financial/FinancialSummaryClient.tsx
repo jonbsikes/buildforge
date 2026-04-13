@@ -269,13 +269,20 @@ export default function FinancialSummaryClient() {
   );
 }
 
-function KpiCard({ label, value, color, icon }: { label: string; value: string; color: string; icon: React.ReactNode }) {
+function KpiCard({ label, value, borderColor, secondaryText, icon: Icon }: {
+  label: string;
+  value: string;
+  borderColor: string;
+  secondaryText?: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+}) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 flex items-start gap-3">
-      <div className={`mt-0.5 ${color}`}>{icon}</div>
+    <div className={`bg-white rounded-xl border-l-4 ${borderColor} border border-gray-200 px-5 py-4 flex items-start gap-3`}>
+      <div className="mt-0.5 text-gray-400"><Icon size={20} /></div>
       <div>
         <p className="text-xs text-gray-500 mb-1">{label}</p>
-        <p className={`text-xl font-semibold tabular-nums ${color}`}>{value}</p>
+        <p className="text-xl font-semibold tabular-nums text-gray-900">{value}</p>
+        {secondaryText && <p className="text-[10px] text-gray-400 mt-0.5">{secondaryText}</p>}
       </div>
     </div>
   );
