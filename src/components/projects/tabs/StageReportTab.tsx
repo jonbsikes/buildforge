@@ -431,7 +431,7 @@ function MobileStageCard({
 
         {canAction && (
           <div className="flex items-center gap-2 mt-3">
-            {isNotStarted && !delayed && (
+            {(isNotStarted || (delayed && !isInProgress)) && (
               <button onClick={onStart} disabled={completing}
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium active:bg-blue-100 disabled:opacity-50 transition-colors min-h-[44px]"
                 aria-label="Mark started">
@@ -659,7 +659,7 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                       <div className="flex items-center gap-1">
                         {!isComp && (
                           <>
-                            {stageNotStarted && (
+                            {(stageNotStarted || stageDelayed) && (
                               <button onClick={() => handleStart(stage)} disabled={completingId === stage.id}
                                 className="p-1.5 rounded transition-colors text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-50" title="Mark started">
                                 <Play size={14} />
