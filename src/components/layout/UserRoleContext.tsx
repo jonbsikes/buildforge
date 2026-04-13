@@ -29,11 +29,8 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
       } = await supabase.auth.getUser();
 
       if (user) {
-        const { data } = await supabase
-          .from("user_profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
+        // Use SECURITY DEFINER function — bypasses RLS so role lookup never silently fails
+        const { data } = await supabase.rpc("get_my_role");
 
         if (data?.role) {
           setRole(data.role as UserRole);

@@ -12,7 +12,9 @@ export interface UserProfile {
 
 /**
  * Fetches the current user's profile (including role).
- * Returns null if not authenticated or no profile exists.
+ * Uses a SECURITY DEFINER database function to bypass RLS and prevent
+ * silent query failures that would incorrectly downgrade admin users.
+ * Returns null if not authenticated.
  */
 export async function getUserProfile(): Promise<UserProfile | null> {
   const supabase = await createClient();
@@ -22,14 +24,11 @@ export async function getUserProfile(): Promise<UserProfile | null> {
 
   if (!user) return null;
 
-  const { data } = await supabase
-    .from("user_profiles")
-    .select("id, display_name, role")
-    .eq("id", user.id)
-    .single();
+  // Use SECURITY DEFINER function — bypasses RLS so role lookup never silently fails
+  const { data, error } = await supabase.rpc("get_my_role");
 
-  if (!data) {
-    // Fallback: user exists but no profile row yet — treat as project_manager
+  if (error || !data) {
+    // Fallback: user exists but function call failed — treat as project_manager
     return {
       id: user.id,
       display_name: user.email?.split("@")[0] ?? "User",
@@ -37,7 +36,11 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     };
   }
 
-  return data as UserProfile;
+  return {
+    id: (data as { id: string }).id ?? user.id,
+    display_name: (data as { display_name: string }).display_name ?? user.email?.split("@")[0] ?? "User",
+    role: ((data as { role: string }).role as UserRole) ?? "project_manager",
+  };
 }
 
 /**
