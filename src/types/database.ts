@@ -1899,6 +1899,10 @@ export type Database = {
     }
     Functions: {
       generate_notifications: { Args: never; Returns: Json }
+      get_my_role: {
+        Args: Record<string, never>
+        Returns: Json
+      }
     }
     Enums: {
       cost_category:
