@@ -31,9 +31,10 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         // Use SECURITY DEFINER function — bypasses RLS so role lookup never silently fails
         const { data } = await supabase.rpc("get_my_role");
+        const profile = data as { role?: string } | null;
 
-        if (data?.role) {
-          setRole(data.role as UserRole);
+        if (profile?.role) {
+          setRole(profile.role as UserRole);
         }
       }
       setLoading(false);
