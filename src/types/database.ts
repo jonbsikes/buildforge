@@ -1252,6 +1252,7 @@ export type Database = {
           amount: number
           cleared_date: string | null
           created_at: string
+          discount_amount: number
           draw_id: string | null
           funding_source: string
           id: string
@@ -1269,6 +1270,7 @@ export type Database = {
           amount: number
           cleared_date?: string | null
           created_at?: string
+          discount_amount?: number
           draw_id?: string | null
           funding_source?: string
           id?: string
@@ -1286,6 +1288,7 @@ export type Database = {
           amount?: number
           cleared_date?: string | null
           created_at?: string
+          discount_amount?: number
           draw_id?: string | null
           funding_source?: string
           id?: string

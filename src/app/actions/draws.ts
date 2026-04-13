@@ -863,7 +863,7 @@ export async function markVendorPaymentPaid(
   // Load the vendor payment record
   const { data: vp } = await supabase
     .from("vendor_payments")
-    .select("id, draw_id, vendor_name, amount, status")
+    .select("id, draw_id, vendor_id, vendor_name, amount, status")
     .eq("id", vendorPaymentId)
     .single();
 
@@ -1047,6 +1047,54 @@ export async function markVendorPaymentPaid(
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Auto-create a payments register record so this check shows in the register.
+  // Status "outstanding" = check cut but not yet cleared at bank.
+  // ---------------------------------------------------------------------------
+  const { data: paymentRecord } = await supabase
+    .from("payments")
+    .insert({
+      payment_number: checkNumber?.trim() || null,
+      payment_method: "check",
+      payee: vp.vendor_name,
+      vendor_id: vp.vendor_id ?? null,
+      amount: vp.amount,
+      discount_amount: totalDiscount,
+      payment_date: paymentDate,
+      cleared_date: null,
+      status: "outstanding",
+      funding_source: "bank_funded",
+      draw_id: vp.draw_id,
+      vendor_payment_id: vendorPaymentId,
+      notes: totalDiscount > 0
+        ? `Draw check w/ $${totalDiscount.toFixed(2)} early-pay discount`
+        : `Draw check — ${vp.vendor_name}`,
+      user_id: user.id,
+    })
+    .select("id")
+    .single();
+
+  // Link the same invoices to the payment register record
+  if (paymentRecord && invoiceIds.length > 0) {
+    const paymentInvoiceLinks = invoiceIds.map((invId) => ({
+      payment_id: paymentRecord.id,
+      invoice_id: invId,
+      amount: 0, // individual amounts are on the invoices themselves
+    }));
+    // Fetch actual amounts for the links
+    const { data: invAmounts } = await supabase
+      .from("invoices")
+      .select("id, total_amount, amount")
+      .in("id", invoiceIds);
+    if (invAmounts) {
+      for (const link of paymentInvoiceLinks) {
+        const inv = invAmounts.find((i) => i.id === link.invoice_id);
+        link.amount = (inv?.total_amount ?? inv?.amount ?? 0) as number;
+      }
+    }
+    await supabase.from("payment_invoices").insert(paymentInvoiceLinks);
+  }
+
   // If every vendor payment for this draw is now paid → auto-close the draw
   const { data: allVps } = await supabase
     .from("vendor_payments")
@@ -1063,6 +1111,7 @@ export async function markVendorPaymentPaid(
 
   revalidatePath(`/draws/${vp.draw_id}`);
   revalidatePath("/draws");
+  revalidatePath("/banking/payments");
   return {};
 }
 

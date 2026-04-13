@@ -21,6 +21,8 @@ import {
   Banknote,
   ArrowRightLeft,
   Zap,
+  Link2,
+  Tag,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -137,15 +139,18 @@ export default function PaymentRegisterClient({
     });
   }, [initialPayments, statusFilter, methodFilter, searchQuery]);
 
-  // Summary totals
+  // Summary totals (net of discounts)
   const totals = useMemo(() => {
     const outstanding = initialPayments
       .filter((p) => p.status === "outstanding")
-      .reduce((s, p) => s + p.amount, 0);
+      .reduce((s, p) => s + p.amount - (p.discount_amount ?? 0), 0);
     const cleared = initialPayments
       .filter((p) => p.status === "cleared")
-      .reduce((s, p) => s + p.amount, 0);
-    return { outstanding, cleared, count: initialPayments.length };
+      .reduce((s, p) => s + p.amount - (p.discount_amount ?? 0), 0);
+    const totalDiscount = initialPayments
+      .filter((p) => p.status !== "void")
+      .reduce((s, p) => s + (p.discount_amount ?? 0), 0);
+    return { outstanding, cleared, totalDiscount, count: initialPayments.length };
   }, [initialPayments]);
 
   function toggleRow(id: string) {
@@ -184,7 +189,7 @@ export default function PaymentRegisterClient({
   return (
     <div className="space-y-5">
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
             Total Payments
@@ -209,6 +214,16 @@ export default function PaymentRegisterClient({
             {fmt(totals.cleared)}
           </p>
         </div>
+        {totals.totalDiscount > 0 && (
+          <div className="bg-white rounded-xl border border-emerald-200 px-5 py-4">
+            <p className="text-xs font-medium text-emerald-600 uppercase tracking-wide">
+              Discounts Taken
+            </p>
+            <p className="text-2xl font-semibold text-emerald-700 mt-1">
+              {fmt(totals.totalDiscount)}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -302,7 +317,13 @@ export default function PaymentRegisterClient({
                     Payee
                   </th>
                   <th className="text-right px-3 py-3 font-medium text-gray-600">
-                    Amount
+                    Gross
+                  </th>
+                  <th className="text-right px-3 py-3 font-medium text-gray-600">
+                    Discount
+                  </th>
+                  <th className="text-right px-3 py-3 font-medium text-gray-600">
+                    Net
                   </th>
                   <th className="text-left px-3 py-3 font-medium text-gray-600">
                     Date
@@ -414,6 +435,9 @@ function PaymentTableRow({
   onVoid: () => void;
   MethodIcon: typeof Banknote;
 }) {
+  const discountAmt = p.discount_amount ?? 0;
+  const netAmt = p.amount - discountAmt;
+
   return (
     <>
       <tr
@@ -440,9 +464,35 @@ function PaymentTableRow({
             {METHOD_LABELS[p.payment_method] ?? p.payment_method}
           </span>
         </td>
-        <td className="px-3 py-3 font-medium text-gray-900">{p.payee}</td>
+        <td className="px-3 py-3 font-medium text-gray-900">
+          <span>{p.payee}</span>
+          {p.draw_id && (
+            <a
+              href={`/draws/${p.draw_id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 bg-blue-50 text-[#4272EF] rounded text-[10px] font-medium hover:bg-blue-100 transition-colors"
+              title="View linked draw request"
+            >
+              <Link2 size={10} />
+              Draw
+            </a>
+          )}
+        </td>
         <td className="px-3 py-3 text-right font-mono text-gray-900">
           {fmt(p.amount)}
+        </td>
+        <td className="px-3 py-3 text-right font-mono">
+          {discountAmt > 0 ? (
+            <span className="text-green-600 inline-flex items-center gap-0.5">
+              <Tag size={10} />
+              ({fmt(discountAmt)})
+            </span>
+          ) : (
+            <span className="text-gray-300">{"\u2014"}</span>
+          )}
+        </td>
+        <td className="px-3 py-3 text-right font-mono font-semibold text-gray-900">
+          {fmt(netAmt)}
         </td>
         <td className="px-3 py-3 text-gray-600">{fmtDate(p.payment_date)}</td>
         <td className="px-3 py-3 text-gray-600">
@@ -508,6 +558,8 @@ function PaymentTableRow({
             <td className="px-3 py-2 text-right font-mono text-gray-600">
               {fmt(inv.amount)}
             </td>
+            <td />
+            <td />
             <td className="px-3 py-2 text-gray-500 font-mono" colSpan={2}>
               Inv #{inv.invoice_number ?? "\u2014"}
             </td>
@@ -574,6 +626,7 @@ function NewPaymentModal({
   );
   const [fundingSource, setFundingSource] = useState<"bank_funded" | "owner_funded" | "dda">("dda");
   const [notes, setNotes] = useState("");
+  const [discountAmount, setDiscountAmount] = useState("");
 
   // Invoice selection
   const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(
@@ -613,6 +666,9 @@ function NewPaymentModal({
       .filter((inv) => selectedInvoices.has(inv.id))
       .reduce((s, inv) => s + inv.amount, 0);
   }, [payableInvoices, selectedInvoices]);
+
+  const parsedDiscount = parseFloat(discountAmount) || 0;
+  const netTotal = Math.max(0, Math.round((selectedTotal - parsedDiscount) * 100) / 100);
 
   // Payee derived from selected invoices
   const payee = useMemo(() => {
@@ -679,6 +735,7 @@ function NewPaymentModal({
       payee: payee || "Unknown",
       vendor_id: vendorIds.length === 1 ? vendorIds[0] : null,
       amount: Math.round(selectedTotal * 100) / 100,
+      discount_amount: parsedDiscount,
       payment_date: paymentDate,
       cleared_date: method !== "check" ? paymentDate : null,
       funding_source: fundingSource,
@@ -775,18 +832,42 @@ function NewPaymentModal({
         </div>
       </div>
 
-      {/* Notes */}
-      <div className="mb-5">
-        <label className="block text-xs font-medium text-gray-600 mb-1">
-          Notes (optional)
-        </label>
-        <input
-          type="text"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="e.g., Weekly vendor payment run"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
-        />
+      {/* Notes + Discount row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Notes (optional)
+          </label>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g., Weekly vendor payment run"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Early Pay Discount ($)
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={discountAmount}
+              onChange={(e) => setDiscountAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+            />
+          </div>
+          {parsedDiscount > 0 && selectedTotal > 0 && (
+            <p className="text-xs text-green-600 mt-1">
+              Net check: {fmt(netTotal)} (saving {((parsedDiscount / selectedTotal) * 100).toFixed(1)}%)
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Invoice selection */}
@@ -896,19 +977,34 @@ function NewPaymentModal({
       <div className="bg-gray-50 rounded-lg px-4 py-3 mb-5 text-xs text-gray-500">
         <span className="font-medium text-gray-600">GL posting:</span>{" "}
         {isCheck
-          ? "DR Accounts Payable (2000) / CR Checks Outstanding (2050)"
-          : "DR Accounts Payable (2000) / CR Cash (1000)"}
+          ? `DR Accounts Payable (2000) / CR Checks Outstanding (2050)${parsedDiscount > 0 ? " / CR WIP (discount)" : ""}`
+          : `DR Accounts Payable (2000) / CR Cash (1000)${parsedDiscount > 0 ? " / CR WIP (discount)" : ""}`}
         {!isCheck && " \u2014 invoices will be marked Cleared immediately."}
         {isCheck && " \u2014 invoices will be marked Released (use Mark Cleared when check clears bank)."}
+        {parsedDiscount > 0 && (
+          <span className="block mt-1 text-green-600">
+            Discount of {fmt(parsedDiscount)} will credit WIP/CIP accounts, reducing job cost.
+          </span>
+        )}
       </div>
 
       {/* Footer */}
       <div className="flex items-center justify-between">
         <div>
           {selectedInvoices.size > 0 && (
-            <p className="text-sm font-semibold text-gray-900">
-              Total: {fmt(selectedTotal)}
-            </p>
+            <div className="text-sm">
+              <p className="text-gray-500">
+                Gross: {fmt(selectedTotal)}
+                {parsedDiscount > 0 && (
+                  <span className="text-green-600 ml-2">
+                    - {fmt(parsedDiscount)} discount
+                  </span>
+                )}
+              </p>
+              <p className="font-semibold text-gray-900">
+                Net Check: {fmt(netTotal)}
+              </p>
+            </div>
           )}
         </div>
         <div className="flex gap-3">
@@ -925,7 +1021,7 @@ function NewPaymentModal({
           >
             {isPending
               ? "Processing..."
-              : `Record Payment${selectedInvoices.size > 0 ? ` (${fmt(selectedTotal)})` : ""}`}
+              : `Record Payment${selectedInvoices.size > 0 ? ` (${fmt(netTotal)})` : ""}`}
           </button>
         </div>
       </div>

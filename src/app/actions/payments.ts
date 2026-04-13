@@ -19,7 +19,8 @@ export interface CreatePaymentInput {
   payment_method: "check" | "ach" | "wire" | "auto_draft";
   payee: string;
   vendor_id: string | null;
-  amount: number;
+  amount: number;                  // Gross invoice total (before discount)
+  discount_amount: number;         // Early-pay discount in dollars (net = amount - discount)
   payment_date: string;            // ISO date
   cleared_date: string | null;     // For ACH/wire — set at creation; checks — set later
   funding_source: "bank_funded" | "owner_funded" | "dda";
@@ -36,11 +37,13 @@ export interface PaymentRow {
   payee: string;
   vendor_id: string | null;
   amount: number;
+  discount_amount: number;
   payment_date: string;
   cleared_date: string | null;
   status: string;
   funding_source: string;
   draw_id: string | null;
+  vendor_payment_id: string | null;
   notes: string | null;
   created_at: string;
   invoices: {
@@ -104,7 +107,7 @@ export async function createPayment(
   if (!input.invoices || input.invoices.length === 0)
     return { error: "At least one invoice is required" };
 
-  // Verify invoice total matches payment amount
+  // Verify invoice total matches payment amount (gross, before discount)
   const invoiceTotal = input.invoices.reduce((s, i) => s + i.amount, 0);
   const diff = Math.abs(invoiceTotal - input.amount);
   if (diff > 0.01) {
@@ -112,6 +115,12 @@ export async function createPayment(
       error: `Invoice amounts ($${invoiceTotal.toFixed(2)}) don't match payment amount ($${input.amount.toFixed(2)})`,
     };
   }
+
+  const discount = input.discount_amount && input.discount_amount > 0 ? input.discount_amount : 0;
+  if (discount >= input.amount) {
+    return { error: "Discount cannot be greater than or equal to the payment amount" };
+  }
+  const netAmount = Math.round((input.amount - discount) * 100) / 100;
 
   const isCheck = input.payment_method === "check";
   const paymentStatus = isCheck ? "outstanding" : "cleared";
@@ -126,6 +135,7 @@ export async function createPayment(
       payee: input.payee.trim(),
       vendor_id: input.vendor_id || null,
       amount: input.amount,
+      discount_amount: discount,
       payment_date: input.payment_date,
       cleared_date: clearedDate,
       status: paymentStatus,
@@ -174,8 +184,66 @@ export async function createPayment(
       .in("id", invoiceIds);
   }
 
+  // ---------------------------------------------------------------------------
+  // If discount taken, distribute across invoices and determine WIP accounts
+  // ---------------------------------------------------------------------------
+  type DiscountByWip = { accountNumber: string; projectId: string | null; amount: number };
+  const discountsByWip: DiscountByWip[] = [];
+
+  if (discount > 0 && invoiceIds.length > 0) {
+    const { data: invoiceDetails } = await supabase
+      .from("invoices")
+      .select("id, total_amount, amount, project_id, projects ( type )")
+      .in("id", invoiceIds);
+
+    if (invoiceDetails && invoiceDetails.length > 0) {
+      const totalInvAmt = invoiceDetails.reduce(
+        (s, inv) => s + ((inv.total_amount ?? inv.amount ?? 0) as number), 0
+      );
+
+      let distributed = 0;
+      for (let i = 0; i < invoiceDetails.length; i++) {
+        const inv = invoiceDetails[i];
+        const invAmt = (inv.total_amount ?? inv.amount ?? 0) as number;
+        const share = i === invoiceDetails.length - 1
+          ? discount - distributed
+          : Math.round((invAmt / totalInvAmt) * discount * 100) / 100;
+        distributed += share;
+
+        if (share > 0) {
+          // Save discount on the invoice record
+          await supabase
+            .from("invoices")
+            .update({ discount_taken: share })
+            .eq("id", inv.id);
+
+          const projType = (inv.projects as { type: string } | null)?.type;
+          const wipAcct = !inv.project_id
+            ? "6900"
+            : projType === "land_development"
+            ? "1230"
+            : "1210";
+
+          discountsByWip.push({
+            accountNumber: wipAcct,
+            projectId: inv.project_id ?? null,
+            amount: share,
+          });
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Post GL entries
+  // DR AP (full amount) / CR 2050 or 1000 (net) / CR WIP per project (discount)
+  // ---------------------------------------------------------------------------
   const glNeeded = isCheck ? ["2000", "2050"] : ["2000", "1000"];
+  if (discount > 0) {
+    for (const d of discountsByWip) {
+      if (!glNeeded.includes(d.accountNumber)) glNeeded.push(d.accountNumber);
+    }
+  }
   const accounts = await getGLAccounts(supabase, glNeeded);
 
   const creditAccount = isCheck ? accounts["2050"] : accounts["1000"];
@@ -191,7 +259,9 @@ export async function createPayment(
       .insert({
         entry_date: input.payment_date,
         reference: ref,
-        description: `${isCheck ? "Check issued" : input.payment_method.toUpperCase() + " payment"} — ${input.payee}`,
+        description: discount > 0
+          ? `${isCheck ? "Check issued" : input.payment_method.toUpperCase() + " payment"} w/ $${discount.toFixed(2)} early-pay discount — ${input.payee}`
+          : `${isCheck ? "Check issued" : input.payment_method.toUpperCase() + " payment"} — ${input.payee}`,
         status: "posted",
         source_type: "invoice_payment",
         source_id: payment.id,
@@ -201,7 +271,14 @@ export async function createPayment(
       .single();
 
     if (je) {
-      await supabase.from("journal_entry_lines").insert([
+      const lines: Array<{
+        journal_entry_id: string;
+        account_id: string;
+        project_id: string | null;
+        description: string;
+        debit: number;
+        credit: number;
+      }> = [
         {
           journal_entry_id: je.id,
           account_id: debitAccount,
@@ -216,9 +293,28 @@ export async function createPayment(
           project_id: null,
           description: `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`,
           debit: 0,
-          credit: input.amount,
+          credit: netAmount,
         },
-      ]);
+      ];
+
+      // Add discount credit lines to WIP/CIP per project
+      if (discount > 0) {
+        for (const d of discountsByWip) {
+          const wipAcctId = accounts[d.accountNumber];
+          if (wipAcctId) {
+            lines.push({
+              journal_entry_id: je.id,
+              account_id: wipAcctId,
+              project_id: d.projectId,
+              description: `Early-pay discount — ${ref} — ${input.payee}`,
+              debit: 0,
+              credit: d.amount,
+            });
+          }
+        }
+      }
+
+      await supabase.from("journal_entry_lines").insert(lines);
     }
   }
 
@@ -250,13 +346,17 @@ export async function clearPayment(
 
   const { data: payment } = await supabase
     .from("payments")
-    .select("id, payment_number, payee, amount, status, payment_method")
+    .select("id, payment_number, payee, amount, discount_amount, status, payment_method")
     .eq("id", paymentId)
     .single();
 
   if (!payment) return { error: "Payment not found" };
   if (payment.status !== "outstanding") return { error: "Only outstanding payments can be cleared" };
   if (payment.payment_method !== "check") return { error: "Only checks can be cleared (ACH/wire clear automatically)" };
+
+  // Net amount is what's actually in 2050 (Checks Outstanding)
+  const discountAmt = (payment.discount_amount ?? 0) as number;
+  const netClearAmount = payment.amount - discountAmt;
 
   // Update payment status
   const { error: updErr } = await supabase
@@ -281,6 +381,7 @@ export async function clearPayment(
   }
 
   // Post GL: DR Checks Outstanding (2050) / CR Cash (1000)
+  // Uses net amount (after discount) since that's what sits in 2050
   const accounts = await getGLAccounts(supabase, ["2050", "1000"]);
   const acct2050 = accounts["2050"];
   const acct1000 = accounts["1000"];
@@ -311,7 +412,7 @@ export async function clearPayment(
           account_id: acct2050,
           project_id: null,
           description: `Outstanding check cleared — ${ref} — ${payment.payee}`,
-          debit: payment.amount,
+          debit: netClearAmount,
           credit: 0,
         },
         {
@@ -320,7 +421,7 @@ export async function clearPayment(
           project_id: null,
           description: `Cash — ${ref} — ${payment.payee}`,
           debit: 0,
-          credit: payment.amount,
+          credit: netClearAmount,
         },
       ]);
     }
@@ -528,11 +629,13 @@ export async function getPayments(filters?: {
       payee: p.payee,
       vendor_id: p.vendor_id,
       amount: p.amount,
+      discount_amount: p.discount_amount ?? 0,
       payment_date: p.payment_date,
       cleared_date: p.cleared_date,
       status: p.status,
       funding_source: p.funding_source,
       draw_id: p.draw_id,
+      vendor_payment_id: p.vendor_payment_id,
       notes: p.notes,
       created_at: p.created_at,
       invoices: linkedInvoices,
