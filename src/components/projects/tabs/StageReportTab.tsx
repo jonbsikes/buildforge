@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, X, RotateCcw, Check, AlertTriangle, ChevronDown, ChevronRight, SkipForward } from "lucide-react";
+import { Pencil, X, RotateCcw, Check, AlertTriangle, ChevronDown, ChevronRight, Play, Settings2 } from "lucide-react";
 import { updateStage, resetSchedule } from "@/app/actions/stages";
 
 export interface StageRow {
@@ -52,14 +52,14 @@ const TRACK_STYLES: Record<string, string> = {
 };
 
 function fmtDate(d: string | null): string {
-  if (!d) return "—";
+  if (!d) return "\u2014";
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", {
     month: "short", day: "numeric", year: "numeric",
   });
 }
 
 function fmtDateShort(d: string | null): string {
-  if (!d) return "—";
+  if (!d) return "\u2014";
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", {
     month: "short", day: "numeric",
   });
@@ -78,7 +78,7 @@ function isDelayed(stage: StageRow): boolean {
 }
 
 function varianceLabel(stage: StageRow): string {
-  if (!stage.actual_end_date || !stage.planned_end_date) return "—";
+  if (!stage.actual_end_date || !stage.planned_end_date) return "\u2014";
   const v = daysBetween(stage.actual_end_date, stage.planned_end_date);
   if (v === 0) return "On time";
   return v > 0 ? `+${v}d` : `${v}d`;
@@ -106,7 +106,21 @@ function hasOutOfSpecDates(stages: StageRow[], startDate: string | null): boolea
   return stage55.planned_end_date !== expectedEnd;
 }
 
-// ── Mobile edit sheet ───────────────────────────────────────────────────────
+function sortStagesForDisplay(stages: StageRow[]): StageRow[] {
+  const order: Record<string, number> = {
+    in_progress: 0, delayed: 1, not_started: 2, complete: 3, completed: 3, skipped: 4,
+  };
+  return [...stages].sort((a, b) => {
+    const aDelayed = isDelayed(a) && a.status !== "in_progress";
+    const bDelayed = isDelayed(b) && b.status !== "in_progress";
+    const aOrder = a.status === "in_progress" ? 0 : aDelayed ? 1 : (order[a.status] ?? 2);
+    const bOrder = b.status === "in_progress" ? 0 : bDelayed ? 1 : (order[b.status] ?? 2);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return a.stage_number - b.stage_number;
+  });
+}
+
+// -- Mobile edit sheet --
 function MobileEditSheet({ stage, projectId, onClose }: { stage: StageRow; projectId: string; onClose: () => void }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -177,7 +191,7 @@ function MobileEditSheet({ stage, projectId, onClose }: { stage: StageRow; proje
   );
 }
 
-// ── Desktop inline edit form (table row) ────────────────────────────────────
+// -- Desktop inline edit form --
 function DesktopEditForm({ stage, projectId, onClose }: { stage: StageRow; projectId: string; onClose: () => void }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -250,7 +264,7 @@ function DesktopEditForm({ stage, projectId, onClose }: { stage: StageRow; proje
   );
 }
 
-// ── Reset Schedule button ───────────────────────────────────────────────────
+// -- Reset Schedule button --
 function ResetScheduleButton({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -293,105 +307,204 @@ function ResetScheduleButton({ projectId }: { projectId: string }) {
   );
 }
 
-// ── Mobile stage card ───────────────────────────────────────────────────────
+// -- Edit Stages modal (desktop) --
+function EditStagesModal({ stages, projectId, onClose }: { stages: StageRow[]; projectId: string; onClose: () => void }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() => {
+    const map: Record<string, boolean> = {};
+    for (const s of stages) { map[s.id] = s.status !== "skipped"; }
+    return map;
+  });
+
+  function toggle(id: string) { setEnabled((prev) => ({ ...prev, [id]: !prev[id] })); }
+
+  function handleSave() {
+    setError(null);
+    startTransition(async () => {
+      const toSkip = stages.filter((s) => !enabled[s.id] && s.status !== "skipped");
+      const toUnskip = stages.filter((s) => enabled[s.id] && s.status === "skipped");
+      for (const s of toSkip) {
+        const result = await updateStage(s.id, { actual_start_date: null, actual_end_date: null, status: "skipped", notes: s.notes || null }, projectId);
+        if (result.error) { setError(result.error); return; }
+      }
+      for (const s of toUnskip) {
+        const result = await updateStage(s.id, { actual_start_date: null, actual_end_date: null, status: "not_started", notes: s.notes || null }, projectId);
+        if (result.error) { setError(result.error); return; }
+      }
+      router.refresh();
+      onClose();
+    });
+  }
+
+  const allByStageNumber = [...stages].sort((a, b) => a.stage_number - b.stage_number);
+  const stageIsComplete = (s: StageRow) => s.status === "complete" || s.status === "completed";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-900">Edit Stages</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 transition-colors"><X size={16} className="text-gray-400" /></button>
+        </div>
+        <p className="px-5 pt-3 text-xs text-gray-500">Uncheck stages that don&apos;t apply. Unchecked stages will be skipped and hidden from reports.</p>
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="space-y-1">
+            {allByStageNumber.map((s) => {
+              const complete = stageIsComplete(s);
+              return (
+                <label key={s.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors ${!enabled[s.id] ? "opacity-50" : ""} ${complete ? "cursor-not-allowed" : ""}`}>
+                  <input type="checkbox" checked={enabled[s.id]} onChange={() => !complete && toggle(s.id)} disabled={complete}
+                    className="w-4 h-4 rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]/30 disabled:opacity-50" />
+                  <span className="text-xs text-gray-400 font-mono w-6">{s.stage_number}</span>
+                  <span className={`text-sm ${complete ? "text-green-700" : "text-gray-800"}`}>{s.stage_name}</span>
+                  {s.track && (<span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ml-auto ${TRACK_STYLES[s.track] ?? "bg-gray-100 text-gray-600"}`}>{s.track}</span>)}
+                  {complete && (<span className="text-[10px] text-green-600 font-medium ml-auto">Done</span>)}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        {error && <p className="text-xs text-red-600 px-5 pb-2">{error}</p>}
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-gray-100">
+          <button onClick={handleSave} disabled={isPending}
+            className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm bg-[#4272EF] text-white rounded-lg font-semibold hover:bg-[#3461de] disabled:opacity-60 transition-colors">
+            <Check size={14} /> {isPending ? "Saving…" : "Save Changes"}
+          </button>
+          <button onClick={onClose} disabled={isPending}
+            className="px-4 py-2.5 text-sm border border-gray-200 text-gray-600 rounded-lg font-medium hover:bg-gray-50 transition-colors">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// -- Mobile stage card --
 function MobileStageCard({
-  stage, projectId, isEditing, onToggleEdit, onComplete, onSkip, completing,
+  stage, projectId, isEditing, onToggleEdit, onComplete, onStart, completing,
 }: {
   stage: StageRow; projectId: string; isEditing: boolean;
-  onToggleEdit: () => void; onComplete: () => void; onSkip: () => void; completing: boolean;
+  onToggleEdit: () => void; onComplete: () => void; onStart: () => void; completing: boolean;
 }) {
   const delayed = isDelayed(stage);
   const isComplete = stage.status === "complete" || stage.status === "completed";
   const isSkipped = stage.status === "skipped";
+  const isInProgress = stage.status === "in_progress";
+  const isNotStarted = stage.status === "not_started";
   const canAction = !isComplete && !isSkipped;
 
   return (
-    <div className={`bg-white rounded-xl border overflow-hidden ${
-      delayed ? "border-red-200 bg-red-50/30" :
-      stage.status === "in_progress" ? "border-blue-200" :
-      "border-gray-100"
-    } ${isSkipped ? "opacity-50" : ""}`}>
-      <div className="flex items-center gap-3 px-4 py-3.5 min-h-[60px]">
-        {/* Stage number */}
-        <span className="text-xs text-gray-400 font-mono w-6 shrink-0 text-center">{stage.stage_number}</span>
-
-        {/* Stage info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`text-sm font-semibold ${isComplete ? "text-green-700" : isSkipped ? "text-gray-400 line-through" : "text-gray-900"}`}>
-              {stage.stage_name}
-            </span>
-            {stage.track && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${TRACK_STYLES[stage.track] ?? "bg-gray-100 text-gray-600"}`}>
-                {stage.track}
+    <div className={`bg-white rounded-xl border-l-4 border overflow-hidden shadow-sm ${
+      delayed ? "border-l-red-400 border-red-200 bg-red-50/20" :
+      isInProgress ? "border-l-blue-500 border-blue-200 bg-blue-50/20" :
+      isComplete ? "border-l-green-400 border-gray-100" :
+      "border-l-gray-200 border-gray-100"
+    } ${isSkipped ? "opacity-40" : ""}`}>
+      <div className="px-4 py-3.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-base font-semibold leading-tight ${
+                isComplete ? "text-green-700" : isSkipped ? "text-gray-400 line-through" : "text-gray-900"
+              }`}>
+                {stage.stage_name}
               </span>
-            )}
+              {stage.track && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${TRACK_STYLES[stage.track] ?? "bg-gray-100 text-gray-600"}`}>
+                  {stage.track}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_STYLES[stage.status] ?? "bg-gray-100 text-gray-600"}`}>
-              {stage.status.replace(/_/g, " ")}
-            </span>
-            {delayed && <span className="text-[10px] text-red-500 font-medium">Overdue</span>}
-            {stage.planned_start_date && (
-              <span className="text-[10px] text-gray-400">
-                {fmtDateShort(stage.planned_start_date)} — {fmtDateShort(stage.planned_end_date)}
-              </span>
-            )}
-          </div>
+          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold shrink-0 ${STATUS_STYLES[stage.status] ?? "bg-gray-100 text-gray-600"}`}>
+            {delayed ? "Overdue" : stage.status.replace(/_/g, " ")}
+          </span>
         </div>
 
-        {/* Action buttons — large touch targets */}
+        {(stage.actual_start_date || stage.actual_end_date) && (
+          <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+            {stage.actual_start_date && (<span>Started {fmtDateShort(stage.actual_start_date)}</span>)}
+            {stage.actual_end_date && (<span>Completed {fmtDateShort(stage.actual_end_date)}</span>)}
+          </div>
+        )}
+
         {canAction && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={onComplete}
-              disabled={completing}
-              className="w-11 h-11 rounded-xl bg-green-50 border border-green-200 flex items-center justify-center active:bg-green-100 disabled:opacity-50 transition-colors"
-              title="Mark complete"
-              aria-label="Mark complete"
-            >
-              <Check size={18} className="text-green-600" />
+          <div className="flex items-center gap-2 mt-3">
+            {isNotStarted && !delayed && (
+              <button onClick={onStart} disabled={completing}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium active:bg-blue-100 disabled:opacity-50 transition-colors min-h-[44px]"
+                aria-label="Mark started">
+                <Play size={14} /> Started
+              </button>
+            )}
+            <button onClick={onComplete} disabled={completing}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium active:bg-green-100 disabled:opacity-50 transition-colors min-h-[44px]"
+              aria-label="Mark complete">
+              <Check size={14} /> Complete
             </button>
-            <button
-              onClick={onToggleEdit}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors ${
+            <button onClick={onToggleEdit}
+              className={`ml-auto w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
                 isEditing ? "bg-blue-100 border border-blue-300" : "bg-gray-50 border border-gray-200 active:bg-gray-100"
-              }`}
-              title="Edit stage"
-              aria-label="Edit stage"
-            >
-              {isEditing ? <X size={16} className="text-[#4272EF]" /> : <Pencil size={15} className="text-gray-500" />}
-            </button>
-            <button
-              onClick={onSkip}
-              disabled={completing}
-              className="w-11 h-11 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center active:bg-gray-100 disabled:opacity-50 transition-colors"
-              title="Skip"
-              aria-label="Skip stage"
-            >
-              <SkipForward size={15} className="text-gray-400" />
+              }`} aria-label="Edit stage">
+              {isEditing ? <X size={15} className="text-[#4272EF]" /> : <Pencil size={14} className="text-gray-400" />}
             </button>
           </div>
         )}
 
         {isComplete && (
-          <button onClick={onToggleEdit}
-            className="w-11 h-11 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center active:bg-gray-100 transition-colors shrink-0">
-            <Pencil size={15} className="text-gray-400" />
-          </button>
+          <div className="flex items-center mt-2">
+            <button onClick={onToggleEdit}
+              className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center active:bg-gray-100 transition-colors ml-auto">
+              <Pencil size={14} className="text-gray-400" />
+            </button>
+          </div>
         )}
       </div>
-
       {isEditing && <MobileEditSheet stage={stage} projectId={projectId} onClose={onToggleEdit} />}
     </div>
   );
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// -- Completed stages collapsible (mobile) --
+function CompletedSection({
+  stages, projectId, editingId, setEditingId, completingId, onComplete, onStart,
+}: {
+  stages: StageRow[]; projectId: string; editingId: string | null;
+  setEditingId: (id: string | null) => void; completingId: string | null;
+  onComplete: (stage: StageRow) => void; onStart: (stage: StageRow) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (stages.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-gray-500 font-medium rounded-lg hover:bg-gray-50 active:bg-gray-100 transition-colors">
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span>Completed ({stages.length})</span>
+      </button>
+      {open && (
+        <div className="space-y-2 mt-2">
+          {stages.map((stage) => (
+            <MobileStageCard key={stage.id} stage={stage} projectId={projectId}
+              isEditing={editingId === stage.id}
+              onToggleEdit={() => setEditingId(editingId === stage.id ? null : stage.id)}
+              onComplete={() => onComplete(stage)} onStart={() => onStart(stage)}
+              completing={completingId === stage.id} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// -- Main component --
 export default function StageReportTab({ stages, projectId, isHome, startDate }: Props) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [completingId, setCompletingId] = useState<string | null>(null);
+  const [showEditStages, setShowEditStages] = useState(false);
   const [, startCompleteTransition] = useTransition();
 
   function handleQuickComplete(stage: StageRow) {
@@ -409,13 +522,14 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
     });
   }
 
-  function handleSkip(stage: StageRow) {
+  function handleStart(stage: StageRow) {
     setCompletingId(stage.id);
+    const today = new Date().toISOString().split("T")[0];
     startCompleteTransition(async () => {
       await updateStage(stage.id, {
-        actual_start_date: null,
+        actual_start_date: today,
         actual_end_date: null,
-        status: "skipped",
+        status: "in_progress",
         notes: stage.notes || null,
       }, projectId);
       setCompletingId(null);
@@ -433,55 +547,64 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
   }
 
   const activeStages = stages.filter((s) => s.status !== "skipped");
-  const complete = activeStages.filter((s) => s.status === "complete" || s.status === "completed").length;
-  const pct = activeStages.length > 0 ? Math.round((complete / activeStages.length) * 100) : 0;
+  const completeCount = activeStages.filter((s) => s.status === "complete" || s.status === "completed").length;
+  const pct = activeStages.length > 0 ? Math.round((completeCount / activeStages.length) * 100) : 0;
   const outOfSpec = isHome && hasOutOfSpecDates(stages, startDate);
+
+  const visibleStages = stages.filter((s) => s.status !== "skipped");
+  const activeForMobile = visibleStages.filter((s) => s.status !== "complete" && s.status !== "completed");
+  const completedForMobile = visibleStages.filter((s) => s.status === "complete" || s.status === "completed");
+  const sortedActive = sortStagesForDisplay(activeForMobile);
+  const sortedCompleted = [...completedForMobile].sort((a, b) => b.stage_number - a.stage_number);
+  const desktopStages = sortStagesForDisplay(visibleStages);
 
   return (
     <div className="space-y-4">
-      {/* Out-of-spec warning */}
       {outOfSpec && (
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
           <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-amber-500" />
           <div>
             <p className="font-medium">Schedule dates out of sync</p>
-            <p className="mt-0.5 text-amber-700 text-xs">
-              Click <span className="font-semibold">Reset Schedule</span> to recalculate from the project start date.
-            </p>
+            <p className="mt-0.5 text-amber-700 text-xs">Click <span className="font-semibold">Reset Schedule</span> to recalculate from the project start date.</p>
           </div>
         </div>
       )}
 
-      {/* Progress bar + reset */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex-1 bg-gray-100 rounded-full h-2.5">
             <div className="bg-[#4272EF] h-2.5 rounded-full transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <span className="text-xs text-gray-500 shrink-0 tabular-nums">
-            {complete}/{activeStages.length} ({pct}%)
-          </span>
+          <span className="text-xs text-gray-500 shrink-0 tabular-nums">{completeCount}/{activeStages.length} ({pct}%)</span>
         </div>
-        <ResetScheduleButton projectId={projectId} />
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowEditStages(true)}
+            className="hidden lg:flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 hover:text-gray-700 transition-colors min-h-[36px]">
+            <Settings2 size={13} /> Edit Stages
+          </button>
+          <ResetScheduleButton projectId={projectId} />
+        </div>
       </div>
 
-      {/* ── MOBILE: Card list (< lg) ── */}
+      {showEditStages && (
+        <EditStagesModal stages={stages} projectId={projectId} onClose={() => setShowEditStages(false)} />
+      )}
+
+      {/* Mobile card list */}
       <div className="lg:hidden space-y-2">
-        {stages.map((stage) => (
-          <MobileStageCard
-            key={stage.id}
-            stage={stage}
-            projectId={projectId}
+        {sortedActive.map((stage) => (
+          <MobileStageCard key={stage.id} stage={stage} projectId={projectId}
             isEditing={editingId === stage.id}
             onToggleEdit={() => setEditingId(editingId === stage.id ? null : stage.id)}
-            onComplete={() => handleQuickComplete(stage)}
-            onSkip={() => handleSkip(stage)}
-            completing={completingId === stage.id}
-          />
+            onComplete={() => handleQuickComplete(stage)} onStart={() => handleStart(stage)}
+            completing={completingId === stage.id} />
         ))}
+        <CompletedSection stages={sortedCompleted} projectId={projectId}
+          editingId={editingId} setEditingId={setEditingId} completingId={completingId}
+          onComplete={handleQuickComplete} onStart={handleStart} />
       </div>
 
-      {/* ── DESKTOP: Table (>= lg) ── */}
+      {/* Desktop table */}
       <div className="hidden lg:block overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -499,14 +622,16 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {stages.map((stage) => {
-              const delayed = isDelayed(stage);
+            {desktopStages.map((stage) => {
+              const stageDelayed = isDelayed(stage);
               const editing = editingId === stage.id;
+              const isComp = stage.status === "complete" || stage.status === "completed";
+              const stageNotStarted = stage.status === "not_started";
               return (
                 <Fragment key={stage.id}>
                   <tr className={`hover:bg-gray-50 transition-colors ${
-                    stage.status === "skipped" ? "opacity-50" : delayed ? "bg-amber-50/60" : ""
-                  } ${editing ? "bg-blue-50/40" : ""}`}>
+                    stageDelayed ? "bg-amber-50/60" : ""
+                  } ${editing ? "bg-blue-50/40" : ""} ${isComp ? "opacity-60" : ""}`}>
                     <td className="px-3 py-2.5 text-xs text-gray-400 font-mono">{stage.stage_number}</td>
                     <td className="px-3 py-2.5 text-gray-900 font-medium">
                       {stage.stage_name}
@@ -515,17 +640,15 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                     {isHome && (
                       <td className="px-3 py-2.5">
                         {stage.track ? (
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TRACK_STYLES[stage.track] ?? "bg-gray-100 text-gray-600"}`}>
-                            {stage.track}
-                          </span>
-                        ) : <span className="text-xs text-gray-400">—</span>}
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TRACK_STYLES[stage.track] ?? "bg-gray-100 text-gray-600"}`}>{stage.track}</span>
+                        ) : <span className="text-xs text-gray-400">&mdash;</span>}
                       </td>
                     )}
                     <td className="px-3 py-2.5">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[stage.status] ?? "bg-gray-100 text-gray-600"}`}>
                         {stage.status.replace(/_/g, " ")}
                       </span>
-                      {delayed && <span className="ml-1.5 text-xs text-amber-600 font-medium">Delayed</span>}
+                      {stageDelayed && <span className="ml-1.5 text-xs text-amber-600 font-medium">Delayed</span>}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-600">{fmtDate(stage.planned_start_date)}</td>
                     <td className="px-3 py-2.5 text-xs text-gray-600">{fmtDate(stage.planned_end_date)}</td>
@@ -534,15 +657,17 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                     <td className={`px-3 py-2.5 text-xs ${varianceClass(stage)}`}>{varianceLabel(stage)}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1">
-                        {stage.status !== "complete" && stage.status !== "completed" && stage.status !== "skipped" && (
+                        {!isComp && (
                           <>
+                            {stageNotStarted && (
+                              <button onClick={() => handleStart(stage)} disabled={completingId === stage.id}
+                                className="p-1.5 rounded transition-colors text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-50" title="Mark started">
+                                <Play size={14} />
+                              </button>
+                            )}
                             <button onClick={() => handleQuickComplete(stage)} disabled={completingId === stage.id}
                               className="p-1.5 rounded transition-colors text-gray-400 hover:text-green-600 hover:bg-green-50 disabled:opacity-50" title="Mark complete">
                               <Check size={14} />
-                            </button>
-                            <button onClick={() => handleSkip(stage)} disabled={completingId === stage.id}
-                              className="p-1.5 rounded transition-colors text-gray-400 hover:text-orange-500 hover:bg-orange-50 disabled:opacity-50" title="Skip">
-                              <SkipForward size={14} />
                             </button>
                           </>
                         )}
@@ -564,3 +689,4 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
     </div>
   );
 }
+                  

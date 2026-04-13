@@ -129,7 +129,7 @@ function TrackLine({ label, track }: { label: string; track: TrackSummary }) {
           <ArrowRight size={10} className="shrink-0 text-gray-400" />
           {track.next.stage_name}
           {track.next.planned_start_date && (
-            <span className="text-gray-400">({formatDate(track.next.planned_start_date)})</span>
+            <span className="hidden lg:inline text-gray-400">({formatDate(track.next.planned_start_date)})</span>
           )}
         </span>
       )}
@@ -193,10 +193,10 @@ function HomeTile({ project }: { project: Project }) {
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
           {project.start_date && (
-            <span className="text-xs text-gray-400">Started {formatDate(project.start_date)}</span>
+            <span className="hidden lg:inline text-xs text-gray-400">Started {formatDate(project.start_date)}</span>
           )}
           {project.end_date && (
-            <span className="text-xs text-gray-400">→ Est. close {formatDate(project.end_date)}</span>
+            <span className="hidden lg:inline text-xs text-gray-400">→ Est. close {formatDate(project.end_date)}</span>
           )}
           {days > 0 && (
             <span className="text-xs font-medium text-[#4272EF]">{days}d under construction</span>
@@ -320,10 +320,10 @@ function LandTile({ project }: { project: Project }) {
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
           {project.start_date && (
-            <span className="text-xs text-gray-400">Started {formatDate(project.start_date)}</span>
+            <span className="hidden lg:inline text-xs text-gray-400">Started {formatDate(project.start_date)}</span>
           )}
           {project.end_date && (
-            <span className="text-xs text-gray-400">→ Est. close {formatDate(project.end_date)}</span>
+            <span className="hidden lg:inline text-xs text-gray-400">→ Est. close {formatDate(project.end_date)}</span>
           )}
           {days > 0 && (
             <span className="text-xs font-medium text-[#4272EF]">{days}d active</span>

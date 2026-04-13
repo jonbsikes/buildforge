@@ -59,11 +59,12 @@ export default function StageProgressReportClient() {
   );
 
   function currentStage(stages: Stage[]): string {
-    const inProgress = stages.find((s) => s.status === "in_progress");
+    const active = stages.filter((s) => s.status !== "skipped");
+    const inProgress = active.find((s) => s.status === "in_progress");
     if (inProgress) return inProgress.stage_name;
-    const notStarted = stages.find((s) => s.status === "not_started");
+    const notStarted = active.find((s) => s.status === "not_started");
     if (notStarted) return notStarted.stage_name;
-    const lastComplete = [...stages].reverse().find((s) => s.status === "complete");
+    const lastComplete = [...active].reverse().find((s) => s.status === "complete");
     return lastComplete ? lastComplete.stage_name : "—";
   }
 
@@ -100,9 +101,10 @@ export default function StageProgressReportClient() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((p) => {
-            const total = p.stages.length;
-            const complete = p.stages.filter((s) => s.status === "complete").length;
-            const inProgress = p.stages.filter((s) => s.status === "in_progress").length;
+            const activeStages = p.stages.filter((s) => s.status !== "skipped");
+            const total = activeStages.length;
+            const complete = activeStages.filter((s) => s.status === "complete").length;
+            const inProgress = activeStages.filter((s) => s.status === "in_progress").length;
             const pct = total > 0 ? (complete / total) * 100 : 0;
             const current = currentStage(p.stages);
             const days = daysInStage(p.stages);
