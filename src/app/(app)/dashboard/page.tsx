@@ -137,9 +137,8 @@ export default async function DashboardPage() {
     const end = s.actual_end_date;
     return (start && start >= today && start <= weekStr) || (end && end >= today && end <= weekStr);
   });
-  const invoicesDueThisWeek = (invoices ?? []).filter((i) => i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date >= today && i.due_date <= weekStr);
   const todosDueThisWeek = (fieldTodos ?? []).filter((t) => t.due_date && t.due_date >= today && t.due_date <= weekStr);
-  const hasWeeklyActivity = thisWeekStages.length > 0 || invoicesDueThisWeek.length > 0 || todosDueThisWeek.length > 0;
+  const hasWeeklyActivity = thisWeekStages.length > 0 || todosDueThisWeek.length > 0;
 
   const projectNames: Record<string, string> = {};
   for (const p of allProjects) projectNames[p.id] = p.name;
@@ -177,12 +176,11 @@ export default async function DashboardPage() {
         )}
 
         {/* ── Mobile: Quick Actions ── */}
-        <div className="lg:hidden grid grid-cols-4 gap-2 mb-5">
+        <div className="lg:hidden grid grid-cols-3 gap-2 mb-5">
           {[
             { icon: ClipboardList, label: "Field Log", color: "text-[#4272EF]", bg: "bg-blue-50", href: "/field-logs" },
             { icon: Camera, label: "Invoice", color: "text-emerald-600", bg: "bg-emerald-50", href: "/invoices/upload" },
             { icon: Check, label: "To-Do", color: "text-purple-600", bg: "bg-purple-50", href: "/todos" },
-            { icon: Banknote, label: "Draws", color: "text-amber-600", bg: "bg-amber-50", href: "/draws" },
           ].map(({ icon: Icon, label, color, bg, href }) => (
             <Link key={label} href={href} className={`${bg} rounded-xl py-3 flex flex-col items-center gap-1.5 active:scale-95 transition-transform`}>
               <Icon size={22} className={color} />
@@ -285,13 +283,6 @@ export default async function DashboardPage() {
                       {t.priority === "urgent" && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600">Urgent</span>}
                     </Link>
                   ))}
-                  {invoicesDueThisWeek.slice(0, 3).map((inv) => (
-                    <Link key={inv.id} href={`/invoices/${inv.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors">
-                      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0"><FileText size={14} className="text-gray-500" /></div>
-                      <div className="flex-1 min-w-0"><p className="text-sm font-medium text-gray-900 truncate">{inv.vendor ?? "Invoice"} {inv.invoice_number ? `#${inv.invoice_number}` : ""}</p><p className="text-xs text-gray-400">{projectNames[inv.project_id ?? ""] ?? "G&A"} &middot; Due {fmtDate(inv.due_date!)}</p></div>
-                      <span className="text-sm font-semibold text-gray-700 tabular-nums">{fmt(inv.total_amount ?? inv.amount ?? 0)}</span>
-                    </Link>
-                  ))}
                 </div>
               </div>
             )}
@@ -329,7 +320,7 @@ export default async function DashboardPage() {
             <div className="hidden lg:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100"><h2 className="font-bold text-gray-900">Quick Actions</h2></div>
               <div className="p-3 grid grid-cols-2 gap-2">
-                {[{ href: "/invoices/upload", label: "New Invoice", icon: <FileText size={15} className="text-[#4272EF]" /> }, { href: "/field-logs", label: "Field Log", icon: <ClipboardList size={15} className="text-emerald-600" /> }, { href: "/projects", label: "Projects", icon: <FolderOpen size={15} className="text-purple-600" /> }, { href: "/draws", label: "Draws", icon: <Calendar size={15} className="text-amber-600" /> }].map(({ href, label, icon }) => (
+                {[{ href: "/invoices/upload", label: "New Invoice", icon: <FileText size={15} className="text-[#4272EF]" /> }, { href: "/field-logs", label: "Field Log", icon: <ClipboardList size={15} className="text-emerald-600" /> }, { href: "/projects", label: "Projects", icon: <FolderOpen size={15} className="text-purple-600" /> }].map(({ href, label, icon }) => (
                   <Link key={href} href={href} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors border border-gray-100">{icon}{label}</Link>
                 ))}
               </div>

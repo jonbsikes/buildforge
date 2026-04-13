@@ -257,6 +257,16 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                     </button>
                   ) : (
                     <>
+                      {status === "not_started" && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); updateStatus(ps, "in_progress"); }}
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 border border-blue-300 hover:bg-blue-50 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          <Clock size={13} />
+                          {isSaving ? "Saving…" : "Started"}
+                        </button>
+                      )}
                       {status !== "completed" && (
                         <button
                           onClick={(e) => { e.stopPropagation(); updateStatus(ps, "completed"); }}
