@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
-import { ProgressRing } from "@/components/ui/ProgressRing";
+import ProgressRing from "@/components/ui/ProgressRing";
 
 export const dynamic = "force-dynamic";
 
