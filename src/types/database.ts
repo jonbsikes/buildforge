@@ -383,6 +383,7 @@ export type Database = {
       documents: {
         Row: {
           created_at: string
+          field_log_id: string | null
           file_name: string
           file_size_kb: number | null
           folder: string
@@ -396,6 +397,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          field_log_id?: string | null
           file_name: string
           file_size_kb?: number | null
           folder?: string
@@ -409,6 +411,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          field_log_id?: string | null
           file_name?: string
           file_size_kb?: number | null
           folder?: string
@@ -421,6 +424,13 @@ export type Database = {
           vendor_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_field_log_id_fkey"
+            columns: ["field_log_id"]
+            isOneToOne: false
+            referencedRelation: "field_logs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_project_id_fkey"
             columns: ["project_id"]

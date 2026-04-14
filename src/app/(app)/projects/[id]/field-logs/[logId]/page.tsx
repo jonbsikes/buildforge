@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Calendar } from "lucide-react";
 import TodoList from "./TodoList";
+import FieldLogPhotos, { type FieldLogPhoto } from "../FieldLogPhotos";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +26,17 @@ export default async function FieldLogDetailPage({
   const { id, logId } = await params;
   const supabase = await createClient();
 
-  const [projectRes, logRes, todosRes] = await Promise.all([
+  const [projectRes, logRes, todosRes, photosRes] = await Promise.all([
     supabase.from("projects").select("id, name").eq("id", id).single(),
     supabase.from("field_logs").select("*").eq("id", logId).single(),
     supabase
       .from("field_todos")
       .select("*")
+      .eq("field_log_id", logId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("documents")
+      .select("id, file_name, storage_path, mime_type, created_at")
       .eq("field_log_id", logId)
       .order("created_at", { ascending: true }),
   ]);
@@ -39,6 +45,7 @@ export default async function FieldLogDetailPage({
 
   const log = logRes.data;
   const todos = todosRes.data ?? [];
+  const photos = (photosRes.data ?? []) as FieldLogPhoto[];
 
   return (
     <>
@@ -62,6 +69,32 @@ export default async function FieldLogDetailPage({
             <p className="text-xs text-gray-400 mt-4">
               Logged {new Date(log.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </p>
+          </div>
+
+          {/* Photos */}
+          <div className="bg-white rounded-xl border border-gray-200 mb-5">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">
+                Photos
+                {photos.length > 0 && (
+                  <span className="ml-2 text-xs font-normal text-gray-400">{photos.length}</span>
+                )}
+              </h2>
+              <Link
+                href={`/documents?folder=Field+Photos&project=${id}`}
+                className="text-sm text-[#4272EF] hover:underline"
+              >
+                View in Documents
+              </Link>
+            </div>
+            <div className="p-5">
+              <FieldLogPhotos
+                projectId={id}
+                fieldLogId={logId}
+                logDate={log.log_date}
+                initialPhotos={photos}
+              />
+            </div>
           </div>
 
           {/* To-dos */}

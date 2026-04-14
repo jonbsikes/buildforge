@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Camera, Upload, X } from "lucide-react";
+import { uploadFieldLogPhoto } from "@/app/(app)/field-logs/actions";
 
 interface Todo {
   description: string;
@@ -26,6 +27,7 @@ export default function NewFieldLogForm({ projectId, userId }: { projectId: stri
   const [logDate, setLogDate] = useState(today);
   const [notes, setNotes] = useState("");
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
   const [newTodoDesc, setNewTodoDesc] = useState("");
   const [newTodoPriority, setNewTodoPriority] = useState<"low" | "normal" | "urgent">("normal");
   const [newTodoDue, setNewTodoDue] = useState("");
@@ -42,6 +44,24 @@ export default function NewFieldLogForm({ projectId, userId }: { projectId: stri
 
   function removeTodo(i: number) {
     setTodos((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function addPhotos(files: FileList | null) {
+    if (!files) return;
+    const accepted: File[] = [];
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith("image/")) continue;
+      if (f.size > 25 * 1024 * 1024) {
+        setError(`${f.name} is larger than 25MB.`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    setPendingPhotos((prev) => [...prev, ...accepted]);
+  }
+
+  function removePhoto(i: number) {
+    setPendingPhotos((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -79,6 +99,27 @@ export default function NewFieldLogForm({ projectId, userId }: { projectId: stri
       }
     }
 
+    // Upload queued photos (sequential — most job-site uploads are cellular).
+    for (const photo of pendingPhotos) {
+      const fd = new FormData();
+      fd.append("file", photo);
+      fd.append("project_id", projectId);
+      fd.append("field_log_id", log.id);
+      fd.append("log_date", logDate);
+      try {
+        await uploadFieldLogPhoto(fd);
+      } catch (e) {
+        setError(
+          `Log saved, but photo "${photo.name}" failed: ${
+            e instanceof Error ? e.message : "upload error"
+          }. You can add it from the log detail page.`,
+        );
+        setSaving(false);
+        router.push(`/projects/${projectId}/field-logs/${log.id}`);
+        return;
+      }
+    }
+
     router.push(`/projects/${projectId}/field-logs/${log.id}`);
   }
 
@@ -109,6 +150,72 @@ export default function NewFieldLogForm({ projectId, userId }: { projectId: stri
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] resize-none"
           />
         </div>
+      </div>
+
+      {/* Photos */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <h2 className="font-semibold text-gray-900">
+          Photos <span className="text-gray-400 font-normal text-sm">(optional)</span>
+        </h2>
+
+        {pendingPhotos.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {pendingPhotos.map((f, i) => {
+              const url = URL.createObjectURL(f);
+              return (
+                <div
+                  key={`${f.name}-${i}`}
+                  className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-50"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(i)}
+                    className="absolute top-1.5 right-1.5 p-1 rounded-full bg-white/90 text-gray-600 hover:text-red-600 shadow"
+                    aria-label="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+            <Camera size={15} />
+            Take Photo
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                addPhotos(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+            <Upload size={15} />
+            Upload
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                addPhotos(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+        <p className="text-xs text-gray-400">
+          Photos are saved to Documents → Field Photos with this log&apos;s date.
+        </p>
       </div>
 
       {/* To-dos */}
