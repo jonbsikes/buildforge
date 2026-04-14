@@ -10,13 +10,15 @@ export async function uploadDocument(formData: FormData) {
 
   const file = formData.get("file") as File;
   const projectId = (formData.get("project_id") as string) || null;
+  const vendorId = (formData.get("vendor_id") as string) || null;
   const folder = formData.get("folder") as string;
   const notes = (formData.get("notes") as string) || null;
 
   if (!file || file.size === 0) throw new Error("No file provided");
 
   // Upload to Supabase Storage bucket "documents"
-  const storagePath = `${user.id}/${folder}/${Date.now()}_${file.name}`;
+  const scope = projectId ? `project/${projectId}` : vendorId ? `vendor/${vendorId}` : "company";
+  const storagePath = `${user.id}/${scope}/${folder}/${Date.now()}_${file.name}`;
   const { error: uploadError } = await supabase.storage
     .from("documents")
     .upload(storagePath, file, { upsert: false });
@@ -30,6 +32,7 @@ export async function uploadDocument(formData: FormData) {
 
   await supabase.from("documents").insert({
     project_id: projectId,
+    vendor_id: vendorId,
     folder,
     file_name: file.name,
     storage_path: urlData?.publicUrl ?? storagePath,
