@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import {
   Plus, ChevronDown, ChevronRight, Circle, CheckCircle2, Loader2,
-  Calendar, MessageSquare, AlertCircle,
+  Calendar, MessageSquare, AlertCircle, Camera, Upload, X,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -11,6 +11,7 @@ import {
   createProjectFieldTodo,
   updateProjectTodoStatus,
 } from "@/app/(app)/projects/[id]/actions";
+import { uploadFieldLogPhoto } from "@/app/(app)/field-logs/actions";
 
 interface Todo {
   id: string;
@@ -51,20 +52,54 @@ function relativeDate(dateStr: string): string {
 
 function NewLogForm({ projectId, onCreated, onCancel }: { projectId: string; onCreated: () => void; onCancel: () => void }) {
   const [isPending, startTransition] = useTransition();
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [error, setError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const today = new Date().toISOString().split("T")[0]!;
 
   useEffect(() => { textareaRef.current?.focus(); }, []);
+
+  function addPhotos(files: FileList | null) {
+    if (!files) return;
+    const accepted: File[] = [];
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith("image/")) continue;
+      if (f.size > 25 * 1024 * 1024) {
+        setError(`${f.name} is larger than 25MB.`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    setPhotos((prev) => [...prev, ...accepted]);
+  }
+
+  function removePhoto(i: number) {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== i));
+  }
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
+        setError("");
         startTransition(async () => {
-          await createProjectFieldLog(projectId, fd);
-          (e.target as HTMLFormElement).reset();
-          onCreated();
+          try {
+            const log = await createProjectFieldLog(projectId, fd);
+            for (const photo of photos) {
+              const pfd = new FormData();
+              pfd.append("file", photo);
+              pfd.append("project_id", projectId);
+              pfd.append("field_log_id", log.id);
+              pfd.append("log_date", log.log_date);
+              await uploadFieldLogPhoto(pfd);
+            }
+            (e.target as HTMLFormElement).reset();
+            setPhotos([]);
+            onCreated();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to save log.");
+          }
         });
       }}
       className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm"
@@ -92,6 +127,60 @@ function NewLogForm({ projectId, onCreated, onCancel }: { projectId: string; onC
           className="w-full border-0 bg-gray-50 rounded-lg px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30 resize-none placeholder:text-gray-400"
         />
       </div>
+
+      {/* Photos */}
+      <div className="px-4 pb-3 space-y-2">
+        {photos.length > 0 && (
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            {photos.map((f, i) => {
+              const url = URL.createObjectURL(f);
+              return (
+                <div
+                  key={`${f.name}-${i}`}
+                  className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-50"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(i)}
+                    className="absolute top-1 right-1 p-1 rounded-full bg-white/90 text-gray-600 active:text-red-600 shadow"
+                    aria-label="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 active:bg-gray-100 cursor-pointer min-h-[40px]">
+            <Camera size={14} />
+            Take Photo
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-700 active:bg-gray-100 cursor-pointer min-h-[40px]">
+            <Upload size={14} />
+            Upload
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+        </div>
+        {error && <p className="text-xs text-red-600">{error}</p>}
+      </div>
+
       <div className="flex items-center justify-end gap-2 px-4 py-3 bg-gray-50 border-t border-gray-100">
         <button
           type="button"

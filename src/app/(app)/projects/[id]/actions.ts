@@ -245,18 +245,31 @@ export async function deleteSelection(projectId: string, selectionId: string) {
 
 // --- Field Logs (per-project view) ---
 
-export async function createProjectFieldLog(projectId: string, formData: FormData) {
+export async function createProjectFieldLog(
+  projectId: string,
+  formData: FormData,
+): Promise<{ id: string; log_date: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  await supabase.from("field_logs").insert({
-    project_id: projectId,
-    log_date: formData.get("log_date") as string,
-    notes: formData.get("notes") as string,
-    created_by: user.id,
-  });
+  const log_date = formData.get("log_date") as string;
+
+  const { data, error } = await supabase
+    .from("field_logs")
+    .insert({
+      project_id: projectId,
+      log_date,
+      notes: formData.get("notes") as string,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Failed to create field log");
+
   revalidatePath(`/projects/${projectId}`);
+  return { id: data.id, log_date };
 }
 
 export async function createProjectFieldTodo(projectId: string, logId: string | null, formData: FormData) {
