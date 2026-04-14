@@ -19,7 +19,7 @@ import { uploadDocument, deleteDocument } from "./actions";
 import type { Database } from "@/types/database";
 
 type Document = Database["public"]["Tables"]["documents"]["Row"];
-type ProjectRef = { id: string; name: string; type: string | null; subdivision: string | null };
+type ProjectRef = { id: string; name: string; project_type: string | null; subdivision: string | null };
 type VendorRef = { id: string; name: string; trade: string | null };
 
 const FOLDERS = ["Plans", "Permits", "Contracts", "Lender", "Inspections", "Photos", "Other"] as const;
@@ -561,9 +561,9 @@ export default function DocumentsClient({
                   <p className="text-sm font-medium text-gray-900">{p.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {p.subdivision ? `${p.subdivision} · ` : ""}
-                    {p.type === "home_construction"
+                    {p.project_type === "home_construction"
                       ? "Home Construction"
-                      : p.type === "land_development"
+                      : p.project_type === "land_development"
                       ? "Land Development"
                       : ""}
                   </p>

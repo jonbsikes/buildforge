@@ -11,7 +11,7 @@ export default async function DocumentsPage() {
       .from("documents")
       .select("*")
       .order("created_at", { ascending: false }),
-    supabase.from("projects").select("id, name, type, subdivision").order("name"),
+    supabase.from("projects").select("id, name, project_type, subdivision").order("name"),
     supabase.from("vendors").select("id, name, trade").order("name"),
   ]);
 
