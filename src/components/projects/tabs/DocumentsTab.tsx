@@ -9,7 +9,15 @@ import { createClient } from "@/lib/supabase/client";
 import { saveDocument, deleteDocument } from "@/app/actions/projects";
 import type { Document } from "@/components/projects/ProjectTabs";
 
-const FOLDERS = ["Plans", "Permits", "Contracts", "Lender", "Inspections", "Photos", "Other"] as const;
+const FOLDERS = [
+  "Construction Plans",
+  "Field Photos",
+  "Inspections/Permits",
+  "Marketing",
+  "Closing",
+  "Sales",
+  "Other",
+] as const;
 type Folder = (typeof FOLDERS)[number];
 
 const MAX_FILE_SIZE_KB = 25 * 1024; // 25 MB
