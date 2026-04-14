@@ -22,15 +22,23 @@ type Document = Database["public"]["Tables"]["documents"]["Row"];
 type ProjectRef = { id: string; name: string; project_type: string | null; subdivision: string | null };
 type VendorRef = { id: string; name: string; trade: string | null };
 
-const FOLDERS = ["Plans", "Permits", "Contracts", "Lender", "Inspections", "Photos", "Other"] as const;
+const PROJECT_FOLDERS = [
+  "Construction Plans",
+  "Field Photos",
+  "Inspections/Permits",
+  "Marketing",
+  "Closing",
+  "Sales",
+  "Other",
+] as const;
 
 const FOLDER_COLORS: Record<string, string> = {
-  Plans: "bg-blue-50 text-blue-700",
-  Permits: "bg-purple-50 text-purple-700",
-  Contracts: "bg-indigo-50 text-indigo-700",
-  Lender: "bg-green-50 text-green-700",
-  Inspections: "bg-amber-50 text-amber-700",
-  Photos: "bg-pink-50 text-pink-700",
+  "Construction Plans": "bg-blue-50 text-blue-700",
+  "Field Photos": "bg-pink-50 text-pink-700",
+  "Inspections/Permits": "bg-purple-50 text-purple-700",
+  Marketing: "bg-amber-50 text-amber-700",
+  Closing: "bg-emerald-50 text-emerald-700",
+  Sales: "bg-indigo-50 text-indigo-700",
   Other: "bg-gray-100 text-gray-600",
 };
 
@@ -73,10 +81,12 @@ function UploadForm({
         if (category === "company") {
           fd.set("project_id", "");
           fd.set("vendor_id", "");
+          fd.set("folder", "General");
         } else if (category === "project") {
           fd.set("vendor_id", "");
         } else if (category === "vendor") {
           fd.set("project_id", "");
+          fd.set("folder", "General");
         }
         startTransition(async () => {
           await uploadDocument(fd);
@@ -135,18 +145,20 @@ function UploadForm({
             ))}
           </select>
         )}
-        <select
-          name="folder"
-          required
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-        >
-          <option value="">Select folder *</option>
-          {FOLDERS.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
+        {category === "project" && (
+          <select
+            name="folder"
+            required
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+          >
+            <option value="">Select folder *</option>
+            {PROJECT_FOLDERS.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="col-span-2">
           <label className="block text-xs text-gray-500 mb-1">File *</label>
           <input
@@ -197,10 +209,12 @@ function DocTable({
   docs,
   resolveContext,
   onDelete,
+  showFolder = true,
 }: {
   docs: Document[];
   resolveContext: (d: Document) => string;
   onDelete: (id: string, path: string | null, name: string) => void;
+  showFolder?: boolean;
 }) {
   if (docs.length === 0) {
     return (
@@ -216,7 +230,9 @@ function DocTable({
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50">
             <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">File</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Folder</th>
+            {showFolder && (
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Folder</th>
+            )}
             <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Context</th>
             <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Size</th>
             <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Date</th>
@@ -233,11 +249,13 @@ function DocTable({
                 </div>
                 {doc.notes && <p className="text-xs text-gray-400 mt-0.5 ml-5">{doc.notes}</p>}
               </td>
-              <td className="px-4 py-3">
-                <span className={`text-xs px-2 py-0.5 rounded-full ${FOLDER_COLORS[doc.folder] ?? "bg-gray-100 text-gray-600"}`}>
-                  {doc.folder}
-                </span>
-              </td>
+              {showFolder && (
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${FOLDER_COLORS[doc.folder] ?? "bg-gray-100 text-gray-600"}`}>
+                    {doc.folder}
+                  </span>
+                </td>
+              )}
               <td className="px-4 py-3 text-gray-500 text-xs">{resolveContext(doc)}</td>
               <td className="px-4 py-3 text-gray-400 text-xs">{fmtSize(doc.file_size_kb)}</td>
               <td className="px-4 py-3 text-gray-400 text-xs">
@@ -683,18 +701,20 @@ export default function DocumentsClient({
             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
           />
         </div>
-        <select
-          value={folderFilter}
-          onChange={(e) => setFolderFilter(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-        >
-          <option value="">All folders</option>
-          {FOLDERS.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
+        {view.kind === "project-docs" && (
+          <select
+            value={folderFilter}
+            onChange={(e) => setFolderFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+          >
+            <option value="">All folders</option>
+            {PROJECT_FOLDERS.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => setShowUpload(true)}
           className="ml-auto flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
@@ -713,7 +733,12 @@ export default function DocumentsClient({
         />
       )}
 
-      <DocTable docs={visible} resolveContext={resolveContext} onDelete={handleDelete} />
+      <DocTable
+        docs={visible}
+        resolveContext={resolveContext}
+        onDelete={handleDelete}
+        showFolder={view.kind === "project-docs"}
+      />
     </div>
   );
 }
