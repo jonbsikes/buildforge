@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Plus, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle, Trash2, ClipboardList } from "lucide-react";
-import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo } from "./actions";
+import { Plus, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle, Trash2, ClipboardList, Camera, Upload, X } from "lucide-react";
+import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto } from "./actions";
 import type { Database } from "@/types/database";
 
 type FieldLog = Database["public"]["Tables"]["field_logs"]["Row"];
@@ -30,14 +30,48 @@ function NewLogForm({
   onDone: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [error, setError] = useState("");
+
+  function addPhotos(files: FileList | null) {
+    if (!files) return;
+    const accepted: File[] = [];
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith("image/")) continue;
+      if (f.size > 25 * 1024 * 1024) {
+        setError(`${f.name} is larger than 25MB.`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    setPhotos((prev) => [...prev, ...accepted]);
+  }
+
+  function removePhoto(i: number) {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
+        setError("");
         startTransition(async () => {
-          await createFieldLog(fd);
-          onDone();
+          try {
+            const log = await createFieldLog(fd);
+            for (const photo of photos) {
+              const pfd = new FormData();
+              pfd.append("file", photo);
+              pfd.append("project_id", log.project_id);
+              pfd.append("field_log_id", log.id);
+              pfd.append("log_date", log.log_date);
+              await uploadFieldLogPhoto(pfd);
+            }
+            onDone();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to save log.");
+          }
         });
       }}
       className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3"
@@ -69,6 +103,61 @@ function NewLogForm({
           className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] resize-none"
         />
       </div>
+
+      {/* Photos */}
+      <div className="space-y-2">
+        {photos.length > 0 && (
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+            {photos.map((f, i) => {
+              const url = URL.createObjectURL(f);
+              return (
+                <div
+                  key={`${f.name}-${i}`}
+                  className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 bg-white"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(i)}
+                    className="absolute top-1 right-1 p-1 rounded-full bg-white/90 text-gray-600 hover:text-red-600 shadow"
+                    aria-label="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+            <Camera size={14} />
+            Take Photo
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
+            <Upload size={14} />
+            Upload
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onDone} className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
           Cancel

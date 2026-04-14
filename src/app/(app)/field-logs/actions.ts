@@ -3,18 +3,29 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
-export async function createFieldLog(formData: FormData) {
+export async function createFieldLog(formData: FormData): Promise<{ id: string; project_id: string; log_date: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  await supabase.from("field_logs").insert({
-    project_id: formData.get("project_id") as string,
-    log_date: formData.get("log_date") as string,
-    notes: formData.get("notes") as string,
-    created_by: user.id,
-  });
+  const project_id = formData.get("project_id") as string;
+  const log_date = formData.get("log_date") as string;
+
+  const { data, error } = await supabase
+    .from("field_logs")
+    .insert({
+      project_id,
+      log_date,
+      notes: formData.get("notes") as string,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) throw new Error(error?.message ?? "Failed to create field log");
+
   revalidatePath("/field-logs");
+  return { id: data.id, project_id, log_date };
 }
 
 export async function createFieldTodo(formData: FormData) {
