@@ -16,11 +16,12 @@ export default async function InvoicesPage() {
   const { data: invoices } = await supabase
     .from("invoices")
     .select(`
-      id, vendor, invoice_number, invoice_date, due_date,
+      id, vendor, vendor_id, invoice_number, invoice_date, due_date,
       amount, status, ai_confidence, pending_draw, manually_reviewed,
-      file_name, source, discount_taken,
+      file_name, source, discount_taken, direct_cash_payment,
       projects ( id, name ),
-      cost_codes ( code, name )
+      cost_codes ( code, name ),
+      vendors ( auto_draft )
     `)
     .order("created_at", { ascending: false });
 

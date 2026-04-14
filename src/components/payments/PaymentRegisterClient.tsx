@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useTransition, useMemo, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   createPayment,
   clearPayment,
@@ -109,6 +109,23 @@ export default function PaymentRegisterClient({
 
   // New payment form
   const [showNewPayment, setShowNewPayment] = useState(false);
+  const [prefillInvoiceId, setPrefillInvoiceId] = useState<string | null>(null);
+
+  // Deep-link: /banking/payments?new=1&invoice=ID opens modal pre-selected
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const shouldOpen = searchParams.get("new") === "1";
+    const invoiceId = searchParams.get("invoice");
+    if (shouldOpen) {
+      setPrefillInvoiceId(invoiceId);
+      setShowNewPayment(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("new");
+      url.searchParams.delete("invoice");
+      router.replace(url.pathname + (url.search ? url.search : ""));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Clear payment dialog
   const [clearingPaymentId, setClearingPaymentId] = useState<string | null>(null);
@@ -405,9 +422,14 @@ export default function PaymentRegisterClient({
       {showNewPayment && (
         <NewPaymentModal
           payableInvoices={payableInvoices}
-          onClose={() => setShowNewPayment(false)}
+          prefillInvoiceId={prefillInvoiceId}
+          onClose={() => {
+            setShowNewPayment(false);
+            setPrefillInvoiceId(null);
+          }}
           onCreated={() => {
             setShowNewPayment(false);
+            setPrefillInvoiceId(null);
             router.refresh();
           }}
         />
@@ -608,10 +630,12 @@ function Modal({
 
 function NewPaymentModal({
   payableInvoices,
+  prefillInvoiceId,
   onClose,
   onCreated,
 }: {
   payableInvoices: PayableInvoice[];
+  prefillInvoiceId?: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -628,10 +652,14 @@ function NewPaymentModal({
   const [notes, setNotes] = useState("");
   const [discountAmount, setDiscountAmount] = useState("");
 
-  // Invoice selection
-  const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(
-    new Set()
-  );
+  // Invoice selection (pre-selects deep-linked invoice from AP)
+  const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    if (prefillInvoiceId && payableInvoices.some((i) => i.id === prefillInvoiceId)) {
+      s.add(prefillInvoiceId);
+    }
+    return s;
+  });
 
   // Vendor filter for invoice list
   const [vendorFilter, setVendorFilter] = useState("");

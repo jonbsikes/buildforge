@@ -1,9 +1,21 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
-import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown, Check, DollarSign } from "lucide-react";
-import { deleteInvoice, setInvoiceStatus, voidInvoice, voidAfterDraw, setPendingDraw, advanceInvoiceStatus } from "@/app/actions/invoices";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown, Check, MoreVertical, Zap, CreditCard, FileText } from "lucide-react";
+import {
+  deleteInvoice,
+  setInvoiceStatus,
+  voidInvoice,
+  setPendingDraw,
+  approveInvoice,
+} from "@/app/actions/invoices";
+import {
+  approveInvoicesBatch,
+  setPendingDrawBatch,
+  payInvoiceAutoDraft,
+} from "@/app/actions/invoice-actions-extra";
 import StatusDot from "@/components/ui/StatusDot";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -54,6 +66,7 @@ type SortDir = "asc" | "desc";
 type InvoiceRow = {
   id: string;
   vendor: string | null;
+  vendor_id?: string | null;
   invoice_number: string | null;
   invoice_date: string | null;
   due_date: string | null;
@@ -64,17 +77,44 @@ type InvoiceRow = {
   manually_reviewed: boolean | null;
   source: string | null;
   discount_taken: number | null;
+  direct_cash_payment?: boolean | null;
   projects: { id: string; name: string } | null;
   cost_codes: { code: string; name: string } | null;
+  vendors?: { auto_draft: boolean | null } | null;
 };
 
 export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
+  const router = useRouter();
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const [drawOverrides, setDrawOverrides] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [payMenuFor, setPayMenuFor] = useState<string | null>(null);
+  const [moreMenuFor, setMoreMenuFor] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  const popRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (popRef.current && !popRef.current.contains(e.target as Node)) {
+        setPayMenuFor(null);
+        setMoreMenuFor(null);
+      }
+    }
+    if (payMenuFor || moreMenuFor) {
+      document.addEventListener("mousedown", onDown);
+      return () => document.removeEventListener("mousedown", onDown);
+    }
+  }, [payMenuFor, moreMenuFor]);
+
+  useEffect(() => {
+    if (banner) {
+      const t = setTimeout(() => setBanner(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [banner]);
 
   // Search & filter state
   const [search, setSearch] = useState("");
@@ -227,8 +267,43 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
     return { pendingCount, pendingAmount, approvedCount, approvedAmount, pastDueCount, pastDueAmount };
   }, [sortedRows, statusOverrides]);
 
+  function handleApproveSelected() {
+    const ids = [...selected];
+    startTransition(async () => {
+      const r = await approveInvoicesBatch(ids);
+      if (r.error) setBanner({ type: "error", msg: r.error });
+      else {
+        const msg = r.skipped > 0
+          ? `Approved ${r.approved}, skipped ${r.skipped}`
+          : `Approved ${r.approved} invoice${r.approved !== 1 ? "s" : ""}`;
+        setBanner({ type: r.skipped > 0 ? "error" : "success", msg });
+      }
+      exitSelectMode();
+    });
+  }
+
+  function handleAddSelectedToDraw(pending: boolean) {
+    const ids = [...selected];
+    startTransition(async () => {
+      const r = await setPendingDrawBatch(ids, pending);
+      if (r.error) setBanner({ type: "error", msg: r.error });
+      else setBanner({ type: "success", msg: `${pending ? "Added" : "Removed"} ${r.updated} invoice${r.updated !== 1 ? "s" : ""} ${pending ? "to" : "from"} draw` });
+      exitSelectMode();
+    });
+  }
+
   return (
     <>
+      {banner && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-medium animate-slide-in-right ${
+            banner.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
+          }`}
+        >
+          {banner.msg}
+        </div>
+      )}
+
       {/* Summary Metric Strip */}
       <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -491,45 +566,230 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                         )}
                       </Link>
                     </td>
-                    <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-4 py-2 relative" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
                         <StatusDot status={effectiveStatus} />
-                        {/* Issue Check: approved -> released (DR AP / CR 2050) */}
-                        {effectiveStatus === "approved" && (
+
+                        {effectiveStatus === "pending_review" && (
                           <button
-                            title="Issue Check"
+                            title={isLowConf && !inv.manually_reviewed ? "Review required before approval" : "Approve invoice"}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setStatusOverrides((prev) => ({ ...prev, [inv.id]: "released" }));
+                              setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
                               startTransition(async () => {
-                                const r = await advanceInvoiceStatus(inv.id, "released", undefined, "check");
-                                if (r.error) setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
+                                const r = await approveInvoice(inv.id);
+                                if (r.error) {
+                                  setStatusOverrides((prev) => {
+                                    const n = { ...prev };
+                                    delete n[inv.id];
+                                    return n;
+                                  });
+                                  setBanner({ type: "error", msg: r.error });
+                                }
                               });
                             }}
-                            disabled={isPending}
-                            className="opacity-0 group-hover:opacity-100 ml-auto text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-lg font-medium hover:bg-purple-200 transition-all disabled:opacity-40 whitespace-nowrap"
+                            disabled={isPending || (isLowConf && !inv.manually_reviewed)}
+                            className="opacity-0 group-hover:opacity-100 ml-auto text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-lg font-medium hover:bg-blue-200 transition-all disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
                           >
-                            Issue Check
+                            <Check size={12} />
+                            Approve
                           </button>
                         )}
-                        {/* Mark Cleared: released -> cleared (DR 2050 / CR Cash) */}
-                        {effectiveStatus === "released" && (
+
+                        {effectiveStatus === "approved" && (
                           <button
-                            title="Mark Cleared"
+                            title="Record payment"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setStatusOverrides((prev) => ({ ...prev, [inv.id]: "cleared" }));
-                              startTransition(async () => {
-                                const today = new Date().toISOString().split("T")[0];
-                                const r = await advanceInvoiceStatus(inv.id, "cleared", today, "check");
-                                if (r.error) setStatusOverrides((prev) => ({ ...prev, [inv.id]: "released" }));
-                              });
+                              setPayMenuFor(payMenuFor === inv.id ? null : inv.id);
+                              setMoreMenuFor(null);
                             }}
                             disabled={isPending}
-                            className="opacity-0 group-hover:opacity-100 ml-auto text-xs px-2 py-1 bg-green-100 text-green-700 rounded-lg font-medium hover:bg-green-200 transition-all disabled:opacity-40 whitespace-nowrap"
+                            className="opacity-0 group-hover:opacity-100 ml-auto text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-lg font-medium hover:bg-purple-200 transition-all disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
                           >
-                            Mark Cleared
+                            <CreditCard size={12} />
+                            Pay
                           </button>
+                        )}
+
+                        {payMenuFor === inv.id && effectiveStatus === "approved" && (
+                          <div ref={popRef} className="absolute right-0 top-full mt-1 z-20 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 text-sm">
+                            <button
+                              onClick={() => {
+                                const next = !(drawOverrides[inv.id] ?? (inv.pending_draw ?? false));
+                                setDrawOverrides((p) => ({ ...p, [inv.id]: next }));
+                                setPayMenuFor(null);
+                                startTransition(async () => {
+                                  const r = await setPendingDraw(inv.id, next);
+                                  if (r.error) {
+                                    setDrawOverrides((p) => ({ ...p, [inv.id]: !next }));
+                                    setBanner({ type: "error", msg: r.error });
+                                  } else {
+                                    setBanner({ type: "success", msg: next ? "Added to next draw" : "Removed from draw" });
+                                  }
+                                });
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                              <FileText size={14} className="text-blue-600" />
+                              <div>
+                                <div className="font-medium text-gray-900">
+                                  {(drawOverrides[inv.id] ?? (inv.pending_draw ?? false)) ? "Remove from draw" : "Add to next draw"}
+                                </div>
+                                <div className="text-[11px] text-gray-500">Pays via lender draw request</div>
+                              </div>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPayMenuFor(null);
+                                router.push(`/banking/payments?new=1&invoice=${inv.id}`);
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
+                            >
+                              <CreditCard size={14} className="text-purple-600" />
+                              <div>
+                                <div className="font-medium text-gray-900">Pay directly</div>
+                                <div className="text-[11px] text-gray-500">Check, ACH, or wire</div>
+                              </div>
+                            </button>
+                            {inv.vendors?.auto_draft && (
+                              <button
+                                onClick={() => {
+                                  setPayMenuFor(null);
+                                  if (!confirm("Mark this invoice as auto-drafted? This will clear it immediately and post DR AP / CR Cash.")) return;
+                                  setStatusOverrides((prev) => ({ ...prev, [inv.id]: "cleared" }));
+                                  startTransition(async () => {
+                                    const r = await payInvoiceAutoDraft(inv.id);
+                                    if (r.error) {
+                                      setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
+                                      setBanner({ type: "error", msg: r.error });
+                                    } else {
+                                      setBanner({ type: "success", msg: "Invoice marked as auto-drafted" });
+                                    }
+                                  });
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100"
+                              >
+                                <Zap size={14} className="text-amber-600" />
+                                <div>
+                                  <div className="font-medium text-gray-900">Mark as auto-drafted</div>
+                                  <div className="text-[11px] text-gray-500">Bank already pulled funds</div>
+                                </div>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <button
+                          title="More actions"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMoreMenuFor(moreMenuFor === inv.id ? null : inv.id);
+                            setPayMenuFor(null);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 rounded transition-all"
+                        >
+                          <MoreVertical size={14} />
+                        </button>
+
+                        {moreMenuFor === inv.id && (
+                          <div ref={popRef} className="absolute right-0 top-full mt-1 z-20 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 text-xs">
+                            {effectiveStatus === "approved" && (
+                              <button
+                                onClick={() => {
+                                  setMoreMenuFor(null);
+                                  if (!confirm("Revert this invoice back to pending review?")) return;
+                                  setStatusOverrides((prev) => ({ ...prev, [inv.id]: "pending_review" }));
+                                  startTransition(async () => {
+                                    const r = await setInvoiceStatus(inv.id, "pending_review");
+                                    if (r.error) {
+                                      setStatusOverrides((prev) => {
+                                        const n = { ...prev };
+                                        delete n[inv.id];
+                                        return n;
+                                      });
+                                      setBanner({ type: "error", msg: r.error });
+                                    }
+                                  });
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+                              >
+                                Un-approve
+                              </button>
+                            )}
+                            {(effectiveStatus === "pending_review" || effectiveStatus === "approved") && (
+                              <button
+                                onClick={() => {
+                                  setMoreMenuFor(null);
+                                  if (!confirm("Mark this invoice as disputed?")) return;
+                                  setStatusOverrides((prev) => ({ ...prev, [inv.id]: "disputed" }));
+                                  startTransition(async () => {
+                                    const r = await setInvoiceStatus(inv.id, "disputed");
+                                    if (r.error) {
+                                      setStatusOverrides((prev) => {
+                                        const n = { ...prev };
+                                        delete n[inv.id];
+                                        return n;
+                                      });
+                                      setBanner({ type: "error", msg: r.error });
+                                    }
+                                  });
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-amber-700"
+                              >
+                                Mark disputed
+                              </button>
+                            )}
+                            {effectiveStatus === "disputed" && (
+                              <button
+                                onClick={() => {
+                                  setMoreMenuFor(null);
+                                  setStatusOverrides((prev) => ({ ...prev, [inv.id]: "pending_review" }));
+                                  startTransition(async () => {
+                                    const r = await setInvoiceStatus(inv.id, "pending_review");
+                                    if (r.error) {
+                                      setStatusOverrides((prev) => {
+                                        const n = { ...prev };
+                                        delete n[inv.id];
+                                        return n;
+                                      });
+                                      setBanner({ type: "error", msg: r.error });
+                                    }
+                                  });
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+                              >
+                                Un-dispute
+                              </button>
+                            )}
+                            {effectiveStatus !== "void" && effectiveStatus !== "cleared" && effectiveStatus !== "released" && (
+                              <button
+                                onClick={() => {
+                                  setMoreMenuFor(null);
+                                  if (!confirm("Void this invoice? This cannot be easily reversed.")) return;
+                                  startTransition(async () => {
+                                    const r = await voidInvoice(inv.id);
+                                    if (r.error) setBanner({ type: "error", msg: r.error });
+                                  });
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-red-600 border-t border-gray-100"
+                              >
+                                Void
+                              </button>
+                            )}
+                            {(effectiveStatus === "released" || effectiveStatus === "cleared") && (
+                              <Link
+                                href="/banking/payments"
+                                onClick={() => setMoreMenuFor(null)}
+                                className="block px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+                              >
+                                View in payment register {'>'}
+                              </Link>
+                            )}
+                            {effectiveStatus === "void" && (
+                              <span className="block px-3 py-1.5 text-gray-400 italic">No actions available</span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -605,8 +865,32 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
 
       {/* Bulk action bar */}
       {selectMode && selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-xl shadow-xl flex items-center gap-4 z-50 animate-slide-up">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-xl shadow-xl flex items-center gap-3 z-50 animate-slide-up">
           <span className="text-sm font-medium">{selected.size} selected</span>
+          <button
+            onClick={handleApproveSelected}
+            disabled={isPending}
+            title="Approve all selected pending invoices"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            <Check size={13} />
+            Approve
+          </button>
+          <button
+            onClick={() => handleAddSelectedToDraw(true)}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            <FileText size={13} />
+            Add to draw
+          </button>
+          <button
+            onClick={() => handleAddSelectedToDraw(false)}
+            disabled={isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            Remove from draw
+          </button>
           <button
             onClick={handleDeleteSelected}
             disabled={isPending}
