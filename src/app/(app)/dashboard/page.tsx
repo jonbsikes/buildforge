@@ -318,10 +318,21 @@ export default async function DashboardPage() {
             )}
 
             <div className="hidden lg:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100"><h2 className="font-bold text-gray-900">Quick Actions</h2></div>
-              <div className="p-3 grid grid-cols-2 gap-2">
-                {[{ href: "/invoices/upload", label: "New Invoice", icon: <FileText size={15} className="text-[#4272EF]" /> }, { href: "/field-logs", label: "Field Log", icon: <ClipboardList size={15} className="text-emerald-600" /> }, { href: "/projects", label: "Projects", icon: <FolderOpen size={15} className="text-purple-600" /> }].map(({ href, label, icon }) => (
-                  <Link key={href} href={href} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors border border-gray-100">{icon}{label}</Link>
+              <div className="px-5 py-4 border-b border-gray-100"><h2 className="font-bold text-gray-900">Navigate</h2></div>
+              <div className="p-3 space-y-1">
+                {[
+                  { href: "/projects/hub", label: "Projects", icon: <Building2 size={16} className="text-[#4272EF]" />, desc: "View all projects & reports" },
+                  { href: "/financial", label: "Financial", icon: <Banknote size={16} className="text-emerald-600" />, desc: "AP, banking & reports" },
+                  { href: "/manage", label: "Manage", icon: <Receipt size={16} className="text-purple-600" />, desc: "Vendors, contacts & docs" },
+                ].map(({ href, label, icon, desc }) => (
+                  <Link key={href} href={href} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm hover:bg-gray-50 transition-colors group">
+                    <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0 group-hover:bg-gray-100">{icon}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-700 group-hover:text-gray-900">{label}</p>
+                      <p className="text-xs text-gray-400">{desc}</p>
+                    </div>
+                    <ChevronRight size={14} className="text-gray-300" />
+                  </Link>
                 ))}
               </div>
             </div>

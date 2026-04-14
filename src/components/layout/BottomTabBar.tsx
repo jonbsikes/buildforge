@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, HardHat, Plus, DollarSign, Menu } from "lucide-react";
+import { Home, HardHat, Plus, DollarSign, Layers } from "lucide-react";
 import { useState } from "react";
 import QuickActionSheet from "./QuickActionSheet";
 
@@ -15,10 +15,10 @@ type Tab = {
 
 const tabs: Tab[] = [
   { key: "home", label: "Home", href: "/dashboard", icon: Home },
-  { key: "projects", label: "Projects", href: "/projects", icon: HardHat },
+  { key: "projects", label: "Projects", href: "/projects/hub", icon: HardHat },
   // FAB goes here (handled separately)
-  { key: "money", label: "Money", href: "/financial/summary", icon: DollarSign },
-  { key: "more", label: "More", href: "/vendors", icon: Menu },
+  { key: "financial", label: "Financial", href: "/financial", icon: DollarSign },
+  { key: "more", label: "More", href: "/manage", icon: Layers },
 ];
 
 function isTabActive(pathname: string, tab: Tab): boolean {
@@ -29,7 +29,7 @@ function isTabActive(pathname: string, tab: Tab): boolean {
       pathname.startsWith("/todos") ||
       pathname.startsWith("/field-logs");
   }
-  if (tab.key === "money") {
+  if (tab.key === "financial") {
     return pathname.startsWith("/financial") ||
       pathname.startsWith("/invoices") ||
       pathname.startsWith("/banking") ||
@@ -37,10 +37,12 @@ function isTabActive(pathname: string, tab: Tab): boolean {
       pathname.startsWith("/loans");
   }
   if (tab.key === "more") {
-    return pathname.startsWith("/vendors") ||
+    return pathname.startsWith("/manage") ||
+      pathname.startsWith("/vendors") ||
       pathname.startsWith("/contacts") ||
       pathname.startsWith("/documents") ||
-      pathname.startsWith("/notifications");
+      pathname.startsWith("/notifications") ||
+      pathname.startsWith("/settings");
   }
   return false;
 }
