@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { Building2 } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -135,6 +136,7 @@ export default function SubdivisionOverviewClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="subdivision-overview" params={{ subdivisionId: filter !== 'all' ? filter : undefined }} /></div>
       {/* Filter */}
       <div className="flex items-center gap-3 print:hidden">
         <select

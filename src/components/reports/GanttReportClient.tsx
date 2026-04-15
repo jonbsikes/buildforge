@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 // ---------------------------------------------------------------------------
 // Constants & helpers
@@ -218,6 +219,7 @@ export default function GanttReportClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="gantt" params={{ projectId: selectedProject !== 'all' ? selectedProject : undefined }} /></div>
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <select
           value={selectedProject}

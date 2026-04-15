@@ -19,6 +19,15 @@ interface ReportChromeProps {
   onAsOfChange?: (date: string) => void;
   /** Extra controls to render in the toolbar */
   extraControls?: ReactNode;
+  /** Loading state — currently unused but accepted by consumers */
+  loading?: boolean;
+  /**
+   * Report slug for PDF export. If set, Print/Export buttons hit
+   * `/api/reports/{slug}` instead of the browser print dialog.
+   */
+  exportSlug?: string;
+  /** Extra query params for the export URL (e.g. projectId) */
+  exportParams?: Record<string, string | undefined>;
 }
 
 function getPresetRange(preset: DatePreset): { start: string; end: string } {
@@ -49,6 +58,8 @@ export default function ReportChrome({
   onDateChange,
   onAsOfChange,
   extraControls,
+  exportSlug,
+  exportParams,
 }: ReportChromeProps) {
   const today = new Date().toISOString().split("T")[0];
   const [preset, setPreset] = useState<DatePreset>("this_year");
@@ -68,6 +79,42 @@ export default function ReportChrome({
     onAsOfChange?.(date);
   }
 
+  function buildExportUrl(forDownload: boolean): string | null {
+    if (!exportSlug) return null;
+    const qs = new URLSearchParams();
+    if (dateMode === "range") {
+      const range = preset === "custom"
+        ? { start: customStart, end: customEnd }
+        : getPresetRange(preset);
+      if (range.start) qs.set("start", range.start);
+      if (range.end) qs.set("end", range.end);
+    } else if (dateMode === "asOf") {
+      qs.set("asOf", asOf);
+    }
+    if (exportParams) {
+      for (const [k, v] of Object.entries(exportParams)) if (v) qs.set(k, v);
+    }
+    if (forDownload) qs.set("download", "1");
+    return `/api/reports/${exportSlug}?${qs.toString()}`;
+  }
+
+  function handlePrint() {
+    const url = buildExportUrl(false);
+    if (!url) { window.print(); return; }
+    window.open(url, "_blank");
+  }
+
+  function handleExport() {
+    const url = buildExportUrl(true);
+    if (!url) { window.print(); return; }
+    // Trigger a download via a hidden anchor
+    const a = document.createElement("a");
+    a.href = url;
+    a.rel = "noopener";
+    a.target = "_blank";
+    a.click();
+  }
+
   return (
     <div className="max-w-6xl mx-auto">
       {/* Report header */}
@@ -79,18 +126,18 @@ export default function ReportChrome({
           </div>
           <div className="flex items-center gap-2 print:hidden">
             <button
-              onClick={() => window.print()}
+              onClick={handlePrint}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
             >
               <Printer size={13} />
               Print
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={handleExport}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
             >
               <FileDown size={13} />
-              Export
+              Export PDF
             </button>
           </div>
         </div>

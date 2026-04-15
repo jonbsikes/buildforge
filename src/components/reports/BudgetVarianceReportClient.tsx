@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown, AlertTriangle } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -107,6 +108,7 @@ export default function BudgetVarianceReportClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="budget-variance" params={{ projectId: filterProject !== 'all' ? filterProject : undefined }} /></div>
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={filterProject}

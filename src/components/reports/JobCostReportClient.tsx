@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -127,6 +128,7 @@ export default function JobCostReportClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="job-cost" params={{ projectId: selectedProject !== 'all' ? selectedProject : undefined }} /></div>
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <select

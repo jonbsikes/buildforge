@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ChevronDown, ChevronRight, FileDown, Circle, CheckCircle2 } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 interface Todo {
   id: string;
@@ -113,6 +114,7 @@ export default function FieldLogsReportClient() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="field-logs" params={{ projectId: filterProject !== 'all' ? filterProject : undefined }} /></div>
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={filterProject}

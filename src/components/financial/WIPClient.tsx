@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -145,6 +146,7 @@ export default function WIPClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="wip" params={undefined} /></div>
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">

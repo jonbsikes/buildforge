@@ -143,7 +143,7 @@ export default function FinancialSummaryClient() {
   const isBalanced = data && Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1;
 
   return (
-    <ReportChrome title="Financial Summary" subtitle="Company-wide financial overview">
+    <ReportChrome title="Financial Summary" subtitle="Company-wide financial overview" exportSlug="financial-summary">
       {loading ? (
         <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
       ) : !data ? null : (

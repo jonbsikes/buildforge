@@ -4,6 +4,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown, X, ChevronDown } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -192,6 +193,9 @@ export default function CashFlowClient() {
   return (
     <>
       <div className="max-w-3xl mx-auto">
+        <div className="flex justify-end mb-4 print:hidden">
+          <ReportExportButtons slug="cash-flow" params={{ start: preset === "custom" ? customStart : undefined, end: preset === "custom" ? customEnd : undefined }} />
+        </div>
         <div className="flex flex-wrap items-center gap-3 mb-6 print:hidden">
           <div className="flex items-center gap-2">
             {(["this_month", "this_quarter", "this_year", "custom"] as DatePreset[]).map(p => (

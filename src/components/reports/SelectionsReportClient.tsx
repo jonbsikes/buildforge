@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 interface Selection {
   id: string;
@@ -87,6 +88,7 @@ export default function SelectionsReportClient() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="selections" params={{ projectId: filterProject !== 'all' ? filterProject : undefined }} /></div>
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <select

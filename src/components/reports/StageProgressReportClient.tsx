@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 interface Stage {
   stage_number: number;
@@ -79,6 +80,7 @@ export default function StageProgressReportClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="stage-progress" params={undefined} /></div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
           {(["active", "planning", "all"] as const).map((s) => (

@@ -202,6 +202,7 @@ export default function APAgingClient() {
       title="AP Aging"
       subtitle="Outstanding invoices by aging bucket"
       extraControls={extraControls}
+      exportSlug="ap-aging"
     >
       <div className="space-y-8">
         {/* Aging bucket summary */}

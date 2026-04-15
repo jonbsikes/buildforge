@@ -193,7 +193,7 @@ export async function createPayment(
   if (discount > 0 && invoiceIds.length > 0) {
     const { data: invoiceDetails } = await supabase
       .from("invoices")
-      .select("id, total_amount, amount, project_id, projects ( type )")
+      .select("id, total_amount, amount, project_id, projects ( project_type )")
       .in("id", invoiceIds);
 
     if (invoiceDetails && invoiceDetails.length > 0) {
@@ -217,7 +217,7 @@ export async function createPayment(
             .update({ discount_taken: share })
             .eq("id", inv.id);
 
-          const projType = (inv.projects as { type: string } | null)?.type;
+          const projType = (inv.projects as { project_type: string } | null)?.project_type;
           const wipAcct = !inv.project_id
             ? "6900"
             : projType === "land_development"

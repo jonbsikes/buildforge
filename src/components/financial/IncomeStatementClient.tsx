@@ -139,6 +139,7 @@ export default function IncomeStatementClient() {
         setCustomEnd(range.end);
       }}
       loading={loading}
+      exportSlug="income-statement"
     >
       {!data ? null : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

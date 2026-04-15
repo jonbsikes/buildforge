@@ -4,6 +4,7 @@
 import { useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Download, FileText, CheckCircle2 } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function toCSV(headers: string[], rows: (string | number | null)[][]): string {
   const escape = (v: string | number | null) => {
@@ -203,6 +204,7 @@ export default function TaxExportClient() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="tax-export" params={undefined} /></div>
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
         <div>
           <h2 className="text-base font-semibold text-gray-900 mb-1">Tax Package Export</h2>

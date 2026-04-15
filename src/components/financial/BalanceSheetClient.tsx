@@ -232,6 +232,7 @@ export default function BalanceSheetClient() {
       dateMode="asOf"
       onAsOfChange={setAsOf}
       loading={loading}
+      exportSlug="balance-sheet"
     >
       {!data ? null : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
