@@ -29,8 +29,6 @@ interface Stage {
   planned_end_date: string | null;
   actual_start_date: string | null;
   actual_end_date: string | null;
-  baseline_start_date: string | null;
-  baseline_end_date: string | null;
 }
 
 interface Project { id: string; name: string; project_type: string; start_date: string | null }
@@ -58,7 +56,7 @@ function ProjectGantt({ project, stages }: { project: Project; stages: Stage[] }
   // Determine timeline span
   let totalDays = 152;
   for (const s of stages) {
-    for (const d of [s.planned_end_date, s.actual_end_date, s.baseline_end_date]) {
+    for (const d of [s.planned_end_date, s.actual_end_date]) {
       if (d) totalDays = Math.max(totalDays, dayOffset(base, d) + 1);
     }
   }
@@ -109,7 +107,6 @@ function ProjectGantt({ project, stages }: { project: Project; stages: Stage[] }
 
           {/* Stage rows */}
           {stages.map((s) => {
-            const hasBaseline = s.baseline_start_date && s.baseline_end_date;
             const hasActual   = s.actual_start_date && s.actual_end_date;
             const hasPlanned  = s.planned_start_date && s.planned_end_date;
             const isInProgress = s.status === "in_progress" && s.actual_start_date;
@@ -129,8 +126,6 @@ function ProjectGantt({ project, stages }: { project: Project; stages: Stage[] }
                 ? (s.status === "complete" ? "bg-green-500" : "bg-[#4272EF]")
                 : "bg-gray-300";
 
-            const baseStartOff = hasBaseline ? dayOffset(base, s.baseline_start_date!) : null;
-            const baseEndOff   = hasBaseline ? dayOffset(base, s.baseline_end_date!)   : null;
             const frontStartOff = frontStart ? dayOffset(base, frontStart) : null;
             const frontEndOff   = frontEnd   ? dayOffset(base, frontEnd)   : null;
 
@@ -146,16 +141,7 @@ function ProjectGantt({ project, stages }: { project: Project; stages: Stage[] }
                     <div className="absolute top-0 bottom-0 border-l-2 border-[#4272EF] opacity-30 pointer-events-none z-10" style={{ left: todayOff * dayWidth }} />
                   )}
 
-                  {/* Baseline bar (behind, translucent) */}
-                  {baseStartOff != null && baseEndOff != null && (
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 rounded bg-gray-200 opacity-70"
-                      style={{ left: baseStartOff * dayWidth, width: Math.max((baseEndOff - baseStartOff + 1) * dayWidth, 4), height: 18 }}
-                      title={`Baseline: ${s.baseline_start_date} → ${s.baseline_end_date}`}
-                    />
-                  )}
-
-                  {/* Planned/actual bar (front) */}
+                  {/* Planned/actual bar */}
                   {frontStartOff != null && frontEndOff != null && (
                     <div
                       className={`absolute top-1/2 -translate-y-1/2 rounded ${frontColor} opacity-90`}
@@ -172,7 +158,6 @@ function ProjectGantt({ project, stages }: { project: Project; stages: Stage[] }
 
       {/* Legend */}
       <div className="flex items-center gap-4 px-4 py-2 border-t border-gray-100 text-xs text-gray-400">
-        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-gray-200 inline-block" /> Baseline</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-gray-300 inline-block" /> Planned</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-[#4272EF] inline-block" /> In Progress (Actual)</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-green-500 inline-block" /> Complete (Actual)</span>
@@ -196,7 +181,7 @@ export default function GanttReportClient() {
       const [projectsRes, stagesRes] = await Promise.all([
         supabase.from("projects").select("id, name, project_type, start_date").order("name"),
         supabase.from("build_stages")
-          .select("id, project_id, stage_number, stage_name, status, planned_start_date, planned_end_date, actual_start_date, actual_end_date, baseline_start_date, baseline_end_date")
+          .select("id, project_id, stage_number, stage_name, status, planned_start_date, planned_end_date, actual_start_date, actual_end_date")
           .order("stage_number"),
       ]);
 
