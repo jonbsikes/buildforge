@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown, X, ChevronDown } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
@@ -85,7 +86,7 @@ export default function CashFlowClient() {
         entry_date: l.journal_entry?.entry_date ?? "",
         description: l.description || l.journal_entry?.description || "",
         amount: Number(l.debit || 0) + Number(l.credit || 0),
-      }));
+      })).sort((a, b) => b.entry_date.localeCompare(a.entry_date));
 
     // --- OPERATING ACTIVITIES ---
     // Cash received from customers = credits to revenue accounts
@@ -284,9 +285,9 @@ function CFSection({ section, onDrill }: { section: CashFlowSection; onDrill: (l
 }
 
 function CFDrillModal({ line, onClose }: { line: CashFlowLine; onClose: () => void }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col m-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100" style={{ backgroundColor: "#4272EF" }}>
           <div>
             <h3 className="font-semibold text-white">{line.label}</h3>
@@ -325,6 +326,7 @@ function CFDrillModal({ line, onClose }: { line: CashFlowLine; onClose: () => vo
           <span className="text-sm font-semibold text-gray-900">{fmtFull(line.amount)}</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

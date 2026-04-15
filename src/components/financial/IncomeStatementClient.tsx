@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { X, ChevronDown } from "lucide-react";
 import ReportChrome from "@/components/ui/ReportChrome";
@@ -109,7 +110,7 @@ export default function IncomeStatementClient() {
           account_number: a.account_number,
           account: `${a.account_number} · ${a.name}`,
           total: type === "revenue" ? a.credit - a.debit : a.debit - a.credit,
-          entries: a.entries.filter((e) => e.amount > 0),
+          entries: a.entries.filter((e) => e.amount > 0).sort((x, y) => y.date.localeCompare(x.date)),
         }))
         .filter((a) => Math.abs(a.total) > 0.01)
         .sort((a, b) => a.account_number.localeCompare(b.account_number));
@@ -205,11 +206,11 @@ function ISSection({ title, lines, total, totalLabel, onDrill, colorClass }: {
 }
 
 function DrillPanel({ line, onClose }: { line: AccountLine; onClose: () => void }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end animate-fade-in" onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
       <div
-        className="relative w-full max-w-xl bg-white shadow-2xl flex flex-col animate-slide-in-right"
+        className="relative w-full max-w-5xl bg-white shadow-2xl flex flex-col animate-slide-in-right"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-[#4272EF]">
@@ -250,6 +251,7 @@ function DrillPanel({ line, onClose }: { line: AccountLine; onClose: () => void 
           <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtFull(line.total)}</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

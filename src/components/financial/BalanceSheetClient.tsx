@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { X } from "lucide-react";
 import ReportChrome from "@/components/ui/ReportChrome";
@@ -71,7 +72,7 @@ interface BalanceSheetData {
 function acctToGLEntries(acct: AccountBalance): GLEntry[] {
   return acct.lines
     .filter(l => l.debit > 0 || l.credit > 0)
-    .sort((a, b) => a.entry_date.localeCompare(b.entry_date))
+    .sort((a, b) => b.entry_date.localeCompare(a.entry_date))
     .map(l => ({
       id: l.id,
       entry_date: l.entry_date,
@@ -152,10 +153,11 @@ export default function BalanceSheetClient() {
     const accounts = Object.values(acctMap).sort((a, b) => a.account_number.localeCompare(b.account_number));
 
     // Categorize accounts
-    const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200");
-    const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200");
-    const currentLiab = accounts.filter(a => a.type === "liability" && a.account_number < "2100");
-    const longTermLiab = accounts.filter(a => a.type === "liability" && a.account_number >= "2100");
+    const nonZero = (a: AccountBalance) => Math.abs(a.balance) >= 0.005;
+    const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200" && nonZero(a));
+    const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200" && nonZero(a));
+    const currentLiab = accounts.filter(a => a.type === "liability" && a.account_number < "2100" && nonZero(a));
+    const longTermLiab = accounts.filter(a => a.type === "liability" && a.account_number >= "2100" && nonZero(a));
     const equityAccounts = accounts.filter(a => a.type === "equity");
 
     // Net Member Capital accounts: combine capital + distributions per member into a single display line
@@ -377,11 +379,11 @@ function TotalRow({ label, amount }: { label: string; amount: number }) {
 
 function BSdrillPanel({ item, onClose }: { item: DrillItem; onClose: () => void }) {
   const isGLDrill = item.entries.length > 0 && item.entries[0].source_type === "journal_entry";
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end animate-fade-in" onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
       <div
-        className="relative w-full max-w-xl bg-white shadow-2xl flex flex-col animate-slide-in-right"
+        className="relative w-full max-w-5xl bg-white shadow-2xl flex flex-col animate-slide-in-right"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-[#4272EF]">
@@ -453,6 +455,7 @@ function BSdrillPanel({ item, onClose }: { item: DrillItem; onClose: () => void 
           <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmtFull(item.amount)}</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
