@@ -92,7 +92,7 @@ export async function getData(p: ReportParams): Promise<FieldLogsData> {
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-export function Pdf({ data, params, logo }: { data: FieldLogsData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: FieldLogsData; params: ReportParams; logo?: Buffer | string }) {
   const subtitle = data.projectName
     ? `${data.projectName} — ${formatDateRange(params.start || "2000-01-01", params.end || "2099-12-31")}`
     : formatDateRange(params.start || "2000-01-01", params.end || "2099-12-31");

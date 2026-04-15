@@ -84,7 +84,7 @@ export async function getData(p: ReportParams): Promise<VendorSpendData> {
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-export function Pdf({ data, params, logo }: { data: VendorSpendData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: VendorSpendData; params: ReportParams; logo?: Buffer | string }) {
   const columns: Column<VendorSpendRow>[] = [
     {
       key: "vendor",

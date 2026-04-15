@@ -7,8 +7,8 @@ interface ReportDocumentProps {
   title: string;
   /** e.g. "For Jan 1, 2026 – Apr 15, 2026" or "As of Apr 15, 2026" */
   subtitle?: string;
-  /** PNG logo bytes (data URL) — passed from the API route */
-  logo?: string;
+  /** PNG logo bytes — Buffer works reliably across @react-pdf/renderer v4 */
+  logo?: Buffer | string;
   /** orientation override — defaults to portrait */
   orientation?: "portrait" | "landscape";
   /** report body content */
@@ -28,11 +28,10 @@ export function ReportDocument({
   return (
     <Document title={title} author={COMPANY_NAME}>
       <Page size={pageCfg.size} orientation={orientation} style={styles.page}>
-        {/* Fixed header — every page */}
         <View style={styles.header} fixed>
           <View style={styles.headerLeft}>
             {logo ? (
-              <Image src={logo} style={styles.logo} />
+              <Image src={logo as any} style={styles.logo} />
             ) : (
               <Text style={{ fontFamily: "Helvetica-Bold", fontSize: 14 }}>{COMPANY_NAME}</Text>
             )}
@@ -44,10 +43,8 @@ export function ReportDocument({
         </View>
         <View style={styles.headerDivider} fixed />
 
-        {/* Body */}
         <View>{children}</View>
 
-        {/* Fixed footer — every page */}
         <View style={styles.footer} fixed>
           <Text style={styles.footerText}>{footerLeft ?? COMPANY_NAME}</Text>
           <Text

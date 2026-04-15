@@ -154,7 +154,7 @@ function Subtotal({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function Pdf({ data, params, logo }: { data: BalanceSheetData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: BalanceSheetData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Balance Sheet"

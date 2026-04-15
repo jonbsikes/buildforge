@@ -109,7 +109,7 @@ const columns: Column<VarianceRow>[] = [
   }},
 ];
 
-export function Pdf({ data, params, logo }: { data: BudgetVarianceData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: BudgetVarianceData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Budget Variance Report"

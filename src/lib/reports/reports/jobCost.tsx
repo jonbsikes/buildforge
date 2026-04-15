@@ -123,7 +123,7 @@ const columns: Column<CostCodeRow>[] = [
   { key: "pct", label: "% Used", width: 10, align: "right", render: (r) => fmtPct((r.actual / r.budget) * 100, 0) },
 ];
 
-export function Pdf({ data, params, logo }: { data: JobCostData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: JobCostData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Job Cost Report"

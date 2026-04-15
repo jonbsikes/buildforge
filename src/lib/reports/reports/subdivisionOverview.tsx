@@ -165,7 +165,7 @@ const homeCols: Column<HomeRow>[] = [
   { key: "price", label: "Contract Price", width: 18, align: "right", render: (h) => fmtMoney(h.contract_price) },
 ];
 
-export function Pdf({ data, params, logo }: { data: SubdivisionOverviewData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: SubdivisionOverviewData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Subdivision Overview"

@@ -121,7 +121,7 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-export function Pdf({ data, params, logo }: { data: WIPReportData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: WIPReportData; params: ReportParams; logo?: Buffer | string }) {
   const columns: Column<WIPRow>[] = [
     { key: "name", label: "Project", width: 30 },
     { key: "contract", label: "Contract Price", width: 15, align: "right", getText: (r) => fmtMoney(r.contract_price) },

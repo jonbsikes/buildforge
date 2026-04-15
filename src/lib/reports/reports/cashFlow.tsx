@@ -187,7 +187,7 @@ function CashFlowSection({ section }: { section: CashFlowSection }) {
   );
 }
 
-export function Pdf({ data, params, logo }: { data: CashFlowData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: CashFlowData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Cash Flow Statement"

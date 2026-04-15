@@ -85,7 +85,7 @@ const stageCols: Column<Stage>[] = [
   }},
 ];
 
-export function Pdf({ data, params, logo }: { data: GanttData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: GanttData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Gantt Schedule"

@@ -155,7 +155,7 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-export function Pdf({ data, params, logo }: { data: FinancialSummaryData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: FinancialSummaryData; params: ReportParams; logo?: Buffer | string }) {
   const kpis = [
     { label: "Revenue (Period)", value: fmtMoney(0), tone: "green" as const },
     { label: "Net Income (Period)", value: fmtMoney(data.netIncome), tone: data.netIncome >= 0 ? "green" as const : "red" as const },

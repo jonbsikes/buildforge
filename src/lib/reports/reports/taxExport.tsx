@@ -182,7 +182,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-export function Pdf({ data, params, logo }: { data: TaxExportData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: TaxExportData; params: ReportParams; logo?: Buffer | string }) {
   // Income Statement columns
   const isColumns: Column<{ label: string; amount: number }>[] = [
     {

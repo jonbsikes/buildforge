@@ -72,7 +72,7 @@ const statusColor: Record<string, string> = {
   installed: colors.green,
 };
 
-export function Pdf({ data, params, logo }: { data: SelectionsData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: SelectionsData; params: ReportParams; logo?: Buffer | string }) {
   const categories = Object.keys(data.byCategory).sort();
 
   return (

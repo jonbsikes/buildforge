@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { ReportSlug, ReportParams } from "./types";
-import { getLogoDataUrl } from "./logo";
+import { getLogo } from "./logo";
 
 // Each report module exports:
 //   getData(params) => Promise<Data>
@@ -27,7 +27,7 @@ import * as subdivisionOverview from "./reports/subdivisionOverview";
 
 type ReportModule<D> = {
   getData: (p: ReportParams) => Promise<D>;
-  Pdf: (args: { data: D; params: ReportParams; logo?: string }) => ReactElement;
+  Pdf: (args: { data: D; params: ReportParams; logo?: Buffer | string }) => ReactElement;
 };
 
 const MODULES: Record<ReportSlug, ReportModule<any>> = {
@@ -52,6 +52,6 @@ export async function renderReport(slug: ReportSlug, params: ReportParams): Prom
   const mod = MODULES[slug];
   if (!mod) throw new Error(`No module registered for report: ${slug}`);
   const data = await mod.getData(params);
-  const logo = getLogoDataUrl();
+  const logo = getLogo();
   return mod.Pdf({ data, params, logo });
 }

@@ -110,7 +110,7 @@ const BUCKET_LABELS: Record<AgingBucket, string> = {
 
 const BUCKET_ORDER: AgingBucket[] = ["current", "1-30", "31-60", "61-90", "90+"];
 
-export function Pdf({ data, params, logo }: { data: APAgingData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: APAgingData; params: ReportParams; logo?: Buffer | string }) {
   const columns: Column<AgingRow>[] = [
     { key: "vendor", label: "Vendor", width: 20 },
     { key: "invoice_number", label: "Invoice #", width: 12 },

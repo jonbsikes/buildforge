@@ -129,7 +129,7 @@ function Subtotal({ label, value, tone }: { label: string; value: number; tone?:
   );
 }
 
-export function Pdf({ data, params, logo }: { data: IncomeStatementData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: IncomeStatementData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
       title="Income Statement"

@@ -194,7 +194,7 @@ function VarianceBadge({ variance }: { variance: number | null }) {
   return <Text style={{ fontSize: 8, color, fontFamily: "Helvetica-Bold" }}>{variance > 0 ? "+" : ""}{variance}d</Text>;
 }
 
-export function Pdf({ data, params, logo }: { data: StageProgressData; params: ReportParams; logo?: string }) {
+export function Pdf({ data, params, logo }: { data: StageProgressData; params: ReportParams; logo?: Buffer | string }) {
   const columns: Column<StageRow>[] = [
     {
       key: "number",
