@@ -701,3 +701,155 @@ export async function getPayableInvoices(): Promise<{
 
   return { invoices };
 }
+
+// ---------------------------------------------------------------------------
+// getReleasedUnlinkedInvoices
+// Returns invoices that are in 'released' status but have no payment record
+// linked yet. These are checks that were written before the payment register
+// existed and need to be backfilled.
+// ---------------------------------------------------------------------------
+
+export async function getReleasedUnlinkedInvoices(): Promise<{
+  error?: string;
+  invoices?: {
+    id: string;
+    vendor: string | null;
+    vendor_id: string | null;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    due_date: string | null;
+    amount: number;
+    project_name: string | null;
+    project_id: string | null;
+    cost_code: string | null;
+    payment_method: string | null;
+  }[];
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  // All released invoices
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(`
+      id, vendor, vendor_id, invoice_number, invoice_date, due_date,
+      amount, total_amount, project_id, payment_method,
+      projects ( name ),
+      cost_codes ( code )
+    `)
+    .eq("status", "released")
+    .order("due_date", { ascending: true, nullsFirst: false });
+
+  if (error) return { error: error.message };
+  if (!data || data.length === 0) return { invoices: [] };
+
+  // Filter out any that are already linked to a payment
+  const allIds = data.map((inv) => inv.id);
+  const { data: linked } = await supabase
+    .from("payment_invoices")
+    .select("invoice_id")
+    .in("invoice_id", allIds);
+
+  const linkedSet = new Set((linked ?? []).map((l) => l.invoice_id));
+
+  const invoices = data
+    .filter((inv) => !linkedSet.has(inv.id))
+    .map((inv) => ({
+      id: inv.id,
+      vendor: inv.vendor,
+      vendor_id: inv.vendor_id,
+      invoice_number: inv.invoice_number,
+      invoice_date: inv.invoice_date,
+      due_date: inv.due_date,
+      amount: (inv.total_amount ?? inv.amount ?? 0) as number,
+      project_name: (inv.projects as { name: string } | null)?.name ?? null,
+      project_id: inv.project_id,
+      cost_code: (inv.cost_codes as { code: number } | null)?.code?.toString() ?? null,
+      payment_method: inv.payment_method,
+    }));
+
+  return { invoices };
+}
+
+// ---------------------------------------------------------------------------
+// backfillPayment
+// Creates a payment record and links invoices for checks that were already
+// issued before the payment register existed. These invoices are in 'released'
+// status and already have GL entries posted (DR AP / CR 2050), so this action
+// creates the payment record ONLY — no new GL entries are posted.
+// ---------------------------------------------------------------------------
+
+export async function backfillPayment(input: {
+  payment_number: string | null;
+  payment_method: "check" | "ach" | "wire";
+  payee: string;
+  vendor_id: string | null;
+  amount: number;
+  payment_date: string;
+  funding_source: "bank_funded" | "owner_funded" | "dda";
+  notes: string | null;
+  invoices: { invoice_id: string; amount: number }[];
+}): Promise<{ error?: string; paymentId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  if (!input.payee?.trim()) return { error: "Payee is required" };
+  if (!input.amount || input.amount <= 0) return { error: "Amount must be positive" };
+  if (!input.payment_date) return { error: "Payment date is required" };
+  if (!input.invoices || input.invoices.length === 0)
+    return { error: "At least one invoice is required" };
+
+  const isCheck = input.payment_method === "check";
+
+  // Insert payment record. Checks stay 'outstanding'; ACH/wire mark 'cleared'.
+  const { data: payment, error: payErr } = await supabase
+    .from("payments")
+    .insert({
+      payment_number: input.payment_number?.trim() || null,
+      payment_method: input.payment_method,
+      payee: input.payee.trim(),
+      vendor_id: input.vendor_id || null,
+      amount: input.amount,
+      discount_amount: 0,
+      payment_date: input.payment_date,
+      cleared_date: isCheck ? null : input.payment_date,
+      status: isCheck ? "outstanding" : "cleared",
+      funding_source: input.funding_source,
+      draw_id: null,
+      vendor_payment_id: null,
+      notes: input.notes?.trim() || null,
+      user_id: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (payErr || !payment) return { error: payErr?.message ?? "Failed to create payment" };
+
+  // Link invoices
+  const { error: linkErr } = await supabase
+    .from("payment_invoices")
+    .insert(
+      input.invoices.map((inv) => ({
+        payment_id: payment.id,
+        invoice_id: inv.invoice_id,
+        amount: inv.amount,
+      }))
+    );
+
+  if (linkErr) return { error: linkErr.message };
+
+  // No GL posting — the DR AP / CR 2050 entries already exist from advanceInvoiceStatus.
+
+  revalidatePath("/banking/payments");
+  revalidatePath("/invoices");
+  return { paymentId: payment.id };
+}

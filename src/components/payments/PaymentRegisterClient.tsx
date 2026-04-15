@@ -6,6 +6,7 @@ import {
   createPayment,
   clearPayment,
   voidPayment,
+  backfillPayment,
   type PaymentRow,
   type CreatePaymentInput,
 } from "@/app/actions/payments";
@@ -16,13 +17,13 @@ import {
   ChevronDown,
   ChevronRight,
   Search,
-  Filter,
   CreditCard,
   Banknote,
   ArrowRightLeft,
   Zap,
   Link2,
   Tag,
+  History,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -42,9 +43,14 @@ interface PayableInvoice {
   cost_code: string | null;
 }
 
+interface ReleasedInvoice extends PayableInvoice {
+  payment_method: string | null;
+}
+
 interface Props {
   initialPayments: PaymentRow[];
   payableInvoices: PayableInvoice[];
+  releasedUnlinkedInvoices: ReleasedInvoice[];
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +101,7 @@ const METHOD_LABELS: Record<string, string> = {
 export default function PaymentRegisterClient({
   initialPayments,
   payableInvoices,
+  releasedUnlinkedInvoices,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -110,6 +117,9 @@ export default function PaymentRegisterClient({
   // New payment form
   const [showNewPayment, setShowNewPayment] = useState(false);
   const [prefillInvoiceId, setPrefillInvoiceId] = useState<string | null>(null);
+
+  // Backfill modal (link existing released checks)
+  const [showBackfill, setShowBackfill] = useState(false);
 
   // Deep-link: /banking/payments?new=1&invoice=ID opens modal pre-selected
   const searchParams = useSearchParams();
@@ -287,6 +297,18 @@ export default function PaymentRegisterClient({
 
         <div className="flex-1" />
 
+        {/* Link Existing Check button — only shown when there are unlinked released invoices */}
+        {releasedUnlinkedInvoices.length > 0 && (
+          <button
+            onClick={() => setShowBackfill(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors"
+            title={`${releasedUnlinkedInvoices.length} check(s) were written before the payment register existed`}
+          >
+            <History size={16} />
+            Link Existing ({releasedUnlinkedInvoices.length})
+          </button>
+        )}
+
         {/* New Payment button */}
         <button
           onClick={() => setShowNewPayment(true)}
@@ -430,6 +452,18 @@ export default function PaymentRegisterClient({
           onCreated={() => {
             setShowNewPayment(false);
             setPrefillInvoiceId(null);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {/* Backfill Modal — link already-released invoices to payment records */}
+      {showBackfill && (
+        <BackfillPaymentModal
+          releasedInvoices={releasedUnlinkedInvoices}
+          onClose={() => setShowBackfill(false)}
+          onCreated={() => {
+            setShowBackfill(false);
             router.refresh();
           }}
         />
@@ -1050,6 +1084,324 @@ function NewPaymentModal({
             {isPending
               ? "Processing..."
               : `Record Payment${selectedInvoices.size > 0 ? ` (${fmt(netTotal)})` : ""}`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BackfillPaymentModal
+// For checks that were issued before the payment register existed.
+// These invoices are already in 'released' status with GL entries posted.
+// This modal creates payment records only — no new GL posting.
+// ---------------------------------------------------------------------------
+
+function BackfillPaymentModal({
+  releasedInvoices,
+  onClose,
+  onCreated,
+}: {
+  releasedInvoices: ReleasedInvoice[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const [method, setMethod] = useState<"check" | "ach" | "wire">("check");
+  const [paymentNumber, setPaymentNumber] = useState("");
+  const [paymentDate, setPaymentDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
+  const [fundingSource, setFundingSource] = useState<"bank_funded" | "owner_funded" | "dda">("dda");
+  const [notes, setNotes] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+
+  const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(new Set());
+
+  // Group by vendor
+  const vendors = useMemo(() => {
+    const map = new Map<
+      string,
+      { vendor: string; vendor_id: string | null; invoices: ReleasedInvoice[] }
+    >();
+    for (const inv of releasedInvoices) {
+      const key = inv.vendor ?? "Unknown Vendor";
+      if (!map.has(key)) {
+        map.set(key, { vendor: key, vendor_id: inv.vendor_id, invoices: [] });
+      }
+      map.get(key)!.invoices.push(inv);
+    }
+    return Array.from(map.values()).sort((a, b) => a.vendor.localeCompare(b.vendor));
+  }, [releasedInvoices]);
+
+  const filteredVendors = useMemo(() => {
+    if (!vendorFilter) return vendors;
+    const q = vendorFilter.toLowerCase();
+    return vendors.filter((v) => v.vendor.toLowerCase().includes(q));
+  }, [vendors, vendorFilter]);
+
+  const selectedTotal = useMemo(() => {
+    return releasedInvoices
+      .filter((inv) => selectedInvoices.has(inv.id))
+      .reduce((s, inv) => s + inv.amount, 0);
+  }, [releasedInvoices, selectedInvoices]);
+
+  const payee = useMemo(() => {
+    const names = new Set(
+      releasedInvoices
+        .filter((inv) => selectedInvoices.has(inv.id))
+        .map((inv) => inv.vendor ?? "Unknown")
+    );
+    return Array.from(names).join(" / ");
+  }, [releasedInvoices, selectedInvoices]);
+
+  function toggleInvoice(id: string) {
+    setSelectedInvoices((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectVendorInvoices(vendorInvoices: ReleasedInvoice[]) {
+    setSelectedInvoices((prev) => {
+      const next = new Set(prev);
+      const allSelected = vendorInvoices.every((inv) => next.has(inv.id));
+      if (allSelected) {
+        vendorInvoices.forEach((inv) => next.delete(inv.id));
+      } else {
+        vendorInvoices.forEach((inv) => next.add(inv.id));
+      }
+      return next;
+    });
+  }
+
+  function handleSubmit() {
+    if (selectedInvoices.size === 0) {
+      setError("Select at least one invoice");
+      return;
+    }
+    if (!paymentDate) {
+      setError("Payment date is required");
+      return;
+    }
+
+    const invoiceInputs = releasedInvoices
+      .filter((inv) => selectedInvoices.has(inv.id))
+      .map((inv) => ({ invoice_id: inv.id, amount: inv.amount }));
+
+    const vendorIds = [
+      ...new Set(
+        releasedInvoices
+          .filter((inv) => selectedInvoices.has(inv.id))
+          .map((inv) => inv.vendor_id)
+          .filter(Boolean)
+      ),
+    ];
+
+    setError(null);
+    startTransition(async () => {
+      const result = await backfillPayment({
+        payment_number: paymentNumber.trim() || null,
+        payment_method: method,
+        payee: payee || "Unknown",
+        vendor_id: vendorIds.length === 1 ? vendorIds[0] : null,
+        amount: Math.round(selectedTotal * 100) / 100,
+        payment_date: paymentDate,
+        funding_source: fundingSource,
+        notes: notes.trim() || null,
+        invoices: invoiceInputs,
+      });
+      if (result.error) {
+        setError(result.error);
+      } else {
+        onCreated();
+      }
+    });
+  }
+
+  return (
+    <Modal onClose={onClose} wide>
+      <h3 className="text-lg font-semibold text-gray-900 mb-1">
+        Link Existing Check
+      </h3>
+      <p className="text-sm text-gray-500 mb-1">
+        These invoices were already paid before the payment register existed. Select
+        which ones belong to a single check, enter the check details, and save —
+        no new GL entries will be posted.
+      </p>
+      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 mb-4">
+        GL already posted for these invoices (DR AP / CR Checks Outstanding).
+        This only creates the register record.
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 mb-4">
+          {error}
+        </div>
+      )}
+
+      {/* Payment details */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Method</label>
+          <select
+            value={method}
+            onChange={(e) => setMethod(e.target.value as typeof method)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          >
+            <option value="check">Check</option>
+            <option value="ach">ACH</option>
+            <option value="wire">Wire</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            {method === "check" ? "Check #" : "Reference #"}
+          </label>
+          <input
+            type="text"
+            value={paymentNumber}
+            onChange={(e) => setPaymentNumber(e.target.value)}
+            placeholder={method === "check" ? "1042" : "Optional"}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Payment Date</label>
+          <input
+            type="date"
+            value={paymentDate}
+            onChange={(e) => setPaymentDate(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Funding Source</label>
+          <select
+            value={fundingSource}
+            onChange={(e) => setFundingSource(e.target.value as typeof fundingSource)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          >
+            <option value="dda">DDA (Operating Cash)</option>
+            <option value="bank_funded">Bank Funded (Draw)</option>
+            <option value="owner_funded">Owner Funded</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-600 mb-1">Notes (optional)</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g., Check written 3/15 before register was set up"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+        />
+      </div>
+
+      {/* Invoice selection */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-sm font-semibold text-gray-800">Select Invoices</h4>
+          <span className="text-xs text-gray-500">
+            {selectedInvoices.size} selected &bull; {fmt(selectedTotal)}
+          </span>
+        </div>
+        <div className="relative mb-3">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Filter by vendor..."
+            value={vendorFilter}
+            onChange={(e) => setVendorFilter(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          />
+        </div>
+        <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+          {filteredVendors.map((group) => {
+            const allSelected = group.invoices.every((inv) => selectedInvoices.has(inv.id));
+            const someSelected = group.invoices.some((inv) => selectedInvoices.has(inv.id));
+            const groupTotal = group.invoices.reduce((s, inv) => s + inv.amount, 0);
+            return (
+              <div key={group.vendor}>
+                <div
+                  className="flex items-center gap-3 px-3 py-2 bg-gray-50 border-b border-gray-200 cursor-pointer hover:bg-gray-100"
+                  onClick={() => selectVendorInvoices(group.invoices)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                    readOnly
+                    className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                  />
+                  <span className="text-sm font-medium text-gray-800 flex-1">{group.vendor}</span>
+                  <span className="text-xs font-mono text-gray-500">
+                    {group.invoices.length} inv &bull; {fmt(groupTotal)}
+                  </span>
+                </div>
+                {group.invoices.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="flex items-center gap-3 px-3 py-1.5 pl-8 border-b border-gray-100 cursor-pointer hover:bg-amber-50/40"
+                    onClick={() => toggleInvoice(inv.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedInvoices.has(inv.id)}
+                      readOnly
+                      className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                    />
+                    <span className="text-xs text-gray-600 flex-1 truncate">
+                      #{inv.invoice_number ?? "\u2014"}{" "}
+                      <span className="text-gray-400">
+                        {inv.project_name ?? "No project"}
+                        {inv.cost_code && ` / Code ${inv.cost_code}`}
+                      </span>
+                    </span>
+                    {inv.payment_method && (
+                      <span className="text-[10px] text-gray-400 uppercase">{inv.payment_method}</span>
+                    )}
+                    <span className="text-xs font-mono text-gray-700 w-20 text-right">
+                      {fmt(inv.amount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          {selectedInvoices.size > 0 && (
+            <p className="text-sm font-semibold text-gray-900">
+              Total: {fmt(selectedTotal)}
+            </p>
+          )}
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isPending || selectedInvoices.size === 0}
+            className="px-5 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
+          >
+            {isPending
+              ? "Saving..."
+              : `Link Check${selectedInvoices.size > 0 ? ` (${fmt(selectedTotal)})` : ""}`}
           </button>
         </div>
       </div>
