@@ -62,7 +62,7 @@ export default async function ProjectsHubPage() {
       .neq("status", "done"),
     supabase
       .from("build_stages")
-      .select("id, project_id, stage_name, status, actual_start_date, actual_end_date, stage_number")
+      .select("id, project_id, stage_name, status, planned_end_date, actual_start_date, actual_end_date, stage_number")
       .order("stage_number", { ascending: true }),
     supabase
       .from("field_logs")
@@ -77,7 +77,9 @@ export default async function ProjectsHubPage() {
   const homeCount = allProjects.filter((p) => p.project_type === "home_construction").length;
   const landCount = allProjects.filter((p) => p.project_type === "land_development").length;
 
-  const delayedStages = (buildStages ?? []).filter((s) => s.status === "delayed").length;
+  const delayedStages = (buildStages ?? []).filter(
+    (s) => s.status !== "completed" && s.planned_end_date && s.planned_end_date < today
+  ).length;
   const openTodos = (fieldTodos ?? []).length;
   const urgentTodos = (fieldTodos ?? []).filter((t) => t.priority === "urgent").length;
 
@@ -90,7 +92,11 @@ export default async function ProjectsHubPage() {
 
   // Recent stage activity
   const recentStageActivity = (buildStages ?? [])
-    .filter((s) => s.status === "in_progress" || s.status === "delayed")
+    .filter(
+      (s) =>
+        s.status === "in_progress" ||
+        (s.status !== "completed" && s.planned_end_date && s.planned_end_date < today)
+    )
     .slice(0, 5);
 
   const navCards = [
@@ -238,12 +244,12 @@ export default async function ProjectsHubPage() {
                       href={`/projects/${s.project_id}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${s.status === "delayed" ? "bg-amber-500" : "bg-[#4272EF]"}`} />
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${s.status !== "in_progress" ? "bg-amber-500" : "bg-[#4272EF]"}`} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{s.stage_name}</p>
                         <p className="text-xs text-gray-400">{projectNames[s.project_id] ?? "Unknown"}</p>
                       </div>
-                      {s.status === "delayed" && (
+                      {s.status !== "in_progress" && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">Delayed</span>
                       )}
                     </Link>
