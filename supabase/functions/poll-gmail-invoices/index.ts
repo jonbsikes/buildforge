@@ -260,6 +260,10 @@ async function findProjectByHint(
 }
 
 Deno.serve(async () => {
+  let processed = 0;
+  let skipped = 0;
+  let errors = 0;
+
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -274,9 +278,33 @@ Deno.serve(async () => {
     // Get Gmail access token
     const accessToken = await getAccessToken();
 
-    // Query for unread messages (use labelIds for efficiency)
+    // ---------------------------------------------------------------------------
+    // Incremental sync: read last-checked timestamp from gmail_sync_state.
+    // This is the primary deduplication mechanism — we only ask Gmail for
+    // messages received AFTER the last successful run, so old emails are never
+    // re-fetched regardless of their read/unread state.
+    // ---------------------------------------------------------------------------
+    const { data: syncState } = await supabase
+      .from("gmail_sync_state")
+      .select("last_checked_at")
+      .single();
+
+    const lastCheckedAt = syncState?.last_checked_at
+      ? new Date(syncState.last_checked_at)
+      : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // first run: last 7 days
+
+    // Record when this run started so we can save it as the new watermark.
+    // Using run-start (not run-end) ensures messages that arrive during
+    // processing are captured by the next run.
+    const runStartedAt = new Date().toISOString();
+    const afterEpoch = Math.floor(lastCheckedAt.getTime() / 1000);
+
+    // Query only messages with attachments received after the last check.
+    // `has:attachment` pre-filters server-side so we don't fetch full message
+    // details for emails that can never contain invoices.
+    const q = encodeURIComponent(`after:${afterEpoch} has:attachment`);
     const listResp = await fetch(
-      `${GMAIL_API}/users/me/messages?q=is:unread from:*&maxResults=100`,
+      `${GMAIL_API}/users/me/messages?q=${q}&maxResults=100`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -284,11 +312,16 @@ Deno.serve(async () => {
     const listData = await listResp.json();
     const messages = listData.messages || [];
 
-    console.log(`Found ${messages.length} unread messages`);
+    console.log(`Found ${messages.length} messages since ${lastCheckedAt.toISOString()}`);
 
     for (const msg of messages) {
       try {
-        // Check if we've already processed this message
+        // ---------------------------------------------------------------------------
+        // Secondary dedup guard: skip if we already have an invoice from this
+        // Gmail message ID. This catches edge cases where the same message falls
+        // in the query window twice (e.g., if last_checked_at wasn't updated due
+        // to a previous crash) and ensures idempotency.
+        // ---------------------------------------------------------------------------
         const { data: existing } = await supabase
           .from("invoices")
           .select("id")
@@ -297,6 +330,7 @@ Deno.serve(async () => {
 
         if (existing?.length) {
           console.log(`Message ${msg.id} already processed; skipping`);
+          skipped++;
           continue;
         }
 
@@ -312,32 +346,16 @@ Deno.serve(async () => {
         const payload = msgData.payload || {};
         const headers = payload.headers || [];
         const fromHeader = headers.find((h: { name: string }) => h.name === "From");
-        const subjectHeader = headers.find(
-          (h: { name: string }) => h.name === "Subject"
-        );
-
         const fromEmail = fromHeader?.value || "unknown";
-        const subject = subjectHeader?.value || "";
 
         // Collect attachments
         const attachments = collectAttachments(payload);
 
         if (attachments.length === 0) {
           console.log(
-            `Message ${msg.id} from ${fromEmail} has no attachments; marking as read and skipping`
+            `Message ${msg.id} from ${fromEmail} has no supported attachments; skipping`
           );
-
-          // Mark as read
-          await fetch(
-            `${GMAIL_API}/users/me/messages/${msg.id}/modify`,
-            {
-              method: "POST",
-              headers: { Authorization: `Bearer ${accessToken}` },
-              body: JSON.stringify({
-                removeLabelIds: ["UNREAD"],
-              }),
-            }
-          );
+          skipped++;
           continue;
         }
 
@@ -411,10 +429,12 @@ Deno.serve(async () => {
                   `Failed to create invoice from message ${msg.id}:`,
                   invoiceError
                 );
+                errors++;
               } else {
                 console.log(
                   `Created invoice ${inv.invoice_number} from ${inv.vendor}`
                 );
+                processed++;
               }
             }
           } catch (attachError) {
@@ -422,34 +442,58 @@ Deno.serve(async () => {
               `Error processing attachment ${attachmentId}:`,
               attachError
             );
+            errors++;
           }
         }
 
-        // Mark message as read after processing
-        await fetch(
-          `${GMAIL_API}/users/me/messages/${msg.id}/modify`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${accessToken}` },
-            body: JSON.stringify({
-              removeLabelIds: ["UNREAD"],
-            }),
-          }
-        );
+        // Mark message as read for inbox cleanliness. Non-blocking — a failure
+        // here doesn't affect deduplication since we now rely on timestamps.
+        void fetch(`${GMAIL_API}/users/me/messages/${msg.id}/modify`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
+        }).catch((e) => console.warn(`Failed to mark message ${msg.id} as read:`, e));
+
       } catch (msgError) {
         console.error(`Error processing message ${msg.id}:`, msgError);
+        errors++;
       }
     }
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    // ---------------------------------------------------------------------------
+    // Advance the watermark. We upsert rather than update so the function
+    // works correctly even on the very first run before migration 020 seeds
+    // the row.
+    // ---------------------------------------------------------------------------
+    const { error: upsertError } = await supabase
+      .from("gmail_sync_state")
+      .upsert(
+        { id: 1, last_checked_at: runStartedAt, updated_at: runStartedAt },
+        { onConflict: "id" }
+      );
+
+    if (upsertError) {
+      console.warn("Could not update gmail_sync_state:", upsertError);
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, processed, skipped, errors }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   } catch (err) {
     console.error("Function error:", err);
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: String(err), processed, skipped, errors }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 });
