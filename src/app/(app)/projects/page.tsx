@@ -72,7 +72,8 @@ export default async function ProjectsPage() {
       }
 
       // Delayed stages (any track)
-      if (s.status !== "completed" && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today) {
+      const isComplete = s.status === "complete" || s.status === "completed";
+      if (!isComplete && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today) {
         info.delayedStages.push({ stage_name: s.stage_name, planned_end_date: s.planned_end_date });
       }
     }

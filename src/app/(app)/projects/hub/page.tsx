@@ -77,8 +77,9 @@ export default async function ProjectsHubPage() {
   const homeCount = allProjects.filter((p) => p.project_type === "home_construction").length;
   const landCount = allProjects.filter((p) => p.project_type === "land_development").length;
 
+  const isComplete = (status: string) => status === "complete" || status === "completed";
   const delayedStages = (buildStages ?? []).filter(
-    (s) => s.status !== "completed" && s.planned_end_date && s.planned_end_date < today
+    (s) => !isComplete(s.status) && s.planned_end_date && s.planned_end_date < today
   ).length;
   const openTodos = (fieldTodos ?? []).length;
   const urgentTodos = (fieldTodos ?? []).filter((t) => t.priority === "urgent").length;
@@ -95,7 +96,7 @@ export default async function ProjectsHubPage() {
     .filter(
       (s) =>
         s.status === "in_progress" ||
-        (s.status !== "completed" && s.planned_end_date && s.planned_end_date < today)
+        (!isComplete(s.status) && s.planned_end_date && s.planned_end_date < today)
     )
     .slice(0, 5);
 
