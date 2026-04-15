@@ -49,7 +49,7 @@ export const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   headerLeft: { flexDirection: "row", alignItems: "center" },
-  logo: { height: 42, width: 42 * 3.2, objectFit: "contain" },
+  logo: { height: 42 },
   headerRight: { alignItems: "flex-end" },
   headerTitle: { fontSize: 16, fontFamily: "Helvetica-Bold", color: colors.ink },
   headerSubtitle: { fontSize: 9, color: colors.muted, marginTop: 3 },
@@ -173,7 +173,7 @@ export const styles = StyleSheet.create({
   bold: { fontFamily: "Helvetica-Bold" },
   right: { textAlign: "right" },
   center: { textAlign: "center" },
-  empty: { color: colors.faint, fontStyle: "italic", fontSize: 8.5, paddingVertical: 4 },
+  empty: { color: colors.faint, fontSize: 8.5, paddingVertical: 4 },
 });
 
 // Used in multi-col layouts — keep consistent
