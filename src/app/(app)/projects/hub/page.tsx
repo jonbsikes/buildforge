@@ -79,7 +79,7 @@ export default async function ProjectsHubPage() {
 
   const isComplete = (status: string) => status === "complete" || status === "completed";
   const delayedStages = (buildStages ?? []).filter(
-    (s) => !isComplete(s.status) && s.planned_end_date && s.planned_end_date < today
+    (s) => !isComplete(s.status) && s.status !== "skipped" && s.planned_end_date && s.planned_end_date < today
   ).length;
   const openTodos = (fieldTodos ?? []).length;
   const urgentTodos = (fieldTodos ?? []).filter((t) => t.priority === "urgent").length;
@@ -95,8 +95,9 @@ export default async function ProjectsHubPage() {
   const recentStageActivity = (buildStages ?? [])
     .filter(
       (s) =>
-        s.status === "in_progress" ||
-        (!isComplete(s.status) && s.planned_end_date && s.planned_end_date < today)
+        (s.status === "in_progress" ||
+        (!isComplete(s.status) && s.planned_end_date && s.planned_end_date < today)) &&
+        s.status !== "skipped"
     )
     .slice(0, 5);
 
