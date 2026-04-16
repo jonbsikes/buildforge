@@ -354,16 +354,47 @@ export async function getInvoicesForCostCode(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  // Look up the cost code number from the UUID
+  const { data: ccRow } = await supabase
+    .from("cost_codes")
+    .select("code")
+    .eq("id", costCodeId)
+    .single();
+  const costCodeNum = ccRow?.code ?? costCodeId;
+
+  // Find invoices via line items attributed to this project + cost code
+  const { data: lineItems, error: liErr } = await supabase
+    .from("invoice_line_items")
+    .select("invoice_id, amount")
+    .eq("project_id", projectId)
+    .eq("cost_code", costCodeNum);
+
+  if (liErr) return { error: liErr.message };
+
+  const invoiceIds = [...new Set((lineItems ?? []).map((li) => li.invoice_id))];
+  if (invoiceIds.length === 0) return { invoices: [] };
+
+  // Build line-item amount per invoice (amount attributed to THIS project+code)
+  const liAmountByInvoice: Record<string, number> = {};
+  for (const li of lineItems ?? []) {
+    liAmountByInvoice[li.invoice_id] = (liAmountByInvoice[li.invoice_id] ?? 0) + (li.amount ?? 0);
+  }
+
   const { data, error } = await supabase
     .from("invoices")
     .select("id, invoice_number, vendor, invoice_date, due_date, amount, status, pending_draw")
-    .eq("project_id", projectId)
-    .eq("cost_code_id", costCodeId)
+    .in("id", invoiceIds)
     .not("status", "in", "(void,disputed)")
     .order("invoice_date", { ascending: false });
 
+  // Replace invoice.amount with the line-item amount for this project+code
+  const adjusted = (data ?? []).map((inv) => ({
+    ...inv,
+    amount: liAmountByInvoice[inv.id] ?? inv.amount,
+  }));
+
   if (error) return { error: error.message };
-  return { invoices: (data ?? []) as CostCodeInvoice[] };
+  return { invoices: adjusted as CostCodeInvoice[] };
 }
 
 // ---------------------------------------------------------------------------

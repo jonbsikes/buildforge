@@ -98,10 +98,10 @@ export default async function ProjectDetailPage({ params }: Props) {
       .eq("project_id", id),
 
     supabase
-      .from("invoices")
-      .select("id, cost_code_id, amount, total_amount")
+      .from("invoice_line_items")
+      .select("cost_code, amount, invoices!inner ( status )")
       .eq("project_id", id)
-      .in("status", ["approved", "scheduled", "released", "cleared"]),
+      .in("invoices.status", ["approved", "scheduled", "released", "cleared"]),
 
     supabase
       .from("journal_entry_lines")
@@ -166,11 +166,18 @@ export default async function ProjectDetailPage({ params }: Props) {
       committedByCostCodeId[c.cost_code_id] = (committedByCostCodeId[c.cost_code_id] ?? 0) + (c.amount ?? 0);
     }
   }
+  // Build cost code number → UUID lookup
+  const codeNumToUuid: Record<string, string> = {};
+  for (const cc of allMasterCodesResult.data ?? []) {
+    codeNumToUuid[cc.code] = cc.id;
+  }
+
   const actualByCostCodeId: Record<string, number> = {};
-  for (const inv of invoicesResult.data ?? []) {
-    if (inv.cost_code_id) {
-      const amt = inv.total_amount ?? inv.amount ?? 0;
-      actualByCostCodeId[inv.cost_code_id] = (actualByCostCodeId[inv.cost_code_id] ?? 0) + amt;
+  for (const li of invoicesResult.data ?? []) {
+    if (li.cost_code) {
+      const ccId = codeNumToUuid[li.cost_code] ?? li.cost_code;
+      const amt = li.amount ?? 0;
+      actualByCostCodeId[ccId] = (actualByCostCodeId[ccId] ?? 0) + amt;
     }
   }
 
