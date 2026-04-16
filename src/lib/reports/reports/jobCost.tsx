@@ -4,144 +4,194 @@ import { ReportDocument } from "../pdf/ReportDocument";
 import { styles, colors } from "../pdf/styles";
 import {
   fmtMoney,
-  fmtPct,
-  Table,
-  Column,
   SectionHeading,
   Empty,
-  TotalRow,
 } from "../pdf/components";
 import type { ReportParams } from "../types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface ProjectCol {
+  id: string;
+  name: string;
+}
+
 interface CostCodeRow {
   code: string;
   name: string;
-  budget: number;
-  committed: number;
-  actual: number;
+  projectActuals: Record<string, number>;
+  total: number;
 }
 
 export interface JobCostData {
-  projectName: string;
-  projectAddress: string;
+  subtitle: string;
+  projects: ProjectCol[];
   rows: CostCodeRow[];
-  totBudget: number;
-  totCommitted: number;
-  totActual: number;
+  projectTotals: Record<string, number>;
+  grandTotal: number;
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 export async function getData(p: ReportParams): Promise<JobCostData> {
   const supabase = await createClient();
-  const projectId = p.projectId!;
+  const projectType = p.projectType ?? "home_construction";
 
-  // Fetch project
-  const { data: proj } = await supabase
+  // Build project query
+  let projQuery = supabase
     .from("projects")
-    .select("name, address")
-    .eq("id", projectId)
-    .single();
+    .select("id, name, project_type, subdivision, status")
+    .eq("project_type", projectType as "land_development" | "home_construction" | "general_admin")
+    .order("name");
 
-  // Fetch project cost codes with budgets
-  const { data: pccData } = await supabase
-    .from("project_cost_codes")
-    .select("id, cost_code_id, budgeted_amount, cost_codes(code, name)")
-    .eq("project_id", projectId)
-    .eq("enabled", true);
+  if (p.status && p.status !== "all") {
+    projQuery = projQuery.eq("status", p.status as any);
+  }
+  if (p.subdivision && p.subdivision !== "all") {
+    projQuery = projQuery.eq("subdivision", p.subdivision as any);
+  }
 
-  // Fetch contracts (committed)
-  const { data: contractData } = await supabase
-    .from("contracts")
-    .select("cost_code_id, amount")
-    .eq("project_id", projectId)
-    .eq("status", "active");
+  const { data: projects } = await projQuery;
+  const projectList: ProjectCol[] = (projects ?? []).map((pr) => ({
+    id: pr.id,
+    name: pr.name,
+  }));
+  const projectIds = projectList.map((pr) => pr.id);
 
-  // Fetch invoices (actual) — need to join through invoice_line_items
-  const { data: invoiceLineData } = await supabase
-    .from("invoice_line_items")
-    .select("cost_code, amount, invoice:invoices(project_id, status)");
+  // Fetch cost codes for type
+  const { data: ccData } = await supabase
+    .from("cost_codes")
+    .select("code, name, project_type")
+    .eq("project_type", projectType as "land_development" | "home_construction" | "general_admin")
+    .eq("is_active", true)
+    .order("sort_order");
 
-  const committedMap: Record<string, number> = {};
-  for (const c of contractData ?? []) {
-    if (c.cost_code_id) {
-      committedMap[c.cost_code_id] = (committedMap[c.cost_code_id] ?? 0) + (c.amount ?? 0);
+  // Fetch invoice line items for actuals
+  let actualsMap: Record<string, Record<string, number>> = {};
+  if (projectIds.length > 0) {
+    const { data: lineData } = await supabase
+      .from("invoice_line_items")
+      .select("cost_code, amount, project_id, invoice:invoices!inner(status)")
+      .in("project_id", projectIds)
+      .in("invoice.status", ["approved", "released", "cleared"]);
+
+    for (const row of lineData ?? []) {
+      if (!row.cost_code || !row.project_id) continue;
+      if (!actualsMap[row.cost_code]) actualsMap[row.cost_code] = {};
+      actualsMap[row.cost_code][row.project_id] =
+        (actualsMap[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
     }
   }
 
-  const actualMap: Record<string, number> = {};
-  for (const il of invoiceLineData ?? []) {
-    const inv = il.invoice as any;
-    if (inv?.project_id === projectId && inv?.status && ["approved", "released", "cleared"].includes(inv.status) && il.cost_code) {
-      actualMap[il.cost_code] = (actualMap[il.cost_code] ?? 0) + (il.amount ?? 0);
-    }
+  const rows: CostCodeRow[] = (ccData ?? []).map((cc) => {
+    const projectActuals = actualsMap[cc.code] ?? {};
+    const total = Object.values(projectActuals).reduce((s, v) => s + v, 0);
+    return { code: cc.code, name: cc.name, projectActuals, total };
+  });
+
+  const projectTotals: Record<string, number> = {};
+  for (const pr of projectList) {
+    projectTotals[pr.id] = rows.reduce(
+      (s, r) => s + (r.projectActuals[pr.id] ?? 0),
+      0
+    );
   }
+  const grandTotal = Object.values(projectTotals).reduce((s, v) => s + v, 0);
 
-  const rows: CostCodeRow[] = (pccData ?? [])
-    .map((pcc: any) => {
-      const cc = pcc.cost_codes;
-      if (!cc) return null;
-      return {
-        code: cc.code,
-        name: cc.name,
-        budget: pcc.budgeted_amount ?? 0,
-        committed: committedMap[pcc.cost_code_id] ?? 0,
-        actual: actualMap[cc.code] ?? 0,
-      };
-    })
-    .filter((r): r is CostCodeRow => r !== null)
-    .sort((a, b) => parseInt(a.code) - parseInt(b.code));
-
-  const totBudget = rows.reduce((s, r) => s + r.budget, 0);
-  const totCommitted = rows.reduce((s, r) => s + r.committed, 0);
-  const totActual = rows.reduce((s, r) => s + r.actual, 0);
+  const typeLabel = projectType === "home_construction" ? "Home Construction" : "Land Development";
+  const parts = [typeLabel];
+  if (p.subdivision && p.subdivision !== "all") parts.push(p.subdivision);
+  if (p.status && p.status !== "all") parts.push(p.status);
 
   return {
-    projectName: proj?.name ?? "—",
-    projectAddress: proj?.address ?? "—",
+    subtitle: parts.join(" • "),
+    projects: projectList,
     rows,
-    totBudget,
-    totCommitted,
-    totActual,
+    projectTotals,
+    grandTotal,
   };
 }
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-const columns: Column<CostCodeRow>[] = [
-  { key: "code", label: "Code", width: 12 },
-  { key: "name", label: "Description", width: 38 },
-  { key: "budget", label: "Budget", width: 12, align: "right", render: (r) => fmtMoney(r.budget) },
-  { key: "committed", label: "Committed", width: 12, align: "right", render: (r) => fmtMoney(r.committed) },
-  { key: "actual", label: "Actual", width: 12, align: "right", render: (r) => fmtMoney(r.actual) },
-  { key: "variance", label: "Variance", width: 12, align: "right", render: (r) => {
-    const v = r.budget - r.actual;
-    return <Text style={{ color: v < 0 ? colors.red : colors.green }}>{fmtMoney(v)}</Text>;
-  }},
-  { key: "pct", label: "% Used", width: 10, align: "right", render: (r) => fmtPct((r.actual / r.budget) * 100, 0) },
-];
-
 export function Pdf({ data, params, logo }: { data: JobCostData; params: ReportParams; logo?: Buffer | string }) {
+  const descWidth = 30;
+  const totalWidth = 12;
+  const projCount = data.projects.length;
+  const projWidth = projCount > 0 ? Math.max(8, Math.floor((100 - descWidth - totalWidth) / projCount)) : 0;
+
   return (
     <ReportDocument
       title="Job Cost Report"
-      subtitle={`${data.projectName} • ${data.projectAddress}`}
+      subtitle={data.subtitle}
       logo={logo}
     >
-      <SectionHeading>Cost Codes</SectionHeading>
-      {data.rows.length === 0 ? (
-        <Empty>No cost codes for this project.</Empty>
+      <SectionHeading>Actuals by Project</SectionHeading>
+      {data.projects.length === 0 ? (
+        <Empty>No projects match the selected filters.</Empty>
       ) : (
-        <View>
-          <Table columns={columns} rows={data.rows} />
-          <TotalRow
-            label="TOTAL"
-            value={fmtMoney(data.totActual)}
-            labelWidth={62}
-            color="default"
-          />
+        <View style={styles.table}>
+          {/* Header row */}
+          <View style={styles.th}>
+            <Text style={[styles.thCell, { width: `${descWidth}%` }]}>
+              Description
+            </Text>
+            {data.projects.map((p) => (
+              <Text
+                key={p.id}
+                style={[styles.thCell, { width: `${projWidth}%`, textAlign: "right" }]}
+              >
+                {p.name}
+              </Text>
+            ))}
+            <Text style={[styles.thCell, { width: `${totalWidth}%`, textAlign: "right" }]}>
+              Total
+            </Text>
+          </View>
+
+          {/* Data rows */}
+          {data.rows.map((r, i) => (
+            <View
+              key={r.code}
+              style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}]}
+            >
+              <Text style={[styles.td, { width: `${descWidth}%` }]}>
+                {r.code} {r.name}
+              </Text>
+              {data.projects.map((p) => {
+                const val = r.projectActuals[p.id] ?? 0;
+                return (
+                  <Text
+                    key={p.id}
+                    style={[styles.tdNum, { width: `${projWidth}%`, color: val > 0 ? colors.text : colors.faint }]}
+                  >
+                    {val > 0 ? fmtMoney(val) : "—"}
+                  </Text>
+                );
+              })}
+              <Text style={[styles.tdNumStrong, { width: `${totalWidth}%` }]}>
+                {r.total > 0 ? fmtMoney(r.total) : "—"}
+              </Text>
+            </View>
+          ))}
+
+          {/* Totals row */}
+          <View style={styles.totalRow}>
+            <Text style={[styles.tdStrong, { width: `${descWidth}%` }]}>
+              TOTAL
+            </Text>
+            {data.projects.map((p) => (
+              <Text
+                key={p.id}
+                style={[styles.tdNumStrong, { width: `${projWidth}%` }]}
+              >
+                {fmtMoney(data.projectTotals[p.id] ?? 0)}
+              </Text>
+            ))}
+            <Text style={[styles.tdNumStrong, { width: `${totalWidth}%` }]}>
+              {fmtMoney(data.grandTotal)}
+            </Text>
+          </View>
         </View>
       )}
     </ReportDocument>

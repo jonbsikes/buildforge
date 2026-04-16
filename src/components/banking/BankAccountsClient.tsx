@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Pencil, Trash2, Plus, X, Check, Building2, Upload } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   createBankAccount,
   updateBankAccount,
@@ -154,6 +155,7 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
   const [importingAccount, setImportingAccount] = useState<BankAccount | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   function handleCreate(data: BankAccountInput) {
     setError(null);
@@ -255,7 +257,7 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
                 </div>
               </div>
             ) : (
-              <div key={acct.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+              <div key={acct.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => router.push(`/banking/accounts/${acct.id}`)}>
                 <div className="flex items-start gap-3 mb-3">
                   <Building2 size={18} className="text-gray-400 flex-shrink-0 mt-0.5" />
                   <div className="flex-1 min-w-0">
@@ -278,7 +280,7 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
                   </p>
                 )}
 
-                <div className="flex items-center gap-2 justify-end pt-2 border-t border-gray-100">
+                <div className="flex items-center gap-2 justify-end pt-2 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
                   <button
                     onClick={() => setImportingAccount(acct)}
                     className="flex items-center gap-1 px-2 py-1 text-xs text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
