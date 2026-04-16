@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // iPhone photos uploaded to field logs are commonly 2–5 MB;
+      // the default 1 MB limit rejected them before they reached Supabase Storage.
+      bodySizeLimit: "25mb",
+    },
+  },
   serverExternalPackages: [
     "@react-pdf/renderer",
     "@react-pdf/reconciler",

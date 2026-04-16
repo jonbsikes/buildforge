@@ -36,7 +36,7 @@ const actions = [
     label: "New Invoice",
     desc: "Enter manually",
     color: "bg-amber-500",
-    href: "/invoices/upload",
+    href: "/invoices/new",
   },
 ];
 
@@ -91,8 +91,11 @@ export default function QuickActionSheet({ onClose }: QuickActionSheetProps) {
 
   function handleAction(href: string) {
     haptic("medium");
+    // Navigate immediately, then play the slide-down animation.
+    // Previously the push was queued in a setTimeout that fired after the
+    // sheet had unmounted — on mobile WebKit that navigation would silently drop.
+    router.push(href);
     handleClose();
-    setTimeout(() => router.push(href), 260);
   }
 
   const backdropOpacity = isClosing ? 0 : Math.max(0, 1 - dragY / 300);

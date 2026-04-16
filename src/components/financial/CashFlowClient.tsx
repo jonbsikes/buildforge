@@ -15,7 +15,7 @@ function fmtFull(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-type DatePreset = "this_month" | "this_quarter" | "this_year" | "custom";
+type DatePreset = "this_month" | "this_quarter" | "this_year" | "since_inception" | "custom";
 
 interface DrillEntry {
   id: string;
@@ -44,11 +44,12 @@ function getPresetRange(preset: DatePreset): { start: string; end: string } {
   const today = now.toISOString().split("T")[0];
   if (preset === "this_month") return { start: new Date(y, m, 1).toISOString().split("T")[0], end: today };
   if (preset === "this_quarter") return { start: new Date(y, Math.floor(m / 3) * 3, 1).toISOString().split("T")[0], end: today };
+  if (preset === "since_inception") return { start: "2000-01-01", end: today };
   return { start: `${y}-01-01`, end: today };
 }
 
 export default function CashFlowClient() {
-  const [preset, setPreset] = useState<DatePreset>("this_year");
+  const [preset, setPreset] = useState<DatePreset>("since_inception");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [sections, setSections] = useState<CashFlowSection[]>([]);
@@ -63,17 +64,28 @@ export default function CashFlowClient() {
 
     const supabase = createClient();
 
-    // Fetch all journal entry lines within date range with account info
-    const { data: rawLines } = await supabase
-      .from("journal_entry_lines")
-      .select(`
+    // Fetch ALL journal entry lines (paginate past Supabase 1000-row default)
+    const selectQuery = `
         id, debit, credit, description,
         account:chart_of_accounts(account_number, name, type),
         journal_entry:journal_entries(id, entry_date, status, description, source_type)
-      `);
+    `;
+    let rawLines: any[] = [];
+    let from = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const { data: page } = await supabase
+        .from("journal_entry_lines")
+        .select(selectQuery)
+        .range(from, from + PAGE_SIZE - 1);
+      if (!page || page.length === 0) break;
+      rawLines = rawLines.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
 
     // Filter to posted entries within date range
-    const lines = (rawLines ?? []).filter((l: any) =>
+    const lines = rawLines.filter((l: any) =>
       l.journal_entry?.status === "posted" &&
       l.journal_entry?.entry_date >= start &&
       l.journal_entry?.entry_date <= end
@@ -88,94 +100,106 @@ export default function CashFlowClient() {
         amount: Number(l.debit || 0) + Number(l.credit || 0),
       })).sort((a, b) => b.entry_date.localeCompare(a.entry_date));
 
-    // --- OPERATING ACTIVITIES ---
-    // Cash received from customers = credits to revenue accounts
-    const revenueLines = lines.filter((l: any) => l.account?.type === "revenue" && Number(l.credit || 0) > 0);
-    const cashFromCustomers = revenueLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+    // ─── CASH-BASIS APPROACH ─────────────────────────────────────────
+    // Build the statement from actual Cash (1000) account movements.
+    // Group all lines by journal_entry_id so we can inspect sibling
+    // accounts to categorize each cash movement — this works regardless
+    // of source_type, including migrated/historical JEs.
+    // ─────────────────────────────────────────────────────────────────
 
-    // Cash paid to vendors = CHK-CLR entries: source_type = 'invoice_payment', CR to Cash (1000)
-    // This captures the check-cleared step (DR 2050 / CR Cash) — actual cash leaving the bank
-    const invoicePaymentLines = lines.filter((l: any) =>
-      l.journal_entry?.source_type === 'invoice_payment' &&
-      l.account?.account_number === '1000' &&
-      Number(l.credit || 0) > 0
-    );
-    const cashToVendors = invoicePaymentLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+    const jeGroups = new Map<string, any[]>();
+    for (const line of lines) {
+      const jeId = line.journal_entry?.id;
+      if (!jeId) continue;
+      if (!jeGroups.has(jeId)) jeGroups.set(jeId, []);
+      jeGroups.get(jeId)!.push(line);
+    }
 
-    // --- INVESTING ACTIVITIES ---
-    // WIP increases — debits to WIP (1210) or CIP Land (1230) from invoice approval or draw funding
-    // source_type = 'invoice_approval' (approved directly) or 'loan_draw' (funded via draw)
-    const wipDrawLines = lines.filter((l: any) =>
-      (l.account?.account_number === '1210' || l.account?.account_number === '1230') &&
-      Number(l.debit || 0) > 0 &&
-      (l.journal_entry?.source_type === 'loan_draw' || l.journal_entry?.source_type === 'invoice_approval')
-    );
-    const wipFromDraws = wipDrawLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
+    // Category buckets (each holds the Cash-account line for drill-down)
+    const operatingInLines: any[] = [];   // DR Cash — revenue / customer payments
+    const operatingOutLines: any[] = [];  // CR Cash — vendor / G&A payments
+    const drawInLines: any[] = [];        // DR Cash — loan draw proceeds
+    const capitalInLines: any[] = [];     // DR Cash — capital contributions
+    const loanPayOutLines: any[] = [];    // CR Cash — loan principal payments
+    const ownerDrawOutLines: any[] = [];  // CR Cash — owner draws / distributions
 
-    // Land purchases — debits to Land Inventory (1200)
-    const landPurchaseLines = lines.filter((l: any) =>
-      l.account?.account_number === '1200' &&
-      Number(l.debit || 0) > 0
-    );
-    const landPurchases = landPurchaseLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
+    for (const [, jeLines] of jeGroups) {
+      // Find Cash (1000) lines in this JE
+      const cashLines = jeLines.filter((l: any) => l.account?.account_number === '1000');
+      if (cashLines.length === 0) continue;
 
-    // --- FINANCING ACTIVITIES ---
-    // Loan draws received = actual cash received when draw is funded
-    // fundDraw posts: DR Cash (1000) / CR Due from Lender (1120), source_type = 'loan_draw'
-    const drawCreditLines = lines.filter((l: any) =>
-      l.account?.account_number === '1000' &&
-      Number(l.debit || 0) > 0 &&
-      l.journal_entry?.source_type === 'loan_draw'
-    );
-    const cashFromDraws = drawCreditLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
+      // Collect sibling account numbers for categorization
+      const siblings = jeLines.filter((l: any) => l.account?.account_number !== '1000');
+      const siblingAccts = siblings.map((l: any) => l.account?.account_number ?? '');
+      const siblingTypes = siblings.map((l: any) => l.account?.type ?? '');
 
-    // Loan payments = debits to any Loan Payable account (220x series)
-    const loanPaymentLines = lines.filter((l: any) =>
-      l.account?.account_number?.startsWith('22') &&
-      Number(l.debit || 0) > 0
-    );
-    const loanPayments = loanPaymentLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
+      // Determine if siblings include financing-related accounts
+      const hasLoanPayable = siblingAccts.some((a: string) => a.startsWith('22') || a === '2100');
+      const hasDueFromLender = siblingAccts.some((a: string) => a === '1120');
+      const hasEquity = siblingAccts.some((a: string) => a.startsWith('30')) || siblingTypes.includes('equity');
+      const hasDistributions = siblingAccts.some((a: string) => a.startsWith('32'));
 
-    // Capital contributions = credits to equity accounts (30x series)
-    const capitalContribLines = lines.filter((l: any) =>
-      l.account?.type === 'equity' &&
-      l.account?.account_number?.startsWith('30') &&
-      Number(l.credit || 0) > 0
-    );
-    const capitalContribs = capitalContribLines.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+      for (const cashLine of cashLines) {
+        const debit = Number(cashLine.debit || 0);
+        const credit = Number(cashLine.credit || 0);
 
-    // Owner draws = debits to draw/distribution accounts (32x series)
-    const ownerDrawLines = lines.filter((l: any) =>
-      l.account?.account_number?.startsWith('32') &&
-      Number(l.debit || 0) > 0
-    );
-    const ownerDraws = ownerDrawLines.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
+        if (debit > 0) {
+          // Cash inflow — categorize by what the counter-accounts are
+          if (hasDueFromLender || hasLoanPayable) {
+            drawInLines.push(cashLine);        // Loan draw funded
+          } else if (hasEquity) {
+            capitalInLines.push(cashLine);      // Capital contribution
+          } else {
+            operatingInLines.push(cashLine);    // Revenue / customer payment / other
+          }
+        }
+
+        if (credit > 0) {
+          // Cash outflow — categorize by what the counter-accounts are
+          if (hasLoanPayable) {
+            loanPayOutLines.push(cashLine);     // Loan principal payment
+          } else if (hasDistributions) {
+            ownerDrawOutLines.push(cashLine);   // Owner draw / distribution
+          } else {
+            operatingOutLines.push(cashLine);   // Vendor payment / G&A / other
+          }
+        }
+      }
+    }
+
+    // Sum helpers
+    const sumDebit = (arr: any[]) => arr.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
+    const sumCredit = (arr: any[]) => arr.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+
+    const cashFromCustomers = sumDebit(operatingInLines);
+    const cashToVendors = sumCredit(operatingOutLines);
+    const cashFromDraws = sumDebit(drawInLines);
+    const capitalContribs = sumDebit(capitalInLines);
+    const loanPayments = sumCredit(loanPayOutLines);
+    const ownerDraws = sumCredit(ownerDrawOutLines);
 
     const operating: CashFlowSection = {
       title: "Operating Activities",
       lines: [
-        { label: "Cash received from customers", amount: cashFromCustomers, entries: toDrillEntries(revenueLines) },
-        { label: "Cash paid to vendors & subcontractors", amount: cashToVendors, entries: toDrillEntries(invoicePaymentLines), isSubtraction: true },
+        { label: "Cash received from customers", amount: cashFromCustomers, entries: toDrillEntries(operatingInLines) },
+        ...(cashToVendors > 0 ? [{ label: "Cash paid to vendors & subcontractors", amount: cashToVendors, entries: toDrillEntries(operatingOutLines), isSubtraction: true }] : []),
       ],
       total: cashFromCustomers - cashToVendors,
     };
 
     const investing: CashFlowSection = {
       title: "Investing Activities",
-      lines: [
-        ...(landPurchases > 0 ? [{ label: "Land purchases", amount: landPurchases, entries: toDrillEntries(landPurchaseLines), isSubtraction: true }] : []),
-        ...(wipFromDraws > 0 ? [{ label: "Construction costs capitalized to WIP", amount: wipFromDraws, entries: toDrillEntries(wipDrawLines), isSubtraction: true }] : []),
-      ],
-      total: -(landPurchases + wipFromDraws),
+      lines: [],
+      total: 0,
     };
 
     const financing: CashFlowSection = {
       title: "Financing Activities",
       lines: [
-        { label: "Construction loan draws received", amount: cashFromDraws, entries: toDrillEntries(drawCreditLines) },
-        ...(capitalContribs > 0 ? [{ label: "Capital contributions", amount: capitalContribs, entries: toDrillEntries(capitalContribLines) }] : []),
-        ...(loanPayments > 0 ? [{ label: "Loan payments made", amount: loanPayments, entries: toDrillEntries(loanPaymentLines), isSubtraction: true }] : []),
-        ...(ownerDraws > 0 ? [{ label: "Owner draws & distributions", amount: ownerDraws, entries: toDrillEntries(ownerDrawLines), isSubtraction: true }] : []),
+        ...(cashFromDraws > 0 ? [{ label: "Construction loan draws received", amount: cashFromDraws, entries: toDrillEntries(drawInLines) }] : []),
+        ...(capitalContribs > 0 ? [{ label: "Capital contributions", amount: capitalContribs, entries: toDrillEntries(capitalInLines) }] : []),
+        ...(loanPayments > 0 ? [{ label: "Loan payments made", amount: loanPayments, entries: toDrillEntries(loanPayOutLines), isSubtraction: true }] : []),
+        ...(ownerDraws > 0 ? [{ label: "Owner draws & distributions", amount: ownerDraws, entries: toDrillEntries(ownerDrawOutLines), isSubtraction: true }] : []),
       ],
       total: cashFromDraws + capitalContribs - loanPayments - ownerDraws,
     };
@@ -199,7 +223,7 @@ export default function CashFlowClient() {
         </div>
         <div className="flex flex-wrap items-center gap-3 mb-6 print:hidden">
           <div className="flex items-center gap-2">
-            {(["this_month", "this_quarter", "this_year", "custom"] as DatePreset[]).map(p => (
+            {(["this_month", "this_quarter", "this_year", "since_inception", "custom"] as DatePreset[]).map(p => (
               <button key={p} onClick={() => setPreset(p)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${preset === p ? "bg-[#4272EF] text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                 {p.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}
