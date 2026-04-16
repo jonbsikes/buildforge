@@ -18,6 +18,13 @@ interface AccountBalance {
   name: string;
   type: string;
   balance: number;
+  projectBreakdown?: ProjectBalance[];
+}
+
+interface ProjectBalance {
+  project_id: string;
+  project_name: string;
+  balance: number;
 }
 
 export interface BalanceSheetData {
@@ -41,9 +48,10 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
   const { data: ledgerLines } = await supabase
     .from("journal_entry_lines")
     .select(`
-      debit, credit,
+      debit, credit, project_id,
       account:chart_of_accounts(account_number, name, type, is_active),
-      journal_entry:journal_entries(entry_date, status)
+      journal_entry:journal_entries(entry_date, status),
+      project:projects(id, name)
     `);
 
   // Filter to posted entries as of date
@@ -53,8 +61,14 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
     l.account?.is_active !== false
   );
 
+  // Accounts that get per-project breakdown
+  const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
+
   // Aggregate by account
   const acctMap: Record<string, { account_number: string; name: string; type: string; debit: number; credit: number }> = {};
+  // Per-project breakdown for WIP/CIP
+  const projectMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
+
   for (const line of posted) {
     const acc = line.account as any;
     if (!acc || !["asset", "liability", "equity"].includes(acc.type)) continue;
@@ -64,15 +78,47 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
     }
     acctMap[key].debit += Number(line.debit ?? 0);
     acctMap[key].credit += Number(line.credit ?? 0);
+
+    // Track per-project for WIP/CIP
+    if (WIP_CIP_ACCOUNTS.has(key) && (line as any).project_id) {
+      if (!projectMap[key]) projectMap[key] = {};
+      const pid = (line as any).project_id;
+      if (!projectMap[key][pid]) {
+        const proj = (line as any).project;
+        projectMap[key][pid] = {
+          project_id: pid,
+          project_name: proj?.name ?? "Unknown Project",
+          debit: 0,
+          credit: 0,
+        };
+      }
+      projectMap[key][pid].debit += Number(line.debit ?? 0);
+      projectMap[key][pid].credit += Number(line.credit ?? 0);
+    }
   }
 
   // Compute normal balances
-  const accounts = Object.values(acctMap).map((a) => ({
-    account_number: a.account_number,
-    name: a.name,
-    type: a.type,
-    balance: a.type === "asset" ? a.debit - a.credit : a.credit - a.debit,
-  }));
+  const accounts = Object.values(acctMap).map((a) => {
+    const balance = a.type === "asset" ? a.debit - a.credit : a.credit - a.debit;
+    const result: AccountBalance = {
+      account_number: a.account_number,
+      name: a.name,
+      type: a.type,
+      balance,
+    };
+    // Attach per-project breakdown for WIP/CIP
+    if (WIP_CIP_ACCOUNTS.has(a.account_number) && projectMap[a.account_number]) {
+      result.projectBreakdown = Object.values(projectMap[a.account_number])
+        .map((p) => ({
+          project_id: p.project_id,
+          project_name: p.project_name,
+          balance: p.debit - p.credit,
+        }))
+        .filter((p) => Math.abs(p.balance) > 0.01)
+        .sort((a, b) => b.balance - a.balance);
+    }
+    return result;
+  });
 
   const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200").sort((a, b) => a.account_number.localeCompare(b.account_number));
   const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200").sort((a, b) => a.account_number.localeCompare(b.account_number));
@@ -121,22 +167,54 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
 
 function AccountRows({ lines }: { lines: AccountBalance[] }) {
   if (lines.length === 0) return null;
+  let rowIdx = 0;
   return (
     <View>
-      {lines.map((l, i) => (
-        <View
-          key={l.account_number}
-          style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}] as any}
-          wrap={false}
-        >
-          <View style={{ width: "70%" }}>
-            <Text style={styles.td}>{l.account_number} · {l.name}</Text>
+      {lines.map((l) => {
+        const hasBreakdown = l.projectBreakdown && l.projectBreakdown.length > 0;
+        const mainRow = (
+          <View
+            key={l.account_number}
+            style={[styles.tr, rowIdx++ % 2 === 1 ? styles.trZebra : {}] as any}
+            wrap={false}
+          >
+            <View style={{ width: "70%" }}>
+              <Text style={hasBreakdown ? styles.tdStrong : styles.td}>
+                {l.account_number} · {l.name}
+              </Text>
+            </View>
+            <View style={{ width: "30%" }}>
+              <Text style={hasBreakdown ? styles.tdNumStrong : styles.tdNum}>
+                {fmtMoney(l.balance)}
+              </Text>
+            </View>
           </View>
-          <View style={{ width: "30%" }}>
-            <Text style={styles.tdNum}>{fmtMoney(l.balance)}</Text>
+        );
+        if (!hasBreakdown) return mainRow;
+        return (
+          <View key={l.account_number}>
+            {mainRow}
+            {l.projectBreakdown!.map((p) => (
+              <View
+                key={p.project_id}
+                style={[styles.tr, rowIdx++ % 2 === 1 ? styles.trZebra : {}] as any}
+                wrap={false}
+              >
+                <View style={{ width: "70%", paddingLeft: 14 }}>
+                  <Text style={[styles.td, { color: colors.muted, fontSize: 8 }]}>
+                    {p.project_name}
+                  </Text>
+                </View>
+                <View style={{ width: "30%" }}>
+                  <Text style={[styles.tdNum, { color: colors.muted, fontSize: 8 }]}>
+                    {fmtMoney(p.balance)}
+                  </Text>
+                </View>
+              </View>
+            ))}
           </View>
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
