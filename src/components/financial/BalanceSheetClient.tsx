@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
-import { X } from "lucide-react";
+import { X, ChevronRight, ChevronDown } from "lucide-react";
 import ReportChrome from "@/components/ui/ReportChrome";
 
 function fmt(n: number) {
@@ -41,6 +41,12 @@ interface JELine {
   credit: number;
 }
 
+interface ProjectBreakdown {
+  project_id: string;
+  project_name: string;
+  balance: number;
+}
+
 interface AccountBalance {
   account_number: string;
   name: string;
@@ -50,6 +56,7 @@ interface AccountBalance {
   credit: number;
   balance: number; // normal balance: debit-normal for assets/expenses, credit-normal for liabilities/equity/revenue
   lines: JELine[]; // individual JE lines for drill-down
+  projectBreakdown?: ProjectBreakdown[];
 }
 
 interface BalanceSheetData {
@@ -98,9 +105,10 @@ export default function BalanceSheetClient() {
     // Fetch GL data only — AP is fully captured in journal entries (no raw invoice supplement needed)
     const [ledgerRes] = await Promise.all([
       supabase.from("journal_entry_lines").select(`
-        id, debit, credit, description,
+        id, debit, credit, description, project_id,
         account:chart_of_accounts(account_number, name, type, subtype, is_active),
-        journal_entry:journal_entries(id, entry_date, status, description, reference)
+        journal_entry:journal_entries(id, entry_date, status, description, reference),
+        project:projects(id, name)
       `),
     ]);
 
@@ -141,12 +149,37 @@ export default function BalanceSheetClient() {
       });
     }
 
+    // Build per-project breakdown for WIP/CIP accounts
+    const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
+    const projMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
+    for (const line of ledgerLines) {
+      const acc = (line as any).account;
+      if (!acc || !WIP_CIP_ACCOUNTS.has(acc.account_number)) continue;
+      const pid = (line as any).project_id;
+      if (!pid) continue;
+      const key = acc.account_number;
+      if (!projMap[key]) projMap[key] = {};
+      if (!projMap[key][pid]) {
+        const proj = (line as any).project;
+        projMap[key][pid] = { project_id: pid, project_name: proj?.name ?? "Unknown Project", debit: 0, credit: 0 };
+      }
+      projMap[key][pid].debit += Number(line.debit ?? 0);
+      projMap[key][pid].credit += Number(line.credit ?? 0);
+    }
+
     // Compute normal balances
     for (const acct of Object.values(acctMap)) {
       if (acct.type === "asset" || acct.type === "expense" || acct.type === "cogs") {
         acct.balance = acct.debit - acct.credit; // debit-normal
       } else {
         acct.balance = acct.credit - acct.debit; // credit-normal (liability, equity, revenue)
+      }
+      // Attach per-project breakdown for WIP/CIP
+      if (WIP_CIP_ACCOUNTS.has(acct.account_number) && projMap[acct.account_number]) {
+        acct.projectBreakdown = Object.values(projMap[acct.account_number])
+          .map(p => ({ project_id: p.project_id, project_name: p.project_name, balance: p.debit - p.credit }))
+          .filter(p => Math.abs(p.balance) > 0.01)
+          .sort((a, b) => b.balance - a.balance);
       }
     }
 
@@ -266,6 +299,7 @@ export default function BalanceSheetClient() {
                     amount: a.balance,
                     entries: acctToGLEntries(a),
                   }),
+                  projectBreakdown: a.projectBreakdown,
                 }))} />
               )}
 
@@ -348,22 +382,57 @@ function BSSectionHeader({ title }: { title: string }) {
 
 function BSGroup({ label, items }: {
   label: string;
-  items: { label: string; amount: number; note?: string; drillable: boolean; onDrill?: () => void }[];
+  items: { label: string; amount: number; note?: string; drillable: boolean; onDrill?: () => void; projectBreakdown?: ProjectBreakdown[] }[];
 }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-4">
       <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{label}</p>
       {items.map(item => (
-        <div key={item.label} onClick={item.drillable ? item.onDrill : undefined}
-          className={`flex justify-between items-center py-1.5 px-2 rounded text-sm ${item.drillable ? "cursor-pointer hover:bg-blue-50 transition-colors" : ""}`}>
+        <BSGroupRow key={item.label} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function BSGroupRow({ item }: {
+  item: { label: string; amount: number; note?: string; drillable: boolean; onDrill?: () => void; projectBreakdown?: ProjectBreakdown[] };
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasBreakdown = item.projectBreakdown && item.projectBreakdown.length > 0;
+
+  return (
+    <div>
+      <div className="flex items-center">
+        {hasBreakdown && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="mr-1 p-0.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        )}
+        <div
+          onClick={item.drillable ? item.onDrill : undefined}
+          className={`flex-1 flex justify-between items-center py-1.5 px-2 rounded text-sm ${item.drillable ? "cursor-pointer hover:bg-blue-50 transition-colors" : ""}`}
+        >
           <span className="text-gray-700">
             {item.label}
             {item.note && <span className="text-gray-400 text-xs ml-2">({item.note})</span>}
           </span>
           <span className="font-medium text-gray-800">{fmt(item.amount)}</span>
         </div>
-      ))}
+      </div>
+      {hasBreakdown && expanded && (
+        <div className="ml-6 border-l-2 border-gray-100 pl-2 mb-1">
+          {item.projectBreakdown!.map(p => (
+            <div key={p.project_id} className="flex justify-between items-center py-1 px-2 text-xs">
+              <span className="text-gray-500">{p.project_name}</span>
+              <span className="text-gray-500 tabular-nums">{fmt(p.balance)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
