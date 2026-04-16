@@ -491,6 +491,8 @@ export interface UpdateInvoiceInput {
   project_name: string;
   contract_id: string | null;
   direct_cash_payment?: boolean;
+  /** New/replacement file storage path. When provided, replaces the stored file_path. */
+  file_path?: string | null;
 }
 
 export async function updateInvoice(
@@ -550,29 +552,50 @@ export async function updateInvoice(
     if (dueDate < minDueStr) dueDate = minDueStr;
   }
 
+  // If caller supplied a new file_path, fetch the old one first so we can clean it up after a successful DB update
+  let oldFilePath: string | null = null;
+  if (input.file_path !== undefined) {
+    const { data: existing } = await supabase
+      .from("invoices")
+      .select("file_path")
+      .eq("id", invoiceId)
+      .single();
+    oldFilePath = existing?.file_path ?? null;
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    project_id: headerProjectId,
+    vendor_id: input.vendor_id || null,
+    vendor: vendorDisplay,
+    invoice_number: input.invoice_number || null,
+    invoice_date: input.invoice_date || null,
+    due_date: dueDate,
+    amount: totalAmount,
+    total_amount: totalAmount,
+    file_name: displayName,
+    cost_code_id: dominantCode?.id ?? null,
+    pending_draw: input.pending_draw,
+    direct_cash_payment: input.direct_cash_payment ?? false,
+    status: input.status,
+    payment_method: input.payment_method || null,
+    contract_id: input.contract_id || null,
+    manually_reviewed: true, // editing counts as reviewing
+  };
+  if (input.file_path !== undefined) {
+    updatePayload.file_path = input.file_path;
+  }
+
   const { error: updateErr } = await supabase
     .from("invoices")
-    .update({
-      project_id: headerProjectId,
-      vendor_id: input.vendor_id || null,
-      vendor: vendorDisplay,
-      invoice_number: input.invoice_number || null,
-      invoice_date: input.invoice_date || null,
-      due_date: dueDate,
-      amount: totalAmount,
-      total_amount: totalAmount,
-      file_name: displayName,
-      cost_code_id: dominantCode?.id ?? null,
-      pending_draw: input.pending_draw,
-      direct_cash_payment: input.direct_cash_payment ?? false,
-      status: input.status,
-      payment_method: input.payment_method || null,
-      contract_id: input.contract_id || null,
-      manually_reviewed: true, // editing counts as reviewing
-    })
+    .update(updatePayload)
     .eq("id", invoiceId);
 
   if (updateErr) return { error: updateErr.message };
+
+  // Clean up old storage object if the file was replaced or cleared
+  if (input.file_path !== undefined && oldFilePath && oldFilePath !== input.file_path) {
+    await supabase.storage.from("invoices").remove([oldFilePath]);
+  }
 
   // Replace line items: insert new first, then delete old (prevents orphaned invoices on failure)
   const newLineItems = input.line_items.map((li) => ({

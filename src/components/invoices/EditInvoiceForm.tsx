@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, AlertTriangle, Info } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Info, Upload, FileText } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { updateInvoice, type UpdateInvoiceInput } from "@/app/actions/invoices";
 
 interface Vendor { id: string; name: string }
@@ -74,6 +75,13 @@ function Field({ label, required, children }: { label: string; required?: boolea
 export default function EditInvoiceForm({ invoiceId, initial, vendors, projects, costCodes, contracts, signedFileUrl, fileName }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const supabase = createClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [removeFile, setRemoveFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const hasExistingFile = !!signedFileUrl;
 
   const [contractId, setContractId] = useState(initial.contract_id ?? "");
   const [vendorId, setVendorId] = useState(initial.vendor_id ?? "");
@@ -159,6 +167,16 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
     return null;
   }
 
+  function handleFileSelect(f: File | null) {
+    if (!f) return;
+    const isPdf = f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) { setFileError("Only PDF files are supported."); return; }
+    if (f.size > 20 * 1024 * 1024) { setFileError("File must be under 20MB."); return; }
+    setFileError(null);
+    setRemoveFile(false);
+    setPendingFile(f);
+  }
+
   function handleSubmit() {
     const err = validate();
     if (err) { setSubmitError(err); return; }
@@ -167,27 +185,43 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
     const resolvedVendorName = vendorId ? (vendors.find((v) => v.id === vendorId)?.name ?? vendorName) : vendorName;
     const resolvedProjectName = dominantProject?.name ?? initial.project_name ?? "Company";
 
-    const input: UpdateInvoiceInput = {
-      vendor_id: vendorId, // mandatory — validated above
-      vendor_name: resolvedVendorName,
-      invoice_number: invoiceNumber,
-      invoice_date: invoiceDate,
-      due_date: dueDate,
-      pending_draw: pendingDraw && !directCashPayment,
-      direct_cash_payment: directCashPayment,
-      status,
-      payment_method: paymentMethod,
-      contract_id: contractId || null,
-      line_items: lineItems.map((li) => ({
-        cost_code: li.cost_code,
-        description: li.description,
-        amount: parseFloat(li.amount),
-        project_id: li.project_id || null,
-      })),
-      project_name: resolvedProjectName,
-    };
-
     startTransition(async () => {
+      // Upload new PDF first, if one was selected
+      let newFilePath: string | null | undefined = undefined;
+      if (pendingFile) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setSubmitError("Not authenticated"); return; }
+        const fp = `${user.id}/${Date.now()}-${pendingFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const { error: uploadError } = await supabase.storage
+          .from("invoices")
+          .upload(fp, pendingFile, { contentType: pendingFile.type || "application/pdf", upsert: false });
+        if (uploadError) { setSubmitError(`File upload failed: ${uploadError.message}`); return; }
+        newFilePath = fp;
+      } else if (removeFile) {
+        newFilePath = null;
+      }
+
+      const input: UpdateInvoiceInput = {
+        vendor_id: vendorId, // mandatory — validated above
+        vendor_name: resolvedVendorName,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate,
+        due_date: dueDate,
+        pending_draw: pendingDraw && !directCashPayment,
+        direct_cash_payment: directCashPayment,
+        status,
+        payment_method: paymentMethod,
+        contract_id: contractId || null,
+        line_items: lineItems.map((li) => ({
+          cost_code: li.cost_code,
+          description: li.description,
+          amount: parseFloat(li.amount),
+          project_id: li.project_id || null,
+        })),
+        project_name: resolvedProjectName,
+        ...(newFilePath !== undefined ? { file_path: newFilePath } : {}),
+      };
+
       const result = await updateInvoice(invoiceId, input);
       if (result.error) {
         setSubmitError(result.error);
@@ -215,6 +249,55 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
           <p className="font-medium">Medium AI confidence — verify extracted data</p>
         </div>
       )}
+
+      {/* Attachment */}
+      <section className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700">
+            Attachment <span className="text-gray-400 font-normal">(optional)</span>
+          </h2>
+        </div>
+        <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" className="hidden"
+          onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)} />
+
+        {pendingFile ? (
+          <div className="flex items-center gap-3 px-3 py-2.5 border border-green-200 bg-green-50 rounded-lg">
+            <FileText size={16} className="text-green-600 shrink-0" />
+            <span className="flex-1 text-sm text-gray-800 truncate">{pendingFile.name}</span>
+            <span className="text-xs text-gray-500">{(pendingFile.size / 1024).toFixed(0)} KB · will replace current</span>
+            <button type="button" onClick={() => { setPendingFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+              className="text-xs text-gray-400 hover:text-red-500">Cancel</button>
+          </div>
+        ) : hasExistingFile && !removeFile ? (
+          <div className="flex items-center gap-3 px-3 py-2.5 border border-gray-200 bg-gray-50 rounded-lg">
+            <FileText size={16} className="text-gray-500 shrink-0" />
+            <span className="flex-1 text-sm text-gray-800 truncate">{fileName ?? "Invoice PDF"}</span>
+            <a href={signedFileUrl!} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-[#4272EF] hover:underline">Open ↗</a>
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className="text-xs text-[#4272EF] hover:underline">Replace</button>
+            <button type="button" onClick={() => setRemoveFile(true)}
+              className="text-xs text-gray-400 hover:text-red-500">Remove</button>
+          </div>
+        ) : hasExistingFile && removeFile ? (
+          <div className="flex items-center gap-3 px-3 py-2.5 border border-red-200 bg-red-50 rounded-lg">
+            <FileText size={16} className="text-red-400 shrink-0" />
+            <span className="flex-1 text-sm text-red-700 line-through truncate">{fileName ?? "Invoice PDF"}</span>
+            <span className="text-xs text-red-600">will be removed on save</span>
+            <button type="button" onClick={() => setRemoveFile(false)}
+              className="text-xs text-[#4272EF] hover:underline">Undo</button>
+            <button type="button" onClick={() => fileInputRef.current?.click()}
+              className="text-xs text-[#4272EF] hover:underline">Upload new</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 px-3 py-3 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-gray-400 hover:bg-gray-50 transition-colors">
+            <Upload size={15} className="text-gray-400" />
+            Attach invoice PDF (optional, up to 20MB)
+          </button>
+        )}
+        {fileError && <p className="mt-2 text-xs text-red-600">{fileError}</p>}
+      </section>
 
       {/* Invoice details */}
       <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">

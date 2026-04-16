@@ -1019,6 +1019,9 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
   const [vendors, setVendors] = useState<Vendor[]>(initialVendors);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const manualFileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle return from vendor creation page
   useEffect(() => {
@@ -1118,11 +1121,28 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
     const today = new Date().toISOString().split("T")[0];
     const resolvedDueDate = dueDate || today;
 
+    // Optional PDF upload
+    let uploadedPath: string | null = null;
+    let uploadedName: string | null = null;
+    if (file) {
+      const fp = `${user.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { error: uploadError } = await supabase.storage
+        .from("invoices")
+        .upload(fp, file, { contentType: file.type || "application/pdf", upsert: false });
+      if (uploadError) {
+        setSubmitError(`File upload failed: ${uploadError.message}`);
+        setSaving(false);
+        return;
+      }
+      uploadedPath = fp;
+      uploadedName = file.name;
+    }
+
     const insertPayload: Record<string, unknown> = {
       project_id: dominantProjectId,
       user_id: user.id,
-      file_path: null,
-      file_name: null,
+      file_path: uploadedPath,
+      file_name: uploadedName,
       vendor_id: vendorId,
       vendor: vendorName,
       invoice_number: invoiceNumber || null,
@@ -1169,8 +1189,45 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
     router.push("/invoices");
   }
 
+  function handleFileSelect(f: File | null) {
+    if (!f) { setFile(null); setFileError(null); return; }
+    if (!isPDF(f)) { setFileError("Only PDF files are supported."); return; }
+    if (!fileSizeOk(f)) { setFileError("File must be under 20MB."); return; }
+    setFileError(null);
+    setFile(f);
+  }
+
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl mx-auto space-y-5">
+      {/* Optional file attachment */}
+      <section className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-700">Attachment <span className="text-gray-400 font-normal">(optional)</span></h2>
+          {file && (
+            <button type="button" onClick={() => { setFile(null); if (manualFileInputRef.current) manualFileInputRef.current.value = ""; }}
+              className="text-xs text-gray-400 hover:text-red-500">Remove</button>
+          )}
+        </div>
+        <input ref={manualFileInputRef} type="file" accept=".pdf,application/pdf" className="hidden"
+          onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)} />
+        {file ? (
+          <div className="flex items-center gap-3 px-3 py-2.5 border border-green-200 bg-green-50 rounded-lg">
+            <FileText size={16} className="text-green-600 shrink-0" />
+            <span className="flex-1 text-sm text-gray-800 truncate">{file.name}</span>
+            <span className="text-xs text-gray-500">{(file.size / 1024).toFixed(0)} KB</span>
+            <button type="button" onClick={() => manualFileInputRef.current?.click()}
+              className="text-xs text-[#4272EF] hover:underline">Change</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => manualFileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 px-3 py-3 border border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-gray-400 hover:bg-gray-50 transition-colors">
+            <Upload size={15} className="text-gray-400" />
+            Attach invoice PDF (optional, up to 20MB)
+          </button>
+        )}
+        {fileError && <p className="mt-2 text-xs text-red-600">{fileError}</p>}
+      </section>
+
       {/* Invoice details */}
       <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 className="text-sm font-semibold text-gray-700">Invoice Details</h2>
