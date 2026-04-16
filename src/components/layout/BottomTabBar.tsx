@@ -53,7 +53,7 @@ export default function BottomTabBar() {
 
   return (
     <>
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 px-2 pt-1.5 pb-safe">
+      <nav data-bottom-tab-bar className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 px-2 pt-1.5 pb-safe">
         <div className="flex items-end justify-around max-w-lg mx-auto">
           {/* First two tabs */}
           {tabs.slice(0, 2).map((tab) => {

@@ -24,15 +24,18 @@ export default function DrawPrintClient({
   useEffect(() => {
     const sidebar = document.querySelector("[data-sidebar]") as HTMLElement | null;
     const shell = sidebar?.parentElement as HTMLElement | null;
+    const bottomBar = document.querySelector("[data-bottom-tab-bar]") as HTMLElement | null;
     const body = document.body;
 
     if (sidebar) sidebar.style.display = "none";
     if (shell) shell.style.display = "block";
+    if (bottomBar) bottomBar.style.display = "none";
     body.style.background = "#fff";
 
     return () => {
       if (sidebar) sidebar.style.display = "";
       if (shell) shell.style.display = "";
+      if (bottomBar) bottomBar.style.display = "";
       body.style.background = "";
     };
   }, []);
@@ -41,7 +44,7 @@ export default function DrawPrintClient({
     <div className="print-page">
       <style>{`
         /* Hide app chrome for print page */
-        [data-sidebar], [data-header] { display: none !important; }
+        [data-sidebar], [data-header], [data-bottom-tab-bar] { display: none !important; }
         body { background: #fff !important; margin: 0; }
 
         .print-page {
