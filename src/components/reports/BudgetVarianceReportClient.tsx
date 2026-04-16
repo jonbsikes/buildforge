@@ -35,18 +35,27 @@ export default function BudgetVarianceReportClient() {
     Promise.all([
       supabase.from("projects").select("id, name").order("name"),
       supabase.from("project_cost_codes").select("id, budgeted_amount, project_id, cost_codes ( id, code, name )"),
-      supabase.from("invoices").select("cost_code_id, project_id, amount, total_amount").in("status", ["approved", "released", "cleared"]),
+      supabase.from("invoice_line_items").select("cost_code, amount, project_id, invoices!inner ( status )").in("invoices.status", ["approved", "released", "cleared"]),
     ]).then(([projRes, pccRes, invRes]) => {
       setProjects(projRes.data ?? []);
 
       const projectNames: Record<string, string> = {};
       for (const p of projRes.data ?? []) projectNames[p.id] = p.name;
 
+      // Build a code-number → UUID lookup from cost codes in project_cost_codes
+      const ccIdMap: Record<string, string> = {};
+      for (const pcc of pccRes.data ?? []) {
+        const cc = pcc.cost_codes as { id: string; code: string; name: string } | null;
+        if (cc) ccIdMap[cc.code] = cc.id;
+      }
+
       const actualMap: Record<string, number> = {}; // key: `${project_id}:${cost_code_id}`
-      for (const inv of invRes.data ?? []) {
-        if (!inv.cost_code_id || !inv.project_id) continue;
-        const key = `${inv.project_id}:${inv.cost_code_id}`;
-        const amt = inv.total_amount ?? inv.amount ?? 0;
+      for (const li of invRes.data ?? []) {
+        if (!li.cost_code || !li.project_id) continue;
+        // cost_code is the code number; convert to UUID for matching
+        const ccId = ccIdMap[li.cost_code] ?? li.cost_code;
+        const key = `${li.project_id}:${ccId}`;
+        const amt = li.amount ?? 0;
         actualMap[key] = (actualMap[key] ?? 0) + amt;
       }
 

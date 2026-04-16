@@ -56,7 +56,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase.from("projects").select("id, name, status, project_type, subdivision, address, start_date, block, lot, plan, home_size_sf, size_acres, number_of_lots").in("status", ["active", "pre_construction"]).order("created_at", { ascending: false }),
     supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
-    supabase.from("invoices").select("id, status, amount, total_amount, due_date, project_id, vendor, invoice_number"),
+    supabase.from("invoices").select("id, status, amount, total_amount, due_date, project_id, vendor, invoice_number, invoice_line_items ( project_id, amount )"),
     supabase.from("vendors").select("id, name, coi_expiry_date, license_expiry_date"),
     supabase.from("field_todos").select("id, status, priority, description, project_id, due_date").neq("status", "done"),
     supabase.from("build_stages").select("id, project_id, stage_name, stage_number, status, track, planned_start_date, planned_end_date, actual_start_date, actual_end_date").order("stage_number", { ascending: true }),
@@ -70,8 +70,16 @@ export default async function DashboardPage() {
   for (const pcc of pccRows ?? []) if (pcc.project_id) budgetByProject[pcc.project_id] = (budgetByProject[pcc.project_id] ?? 0) + (pcc.budgeted_amount ?? 0);
 
   const actualByProject: Record<string, number> = {};
-  for (const inv of (invoices ?? []).filter((i) => i.status === "approved" || i.status === "released" || i.status === "cleared"))
-    if (inv.project_id) actualByProject[inv.project_id] = (actualByProject[inv.project_id] ?? 0) + (inv.total_amount ?? inv.amount ?? 0);
+  for (const inv of (invoices ?? []).filter((i: any) => i.status === "approved" || i.status === "released" || i.status === "cleared")) {
+    const lineItems = (inv as any).invoice_line_items as { project_id: string | null; amount: number }[] | null;
+    if (lineItems && lineItems.length > 0) {
+      for (const li of lineItems) {
+        if (li.project_id) actualByProject[li.project_id] = (actualByProject[li.project_id] ?? 0) + (li.amount ?? 0);
+      }
+    } else if (inv.project_id) {
+      actualByProject[inv.project_id] = (actualByProject[inv.project_id] ?? 0) + (inv.total_amount ?? inv.amount ?? 0);
+    }
+  }
 
   const todosByProject: Record<string, number> = {};
   let urgentTodos = 0;

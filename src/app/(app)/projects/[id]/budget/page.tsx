@@ -12,11 +12,15 @@ export default async function ProjectBudgetPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const supabase = await createClient();
 
-  const [projectRes, budgetRes, costCodesRes, invoicesRes] = await Promise.all([
+  const [projectRes, budgetRes, costCodesRes, lineItemsRes] = await Promise.all([
     supabase.from("projects").select("id, name, contract_price, status").eq("id", id).single(),
     supabase.from("project_budget").select("*").eq("project_id", id),
     supabase.from("cost_codes").select("code, category, description").order("code"),
-    supabase.from("invoices").select("cost_code, amount, total_amount, status").eq("project_id", id),
+    supabase
+      .from("invoice_line_items")
+      .select("cost_code, amount, invoices!inner ( status )")
+      .eq("project_id", id)
+      .in("invoices.status", ["approved", "scheduled", "released", "cleared"]),
   ]);
 
   if (!projectRes.data) notFound();
@@ -24,14 +28,15 @@ export default async function ProjectBudgetPage({ params }: { params: Promise<{ 
   const project = projectRes.data;
   const budgetRows = budgetRes.data ?? [];
   const costCodes = costCodesRes.data ?? [];
-  const invoices = invoicesRes.data ?? [];
+  const lineItems = lineItemsRes.data ?? [];
 
-  // Compute actual_amount from paid/approved invoices per cost code
+  // Compute actual_amount from line items attributed to this project
   const invoiceActuals: Record<number, number> = {};
-  for (const inv of invoices) {
-    if (!inv.cost_code || !["approved", "scheduled", "paid"].includes(inv.status ?? "")) continue;
-    const amt = inv.amount ?? inv.total_amount ?? 0;
-    invoiceActuals[inv.cost_code] = (invoiceActuals[inv.cost_code] ?? 0) + amt;
+  for (const li of lineItems) {
+    if (!li.cost_code) continue;
+    const code = typeof li.cost_code === "string" ? parseInt(li.cost_code, 10) : li.cost_code;
+    const amt = li.amount ?? 0;
+    invoiceActuals[code] = (invoiceActuals[code] ?? 0) + amt;
   }
 
   return (

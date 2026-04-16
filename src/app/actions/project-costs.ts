@@ -46,56 +46,25 @@ export async function syncProjectActualsFromGL(
       codeToUuid.set(cc.code, cc.id);
     }
 
-    // ── Step 2: Invoice-based costs ───────────────────────────────────────
-    const { data: invoices, error: invoicesError } = await supabase
-      .from("invoices")
-      .select("id, cost_code_id, amount, total_amount")
+    // ── Step 2: Invoice-based costs (from line items attributed to this project) ──
+    // Query invoice_line_items directly by project_id to correctly handle
+    // multi-project invoices where only some line items belong to this project.
+    const { data: lineItems, error: lineItemsError } = await supabase
+      .from("invoice_line_items")
+      .select("cost_code, amount, invoices!inner ( status )")
       .eq("project_id", projectId)
-      .in("status", ["approved", "scheduled", "released", "cleared"]);
+      .in("invoices.status", ["approved", "scheduled", "released", "cleared"]);
 
-    if (invoicesError) {
-      return { error: `Failed to query invoices: ${invoicesError.message}` };
+    if (lineItemsError) {
+      return { error: `Failed to query line items: ${lineItemsError.message}` };
     }
-
-    const invoiceList = invoices ?? [];
-    const invoiceIds = invoiceList.map((inv) => inv.id);
-
-    type LineItem = { invoice_id: string; cost_code: string; amount: number };
-    let lineItems: LineItem[] = [];
-    if (invoiceIds.length > 0) {
-      const { data: items, error: lineItemsError } = await supabase
-        .from("invoice_line_items")
-        .select("invoice_id, cost_code, amount")
-        .in("invoice_id", invoiceIds);
-
-      if (lineItemsError) {
-        return { error: `Failed to query line items: ${lineItemsError.message}` };
-      }
-      lineItems = (items ?? []) as LineItem[];
-    }
-
-    const invoiceIdsWithLineItems = new Set(
-      lineItems.map((li) => li.invoice_id)
-    );
 
     const costCodeTotals = new Map<string, number>();
 
-    // Multi-line invoices: convert cost_code text number → UUID via lookup
-    for (const item of lineItems) {
+    for (const item of (lineItems ?? []) as { cost_code: string; amount: number }[]) {
       // cost_code may be a code number ("11") or a UUID — handle both
       const ccId = codeToUuid.get(item.cost_code) ?? item.cost_code;
       const amount = (item.amount as number) || 0;
-      if (ccId && amount !== 0) {
-        const current = costCodeTotals.get(ccId) || 0;
-        costCodeTotals.set(ccId, current + amount);
-      }
-    }
-
-    // Single-line invoices (no line items): use invoices.cost_code_id (already UUID)
-    for (const invoice of invoiceList) {
-      if (invoiceIdsWithLineItems.has(invoice.id)) continue;
-      const amount = ((invoice.total_amount ?? invoice.amount ?? 0) as number);
-      const ccId = invoice.cost_code_id as string | null;
       if (ccId && amount !== 0) {
         const current = costCodeTotals.get(ccId) || 0;
         costCodeTotals.set(ccId, current + amount);

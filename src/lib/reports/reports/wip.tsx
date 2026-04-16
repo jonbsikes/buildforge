@@ -47,11 +47,11 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
     .eq("status", "active")
     .order("name");
 
-  // Get approved/released/cleared invoices
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select("project_id, amount")
-    .in("status", ["approved", "released", "cleared"]);
+  // Get approved/released/cleared invoice line items (by line item project)
+  const { data: lineItems } = await supabase
+    .from("invoice_line_items")
+    .select("project_id, amount, invoices!inner ( status )")
+    .in("invoices.status", ["approved", "released", "cleared"]);
 
   // Get ledger WIP balances from journal entries
   const { data: ledgerLines } = await supabase
@@ -64,9 +64,9 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
 
   // Build maps
   const invoiceMap: Record<string, number> = {};
-  for (const inv of invoices ?? []) {
-    if (inv.project_id) {
-      invoiceMap[inv.project_id] = (invoiceMap[inv.project_id] ?? 0) + (inv.amount ?? 0);
+  for (const li of lineItems ?? []) {
+    if (li.project_id) {
+      invoiceMap[li.project_id] = (invoiceMap[li.project_id] ?? 0) + (li.amount ?? 0);
     }
   }
 

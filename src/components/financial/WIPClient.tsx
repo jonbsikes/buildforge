@@ -44,7 +44,7 @@ export default function WIPClient() {
         supabase.from("projects").select("id, name, project_type, status").order("name"),
         supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
         supabase.from("contracts").select("project_id, amount"),
-        supabase.from("invoices").select("project_id, amount, total_amount").in("status", ["approved", "released", "cleared"]),
+        supabase.from("invoice_line_items").select("project_id, amount, invoices!inner ( status )").in("invoices.status", ["approved", "released", "cleared"]),
         supabase.from("loans").select("project_id, loan_amount"),
         supabase.from("chart_of_accounts").select("id, account_number").in("account_number", ["1210", "1220", "1230"]),
       ]);
@@ -63,9 +63,9 @@ export default function WIPClient() {
       }
 
       const actualMap: Record<string, number> = {};
-      for (const inv of invoicesRes.data ?? []) {
-        if (inv.project_id) {
-          actualMap[inv.project_id] = (actualMap[inv.project_id] ?? 0) + (inv.total_amount ?? inv.amount ?? 0);
+      for (const li of invoicesRes.data ?? []) {
+        if (li.project_id) {
+          actualMap[li.project_id] = (actualMap[li.project_id] ?? 0) + (li.amount ?? 0);
         }
       }
 

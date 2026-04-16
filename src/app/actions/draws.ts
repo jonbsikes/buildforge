@@ -182,12 +182,26 @@ export async function createDraw(
   // Exclude invoices already in funded/paid draws
   const lockedIds = await getLockedInvoiceIds(supabase);
 
+  // Find invoices that have ANY line item attributed to one of this lender's projects
+  // This handles multi-project invoices where the dominant project may differ
+  const { data: liRows } = await supabase
+    .from("invoice_line_items")
+    .select("invoice_id")
+    .in("project_id", projectIds);
+  const lineItemInvoiceIds = [...new Set((liRows ?? []).map((r) => r.invoice_id))];
+
+  // Also include invoices matched by header project_id (for invoices without line items)
   let invQuery = supabase
     .from("invoices")
     .select("id, amount")
     .eq("status", "approved")
-    .eq("pending_draw", true)
-    .in("project_id", projectIds);
+    .eq("pending_draw", true);
+
+  if (lineItemInvoiceIds.length > 0) {
+    invQuery = invQuery.or(`project_id.in.(${projectIds.join(",")}),id.in.(${lineItemInvoiceIds.join(",")})`);
+  } else {
+    invQuery = invQuery.in("project_id", projectIds);
+  }
 
   if (lockedIds.length > 0) {
     invQuery = invQuery.not("id", "in", `(${lockedIds.join(",")})`);
