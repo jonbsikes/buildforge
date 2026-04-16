@@ -28,7 +28,7 @@ export default async function EditInvoicePage({ params }: Props) {
 
       supabase
         .from("invoice_line_items")
-        .select("cost_code, description, amount")
+        .select("cost_code, description, amount, project_id")
         .eq("invoice_id", id)
         .order("created_at"),
 
@@ -119,7 +119,6 @@ export default async function EditInvoicePage({ params }: Props) {
             signedFileUrl={signedFileUrl}
             fileName={invoice.file_name ?? null}
             initial={{
-              project_id: invoice.project_id ?? null,
               vendor_id: invoice.vendor_id ?? null,
               vendor: invoice.vendor ?? null,
               invoice_number: invoice.invoice_number ?? null,
@@ -133,6 +132,7 @@ export default async function EditInvoicePage({ params }: Props) {
               ai_notes: invoice.ai_notes ?? null,
               contract_id: invoice.contract_id ?? null,
               line_items: (lineItemsResult.data ?? []).map((li) => ({
+                project_id: (li as { project_id?: string | null }).project_id ?? null,
                 cost_code: li.cost_code != null ? String(li.cost_code) : "",
                 description: li.description,
                 amount: li.amount ?? 0,

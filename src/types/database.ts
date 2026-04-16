@@ -653,6 +653,7 @@ export type Database = {
           description: string | null
           id: string
           invoice_id: string
+          project_id: string | null
         }
         Insert: {
           amount?: number | null
@@ -661,6 +662,7 @@ export type Database = {
           description?: string | null
           id?: string
           invoice_id: string
+          project_id?: string | null
         }
         Update: {
           amount?: number | null
@@ -669,6 +671,7 @@ export type Database = {
           description?: string | null
           id?: string
           invoice_id?: string
+          project_id?: string | null
         }
         Relationships: [
           {
@@ -683,6 +686,13 @@ export type Database = {
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_line_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]

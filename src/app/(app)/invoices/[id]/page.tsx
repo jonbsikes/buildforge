@@ -41,7 +41,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
   const [lineItemsResult, drawLinksResult] = await Promise.all([
     supabase
       .from("invoice_line_items")
-      .select("id, cost_code, description, amount")
+      .select("id, cost_code, description, amount, project_id, projects ( name )")
       .eq("invoice_id", id)
       .order("created_at"),
     supabase
@@ -252,11 +252,17 @@ export default async function InvoiceDetailPage({ params }: Props) {
                 <div className="grid grid-cols-1 gap-4">
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Project</p>
-                    {project ? (
-                      <p className="text-sm font-medium text-gray-900">{project.name}</p>
-                    ) : (
-                      <p className="text-sm font-medium text-gray-500">G&A (Company-wide)</p>
-                    )}
+                    {(() => {
+                      const lineProjectIds = new Set((lineItems ?? []).map((li) => (li as { project_id?: string | null }).project_id ?? null));
+                      if (lineProjectIds.size > 1) {
+                        return <p className="text-sm font-medium text-[#4272EF]">Multiple Projects (see line items)</p>;
+                      }
+                      return project ? (
+                        <p className="text-sm font-medium text-gray-900">{project.name}</p>
+                      ) : (
+                        <p className="text-sm font-medium text-gray-500">G&A (Company-wide)</p>
+                      );
+                    })()}
                   </div>
 
                   {linkedContract && (
@@ -311,23 +317,28 @@ export default async function InvoiceDetailPage({ params }: Props) {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100">
+                        <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Project</th>
                         <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Code</th>
                         <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Description</th>
                         <th className="text-right pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Amount</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {(lineItems ?? []).map((li) => (
-                        <tr key={li.id}>
-                          <td className="py-1.5 pr-4 text-xs font-mono text-gray-500">{li.cost_code}</td>
-                          <td className="py-1.5 pr-4 text-gray-700">{li.description ?? "\u2014"}</td>
-                          <td className="py-1.5 text-right font-medium text-gray-900 tabular-nums">{fmt(li.amount)}</td>
-                        </tr>
-                      ))}
+                      {(lineItems ?? []).map((li) => {
+                        const liProject = (li as { projects?: { name: string } | null }).projects;
+                        return (
+                          <tr key={li.id}>
+                            <td className="py-1.5 pr-4 text-xs text-gray-500">{liProject?.name ?? "G&A"}</td>
+                            <td className="py-1.5 pr-4 text-xs font-mono text-gray-500">{li.cost_code}</td>
+                            <td className="py-1.5 pr-4 text-gray-700">{li.description ?? "\u2014"}</td>
+                            <td className="py-1.5 text-right font-medium text-gray-900 tabular-nums">{fmt(li.amount)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-gray-200">
-                        <td colSpan={2} className="pt-2 text-sm font-semibold text-gray-700">Total</td>
+                        <td colSpan={3} className="pt-2 text-sm font-semibold text-gray-700">Total</td>
                         <td className="pt-2 text-right text-sm font-semibold text-gray-900 tabular-nums">{fmt(lineTotal)}</td>
                       </tr>
                     </tfoot>

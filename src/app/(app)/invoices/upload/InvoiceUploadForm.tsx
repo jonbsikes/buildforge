@@ -199,6 +199,7 @@ async function uploadAndExtract(
             cost_code: li.cost_code || null,
             description: li.description || "",
             amount: li.amount || 0,
+            project_id: resolvedProjectId,
           }))
         );
       }
@@ -632,6 +633,7 @@ function SingleUpload({ projects, costCodes, vendors: initialVendors, hasAI }: P
             cost_code: li.cost_code,
             description: li.description,
             amount: li.amount,
+            project_id: item.project_id || null,
           }))
         );
       }

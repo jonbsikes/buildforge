@@ -45,12 +45,13 @@ interface Props {
 }
 
 interface LineItem {
+  project_id: string;
   cost_code: string;
   description: string;
   amount: string;
 }
 
-const EMPTY_LINE: LineItem = { cost_code: "", description: "", amount: "" };
+const EMPTY_LINE: LineItem = { project_id: "", cost_code: "", description: "", amount: "" };
 
 function getCodesForContext(
   projectType: "home_construction" | "land_development" | null,
@@ -85,8 +86,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
   // Track if any field has been manually touched (for low-confidence lock)
   const [manuallyEdited, setManuallyEdited] = useState(false);
 
-  // Project / context
-  const [projectId, setProjectId] = useState("");
+  // Vendor
   const [vendorId, setVendorId] = useState("");
   const [vendorName, setVendorName] = useState(""); // free text fallback
 
@@ -117,7 +117,6 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     if (saved) {
       try {
         const draft = JSON.parse(saved);
-        if (draft.projectId) setProjectId(draft.projectId);
         if (draft.vendorName) setVendorName(draft.vendorName);
         if (draft.invoiceNumber) setInvoiceNumber(draft.invoiceNumber);
         if (draft.invoiceDate) setInvoiceDate(draft.invoiceDate);
@@ -134,37 +133,49 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Derived context
-  const selectedProject = projects.find((p) => p.id === projectId) ?? null;
-  const relevantCodes = getCodesForContext(
-    selectedProject?.project_type ?? null,
-    costCodes
-  );
+  // Derive dominant project from the largest line item (for display name / draw context)
+  const dominantLine = lineItems.reduce((max, li) => {
+    const a = parseFloat(li.amount) || 0;
+    const b = parseFloat(max.amount) || 0;
+    return a > b ? li : max;
+  }, lineItems[0]);
+  const dominantProject = projects.find((p) => p.id === dominantLine?.project_id) ?? null;
 
-  // G&A enforcement: if any line item uses a G&A cost code, project must be null
-  const hasGaCostCode = lineItems.some((li) => {
-    const found = costCodes.find((c) => c.code === li.cost_code);
-    return found?.project_type === "general_admin";
-  });
+  // Per-line cost code filtering helper
+  function getCodesForLine(lineProjectId: string): CostCode[] {
+    const proj = projects.find((p) => p.id === lineProjectId);
+    if (proj) return getCodesForContext(proj.project_type, costCodes);
+    // No project = G&A — show G&A codes
+    return costCodes.filter((c) => c.project_type === "general_admin");
+  }
 
   // Detect Loan Interest cost codes (121/122) — shows the auto-draft toggle
   const hasLoanInterestCode = lineItems.some((li) => li.cost_code === "121" || li.cost_code === "122");
 
-  // Auto-clear project when G&A code is selected
-  useEffect(() => {
-    if (hasGaCostCode && projectId) {
-      setProjectId("");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasGaCostCode]);
-
-  // Auto-clear directCashPayment and pendingDraw when Loan Interest code is removed
+  // Auto-clear directCashPayment when Loan Interest code is removed
   useEffect(() => {
     if (!hasLoanInterestCode && directCashPayment) {
       setDirectCashPayment(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLoanInterestCode]);
+
+  // Auto-clear cost code when project changes on a line item (code may not apply)
+  function updateLineProject(idx: number, newProjectId: string) {
+    markEdited();
+    setLineItems((prev) =>
+      prev.map((li, i) => {
+        if (i !== idx) return li;
+        // If changing project, check if current cost code still applies
+        const proj = projects.find((p) => p.id === newProjectId);
+        const codes = proj
+          ? getCodesForContext(proj.project_type, costCodes)
+          : costCodes.filter((c) => c.project_type === "general_admin");
+        const codeStillValid = codes.some((c) => c.code === li.cost_code);
+        return { ...li, project_id: newProjectId, cost_code: codeStillValid ? li.cost_code : "" };
+      })
+    );
+  }
 
   // Running total from line items
   const lineTotal = lineItems.reduce((sum, li) => {
@@ -246,12 +257,12 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
       setDueDate(inv.due_date ?? "");
       setAiConfidence(inv.ai_confidence ?? "low");
       if (!("invoices" in data && data.invoices.length > 1)) setAiNotes(inv.ai_notes ?? "");
-      if (inv.project_id) setProjectId(inv.project_id);
 
-      // Pre-fill line items
+      // Pre-fill line items with project_id from AI extraction
       if (inv.line_items?.length > 0) {
         setLineItems(
           inv.line_items.map((li) => ({
+            project_id: inv.project_id ?? "",
             cost_code: li.cost_code ?? "",
             description: li.description ?? "",
             amount: li.amount != null ? String(li.amount) : "",
@@ -341,11 +352,11 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
       cost_code: li.cost_code,
       description: li.description,
       amount: parseFloat(li.amount),
+      project_id: li.project_id || null,
     }));
 
     startTransition(async () => {
       const result = await saveInvoice({
-        project_id: projectId || null,
         vendor_id: vendorId, // mandatory — validated above
         vendor_name: resolvedVendorName,
         invoice_number: invoiceNumber,
@@ -357,7 +368,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         ai_confidence: aiConfidence ?? "high",
         ai_notes: aiNotes,
         line_items: parsedItems,
-        project_name: selectedProject?.name ?? "Company",
+        project_name: dominantProject?.name ?? "Company",
         status,
         pending_draw: pendingDraw && !directCashPayment,
         direct_cash_payment: directCashPayment,
@@ -478,59 +489,40 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         )}
       </section>
 
-      {/* Context: Project + Vendor */}
+      {/* Invoice Details */}
       <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <h2 className="text-sm font-semibold text-gray-700">Invoice Details</h2>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Project">
-            <select
-              value={hasGaCostCode ? "" : projectId}
-              onChange={(e) => { markEdited(); setProjectId(e.target.value); }}
-              disabled={hasGaCostCode}
-              className={inputClass(false) + (hasGaCostCode ? " opacity-50 cursor-not-allowed" : "")}
-              title={hasGaCostCode ? "G&A cost codes cannot be assigned to a project" : undefined}
-            >
-              <option value="">— G&A (no project) —</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Vendor" required>
-            <select
-              value={vendorId}
-              onChange={(e) => { markEdited(); setVendorId(e.target.value); }}
-              className={inputClass(!vendorId && !!submitError)}
-            >
-              <option value="">— Select vendor —</option>
-              {vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                sessionStorage.setItem("invoice_draft", JSON.stringify({
-                  projectId, vendorName, invoiceNumber, invoiceDate, dueDate,
-                  lineItems, aiConfidence, aiNotes,
-                }));
-                const params = new URLSearchParams();
-                if (vendorName) params.set("name", vendorName);
-                params.set("returnTo", "invoice");
-                router.push(`/vendors/new?${params.toString()}`);
-              }}
-              className="inline-block mt-1 text-xs text-[#4272EF] hover:underline"
-            >
-              + Create new vendor
-            </button>
-          </Field>
-        </div>
+        <Field label="Vendor" required>
+          <select
+            value={vendorId}
+            onChange={(e) => { markEdited(); setVendorId(e.target.value); }}
+            className={inputClass(!vendorId && !!submitError)}
+          >
+            <option value="">— Select vendor —</option>
+            {vendors.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => {
+              sessionStorage.setItem("invoice_draft", JSON.stringify({
+                vendorName, invoiceNumber, invoiceDate, dueDate,
+                lineItems, aiConfidence, aiNotes,
+              }));
+              const params = new URLSearchParams();
+              if (vendorName) params.set("name", vendorName);
+              params.set("returnTo", "invoice");
+              router.push(`/vendors/new?${params.toString()}`);
+            }}
+            className="inline-block mt-1 text-xs text-[#4272EF] hover:underline"
+          >
+            + Create new vendor
+          </button>
+        </Field>
 
         {/* Vendor name free-text removed — vendor must be selected from the dropdown for 1099 accuracy */}
 
@@ -627,62 +619,70 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
           </span>
         </div>
 
-        {relevantCodes.length === 0 && (
-          <p className="text-xs text-amber-600 mb-3">
-            {projectId
-              ? "No cost codes found for this project type."
-              : "No G&A cost codes found in the system."}
-          </p>
-        )}
-
         <div className="space-y-2">
           {/* Header row */}
-          <div className="grid grid-cols-[200px_1fr_120px_32px] gap-2 px-1">
+          <div className="grid grid-cols-[180px_180px_1fr_110px_32px] gap-2 px-1">
+            <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Project</span>
             <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Cost Code</span>
             <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Description</span>
             <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Amount</span>
             <span />
           </div>
 
-          {lineItems.map((li, idx) => (
-            <div key={idx} className="grid grid-cols-[200px_1fr_120px_32px] gap-2 items-center">
-              <select
-                value={li.cost_code}
-                onChange={(e) => updateLine(idx, "cost_code", e.target.value)}
-                className={inputClass(!li.cost_code && !!submitError)}
-              >
-                <option value="">— Select code —</option>
-                {relevantCodes.map((cc) => (
-                  <option key={cc.id} value={cc.code}>
-                    {cc.code} – {cc.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={li.description}
-                onChange={(e) => updateLine(idx, "description", e.target.value)}
-                placeholder="Description"
-                className={inputClass(!vendorId && !!submitError)}
-              />
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={li.amount}
-                onChange={(e) => updateLine(idx, "amount", e.target.value)}
-                placeholder="0.00"
-                className={inputClass(!li.amount && !!submitError)}
-              />
-              <button
-                onClick={() => removeLine(idx)}
-                disabled={lineItems.length === 1}
-                className="text-gray-300 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
+          {lineItems.map((li, idx) => {
+            const lineCodes = getCodesForLine(li.project_id);
+            return (
+              <div key={idx} className="grid grid-cols-[180px_180px_1fr_110px_32px] gap-2 items-center">
+                <select
+                  value={li.project_id}
+                  onChange={(e) => updateLineProject(idx, e.target.value)}
+                  className={inputClass(false)}
+                >
+                  <option value="">— G&A —</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={li.cost_code}
+                  onChange={(e) => updateLine(idx, "cost_code", e.target.value)}
+                  className={inputClass(!li.cost_code && !!submitError)}
+                >
+                  <option value="">— Code —</option>
+                  {lineCodes.map((cc) => (
+                    <option key={cc.id} value={cc.code}>
+                      {cc.code} – {cc.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={li.description}
+                  onChange={(e) => updateLine(idx, "description", e.target.value)}
+                  placeholder="Description"
+                  className={inputClass(false)}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={li.amount}
+                  onChange={(e) => updateLine(idx, "amount", e.target.value)}
+                  placeholder="0.00"
+                  className={inputClass(!li.amount && !!submitError)}
+                />
+                <button
+                  onClick={() => removeLine(idx)}
+                  disabled={lineItems.length === 1}
+                  className="text-gray-300 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         <button

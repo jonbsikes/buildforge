@@ -9,11 +9,11 @@ export interface LineItemInput {
   cost_code: string; // text code, e.g. "47"
   description: string;
   amount: number;
+  project_id: string | null; // each line item can target a different project
 }
 
 export interface SaveInvoiceInput {
-  // Header
-  project_id: string | null;
+  // Header — project_id is now derived from the dominant line item
   vendor_id: string | null;
   vendor_name: string; // for display name construction
   invoice_number: string;
@@ -27,7 +27,7 @@ export interface SaveInvoiceInput {
   ai_confidence: "high" | "medium" | "low";
   ai_notes: string;
 
-  // Line items
+  // Line items (each has its own project_id)
   line_items: LineItemInput[];
 
   // Derived from line items
@@ -80,8 +80,9 @@ export async function saveInvoice(
     }
   }
 
-  // Find dominant cost code (largest line item)
+  // Find dominant line item (largest amount) — its project_id becomes the header project_id
   const dominant = input.line_items.reduce((max, li) => (li.amount > max.amount ? li : max));
+  const headerProjectId = dominant.project_id || null;
 
   // Look up the UUID for the dominant cost code
   const { data: dominantCode } = await supabase
@@ -114,7 +115,7 @@ export async function saveInvoice(
   const { data: invoice, error: invoiceError } = await supabase
     .from("invoices")
     .insert({
-      project_id: input.project_id || null,
+      project_id: headerProjectId,
       vendor_id: input.vendor_id || null,
       vendor: vendorDisplay,
       invoice_number: input.invoice_number || null,
@@ -148,6 +149,7 @@ export async function saveInvoice(
         cost_code: li.cost_code ? String(li.cost_code) : null,
         description: li.description || null,
         amount: li.amount,
+        project_id: li.project_id || null,
       }))
     );
     if (lineError) {
@@ -195,24 +197,46 @@ export async function approveInvoice(
   }
 
   const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
   const today = new Date().toISOString().split("T")[0];
   const invLabel = [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
 
-  // Determine WIP debit account:
-  //   - G&A (no project): Miscellaneous Operating Expense (6900)
-  //   - Land Development: CIP — Land Improvements (1230)
-  //   - Home Construction: Construction WIP (1210)
-  const debitAccountNumber = !invoice.project_id
-    ? "6900"
-    : projectType === "land_development"
-    ? "1230"
-    : "1210";
+  // Load line items with per-line project info for multi-project GL posting
+  const { data: lineItems } = await supabase
+    .from("invoice_line_items")
+    .select("amount, project_id, projects ( project_type )")
+    .eq("invoice_id", invoiceId);
+
+  // Helper: determine WIP debit account for a given line item's project
+  function getDebitAccountNumber(liProjectId: string | null, liProjectType: string | null): string {
+    if (!liProjectId) return "6900"; // G&A
+    if (liProjectType === "land_development") return "1230"; // CIP — Land
+    return "1210"; // Construction WIP
+  }
+
+  // Group line item amounts by (debit account, project_id) for JE lines
+  type DebitGroup = { accountNumber: string; projectId: string | null; amount: number };
+  const debitGroups = new Map<string, DebitGroup>();
+  for (const li of lineItems ?? []) {
+    if (!li.amount || li.amount <= 0) continue;
+    const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+    const acctNum = getDebitAccountNumber(li.project_id ?? null, projType);
+    const key = `${acctNum}|${li.project_id ?? "null"}`;
+    const existing = debitGroups.get(key);
+    if (existing) {
+      existing.amount += li.amount;
+    } else {
+      debitGroups.set(key, { accountNumber: acctNum, projectId: li.project_id ?? null, amount: li.amount });
+    }
+  }
+
+  // Collect all unique GL account numbers needed
+  const allAccountNumbers = new Set<string>();
+  for (const g of debitGroups.values()) allAccountNumbers.add(g.accountNumber);
 
   if (invoice.direct_cash_payment) {
     // ── Direct cash payment path ────────────────────────────────────────────
     // Bank auto-drafted this payment. Skip AP entirely.
-    // Single JE: DR WIP/CIP / CR Cash (1000)
+    // JE: DR WIP/CIP per line-item project / CR Cash (1000)
     // Invoice advances directly to 'cleared'.
 
     const { error } = await supabase
@@ -228,15 +252,16 @@ export async function approveInvoice(
     if (error) return { error: error.message };
 
     if (invoiceAmount > 0) {
+      allAccountNumbers.add("1000");
       const { data: glAccounts } = await supabase
         .from("chart_of_accounts")
         .select("id, account_number")
-        .in("account_number", [debitAccountNumber, "1000"]);
+        .in("account_number", [...allAccountNumbers]);
 
-      const debitAcctId = glAccounts?.find(a => a.account_number === debitAccountNumber)?.id;
-      const acct1000 = glAccounts?.find(a => a.account_number === "1000")?.id;
+      const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+      const acct1000 = acctMap.get("1000");
 
-      if (debitAcctId && acct1000) {
+      if (acct1000 && debitGroups.size > 0) {
         const { data: je } = await supabase
           .from("journal_entries")
           .insert({
@@ -252,30 +277,40 @@ export async function approveInvoice(
           .single();
 
         if (je) {
-          await supabase.from("journal_entry_lines").insert([
-            {
-              journal_entry_id: je.id,
-              account_id: debitAcctId,
-              project_id: invoice.project_id ?? null,
-              description: `Loan interest — ${invLabel}`,
-              debit: invoiceAmount,
-              credit: 0,
-            },
-            {
-              journal_entry_id: je.id,
-              account_id: acct1000,
-              project_id: invoice.project_id ?? null,
-              description: `Bank auto-draft — ${invLabel}`,
-              debit: 0,
-              credit: invoiceAmount,
-            },
-          ]);
+          const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
+
+          // Debit lines per project group
+          for (const g of debitGroups.values()) {
+            const acctId = acctMap.get(g.accountNumber);
+            if (acctId) {
+              jeLines.push({
+                journal_entry_id: je.id,
+                account_id: acctId,
+                project_id: g.projectId,
+                description: `Loan interest — ${invLabel}`,
+                debit: g.amount,
+                credit: 0,
+              });
+            }
+          }
+
+          // Single credit line for Cash
+          jeLines.push({
+            journal_entry_id: je.id,
+            account_id: acct1000,
+            project_id: null,
+            description: `Bank auto-draft — ${invLabel}`,
+            debit: 0,
+            credit: invoiceAmount,
+          });
+
+          await supabase.from("journal_entry_lines").insert(jeLines);
         }
       }
     }
   } else {
     // ── Standard AP path ────────────────────────────────────────────────────
-    // Post WIP/AP JE. fundDraw checks wip_ap_posted to prevent double-entry.
+    // Post WIP/AP JE per line-item project. fundDraw checks wip_ap_posted to prevent double-entry.
 
     const { error } = await supabase
       .from("invoices")
@@ -285,15 +320,16 @@ export async function approveInvoice(
     if (error) return { error: error.message };
 
     if (invoiceAmount > 0) {
+      allAccountNumbers.add("2000");
       const { data: glAccounts } = await supabase
         .from("chart_of_accounts")
         .select("id, account_number")
-        .in("account_number", [debitAccountNumber, "2000"]);
+        .in("account_number", [...allAccountNumbers]);
 
-      const debitAcctId = glAccounts?.find(a => a.account_number === debitAccountNumber)?.id;
-      const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
+      const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+      const acct2000 = acctMap.get("2000");
 
-      if (debitAcctId && acct2000) {
+      if (acct2000 && debitGroups.size > 0) {
         const { data: je } = await supabase
           .from("journal_entries")
           .insert({
@@ -309,24 +345,35 @@ export async function approveInvoice(
           .single();
 
         if (je) {
-          await supabase.from("journal_entry_lines").insert([
-            {
-              journal_entry_id: je.id,
-              account_id: debitAcctId,
-              project_id: invoice.project_id ?? null,
-              description: invLabel,
-              debit: invoiceAmount,
-              credit: 0,
-            },
-            {
-              journal_entry_id: je.id,
-              account_id: acct2000,
-              project_id: invoice.project_id ?? null,
-              description: `AP — ${invLabel}`,
-              debit: 0,
-              credit: invoiceAmount,
-            },
-          ]);
+          const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
+
+          // Debit lines per project group
+          for (const g of debitGroups.values()) {
+            const acctId = acctMap.get(g.accountNumber);
+            if (acctId) {
+              jeLines.push({
+                journal_entry_id: je.id,
+                account_id: acctId,
+                project_id: g.projectId,
+                description: invLabel,
+                debit: g.amount,
+                credit: 0,
+              });
+            }
+          }
+
+          // Single credit line for AP
+          jeLines.push({
+            journal_entry_id: je.id,
+            account_id: acct2000,
+            project_id: null,
+            description: `AP — ${invLabel}`,
+            debit: 0,
+            credit: invoiceAmount,
+          });
+
+          await supabase.from("journal_entry_lines").insert(jeLines);
+
           // Flag so fundDraw skips re-posting WIP/AP for this invoice
           await supabase
             .from("invoices")
@@ -432,7 +479,6 @@ async function isInFundedDraw(
 // ---------------------------------------------------------------------------
 
 export interface UpdateInvoiceInput {
-  project_id: string | null;
   vendor_id: string | null;
   vendor_name: string;
   invoice_number: string;
@@ -441,7 +487,7 @@ export interface UpdateInvoiceInput {
   pending_draw: boolean;
   status: "pending_review" | "approved" | "released" | "cleared" | "disputed" | "void";
   payment_method: string;
-  line_items: LineItemInput[];
+  line_items: LineItemInput[]; // each line item has its own project_id
   project_name: string;
   contract_id: string | null;
   direct_cash_payment?: boolean;
@@ -474,6 +520,7 @@ export async function updateInvoice(
 
   const totalAmount = input.line_items.reduce((sum, li) => sum + li.amount, 0);
   const dominant = input.line_items.reduce((max, li) => (li.amount > max.amount ? li : max));
+  const headerProjectId = dominant.project_id || null;
 
   const { data: dominantCode } = await supabase
     .from("cost_codes")
@@ -506,7 +553,7 @@ export async function updateInvoice(
   const { error: updateErr } = await supabase
     .from("invoices")
     .update({
-      project_id: input.project_id || null,
+      project_id: headerProjectId,
       vendor_id: input.vendor_id || null,
       vendor: vendorDisplay,
       invoice_number: input.invoice_number || null,
@@ -533,6 +580,7 @@ export async function updateInvoice(
     cost_code: li.cost_code ? String(li.cost_code) : null,
     description: li.description || null,
     amount: li.amount,
+    project_id: li.project_id || null,
   }));
 
   const { data: insertedLines, error: lineInsertErr } = await supabase
@@ -651,28 +699,42 @@ export async function voidInvoice(
   }
 
   const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
   const today = new Date().toISOString().split("T")[0];
   const invLabel =
     [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
 
-  // If WIP/AP was posted, reverse it: DR AP (2000) / CR WIP/CIP
+  // If WIP/AP was posted, reverse it: DR AP (2000) / CR WIP/CIP per line-item project
   if (invoiceAmount > 0 && invoice.wip_ap_posted) {
-    const wipAccountNumber = !invoice.project_id
-      ? "6900"
-      : projectType === "land_development"
-      ? "1230"
-      : "1210";
+    // Load line items with per-line project info
+    const { data: voidLineItems } = await supabase
+      .from("invoice_line_items")
+      .select("amount, project_id, projects ( project_type )")
+      .eq("invoice_id", invoiceId);
+
+    // Group by project for reversal JE
+    const accountNumbers = new Set(["2000"]);
+    type VoidGroup = { projectId: string | null; wipAccountNumber: string; amount: number };
+    const voidGroups = new Map<string, VoidGroup>();
+    for (const li of voidLineItems ?? []) {
+      if (!li.amount || li.amount <= 0) continue;
+      const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+      const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
+      accountNumbers.add(wipAcctNum);
+      const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
+      const existing = voidGroups.get(key);
+      if (existing) { existing.amount += li.amount; }
+      else { voidGroups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount }); }
+    }
 
     const { data: glAccounts } = await supabase
       .from("chart_of_accounts")
       .select("id, account_number")
-      .in("account_number", ["2000", wipAccountNumber]);
+      .in("account_number", [...accountNumbers]);
 
-    const acct2000 = glAccounts?.find((a) => a.account_number === "2000")?.id;
-    const wipAcctId = glAccounts?.find((a) => a.account_number === wipAccountNumber)?.id;
+    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+    const acct2000 = acctMap.get("2000");
 
-    if (acct2000 && wipAcctId) {
+    if (acct2000 && voidGroups.size > 0) {
       const { data: je } = await supabase
         .from("journal_entries")
         .insert({
@@ -688,24 +750,30 @@ export async function voidInvoice(
         .single();
 
       if (je) {
-        await supabase.from("journal_entry_lines").insert([
+        const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
           {
             journal_entry_id: je.id,
             account_id: acct2000,
-            project_id: invoice.project_id ?? null,
+            project_id: null,
             description: `AP cleared — invoice voided — ${invLabel}`,
             debit: invoiceAmount,
             credit: 0,
           },
-          {
-            journal_entry_id: je.id,
-            account_id: wipAcctId,
-            project_id: invoice.project_id ?? null,
-            description: `WIP reversal — invoice voided — ${invLabel}`,
-            debit: 0,
-            credit: invoiceAmount,
-          },
-        ]);
+        ];
+        for (const g of voidGroups.values()) {
+          const wipAcctId = acctMap.get(g.wipAccountNumber);
+          if (wipAcctId) {
+            jeLines.push({
+              journal_entry_id: je.id,
+              account_id: wipAcctId,
+              project_id: g.projectId,
+              description: `WIP reversal — invoice voided — ${invLabel}`,
+              debit: 0,
+              credit: g.amount,
+            });
+          }
+        }
+        await supabase.from("journal_entry_lines").insert(jeLines);
       }
     }
   }
@@ -757,30 +825,41 @@ export async function voidAfterDraw(
   }
 
   const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
   const today = new Date().toISOString().split("T")[0];
   const invLabel =
     [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
 
-  // Determine the WIP/CIP account that was originally debited at approval
-  const wipAccountNumber = !invoice.project_id
-    ? "6900"
-    : projectType === "land_development"
-    ? "1230"
-    : "1210";
-
   // Only post the clearing JE if WIP/AP was actually posted (wip_ap_posted = true).
-  // If for some reason the WIP entry was never posted, there is no AP to clear.
   if (invoiceAmount > 0 && invoice.wip_ap_posted) {
+    // Load line items with per-line project info for per-project reversal
+    const { data: vadLineItems } = await supabase
+      .from("invoice_line_items")
+      .select("amount, project_id, projects ( project_type )")
+      .eq("invoice_id", invoiceId);
+
+    const accountNumbers = new Set(["2000"]);
+    type VadGroup = { projectId: string | null; wipAccountNumber: string; amount: number };
+    const vadGroups = new Map<string, VadGroup>();
+    for (const li of vadLineItems ?? []) {
+      if (!li.amount || li.amount <= 0) continue;
+      const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+      const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
+      accountNumbers.add(wipAcctNum);
+      const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
+      const existing = vadGroups.get(key);
+      if (existing) { existing.amount += li.amount; }
+      else { vadGroups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount }); }
+    }
+
     const { data: glAccounts } = await supabase
       .from("chart_of_accounts")
       .select("id, account_number")
-      .in("account_number", ["2000", wipAccountNumber]);
+      .in("account_number", [...accountNumbers]);
 
-    const acct2000 = glAccounts?.find((a) => a.account_number === "2000")?.id;
-    const wipAcctId = glAccounts?.find((a) => a.account_number === wipAccountNumber)?.id;
+    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+    const acct2000 = acctMap.get("2000");
 
-    if (acct2000 && wipAcctId) {
+    if (acct2000 && vadGroups.size > 0) {
       const { data: je } = await supabase
         .from("journal_entries")
         .insert({
@@ -796,24 +875,30 @@ export async function voidAfterDraw(
         .single();
 
       if (je) {
-        await supabase.from("journal_entry_lines").insert([
+        const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
           {
             journal_entry_id: je.id,
             account_id: acct2000,
-            project_id: invoice.project_id ?? null,
+            project_id: null,
             description: `AP cleared — vendor not paid — ${invLabel}`,
             debit: invoiceAmount,
             credit: 0,
           },
-          {
-            journal_entry_id: je.id,
-            account_id: wipAcctId,
-            project_id: invoice.project_id ?? null,
-            description: `WIP reduction — disputed invoice voided — ${invLabel}`,
-            debit: 0,
-            credit: invoiceAmount,
-          },
-        ]);
+        ];
+        for (const g of vadGroups.values()) {
+          const wipAcctId = acctMap.get(g.wipAccountNumber);
+          if (wipAcctId) {
+            jeLines.push({
+              journal_entry_id: je.id,
+              account_id: wipAcctId,
+              project_id: g.projectId,
+              description: `WIP reduction — disputed invoice voided — ${invLabel}`,
+              debit: 0,
+              credit: g.amount,
+            });
+          }
+        }
+        await supabase.from("journal_entry_lines").insert(jeLines);
       }
     }
   }
@@ -881,25 +966,42 @@ export async function advanceInvoiceStatus(
 
   if (invoiceAmount <= 0) { revalidatePath("/invoices"); return {}; }
 
-  const projectType = (invoice.projects as { project_type: string } | null)?.project_type;
-  const wipAccountNumber = !invoice.project_id
-    ? "6900"
-    : projectType === "land_development"
-    ? "1230"
-    : "1210";
+  // Load line items with per-line project info for multi-project JE lines
+  const { data: advLineItems } = await supabase
+    .from("invoice_line_items")
+    .select("amount, project_id, projects ( project_type )")
+    .eq("invoice_id", invoiceId);
+
+  // Group line item amounts by project for JE debit/credit distribution
+  type ProjGroup = { projectId: string | null; wipAccountNumber: string; amount: number };
+  const projGroups = new Map<string, ProjGroup>();
+  for (const li of advLineItems ?? []) {
+    if (!li.amount || li.amount <= 0) continue;
+    const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+    const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
+    const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
+    const existing = projGroups.get(key);
+    if (existing) {
+      existing.amount += li.amount;
+    } else {
+      projGroups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount });
+    }
+  }
 
   if (to === "released") {
-    const accountNumbers = ["2000", "2050"];
-    if (savedDiscount > 0) accountNumbers.push(wipAccountNumber);
+    const accountNumbers = new Set(["2000", "2050"]);
+    if (savedDiscount > 0) {
+      for (const g of projGroups.values()) accountNumbers.add(g.wipAccountNumber);
+    }
 
     const { data: glAccounts } = await supabase
       .from("chart_of_accounts")
       .select("id, account_number")
-      .in("account_number", accountNumbers);
+      .in("account_number", [...accountNumbers]);
 
-    const acct2000 = glAccounts?.find(a => a.account_number === "2000")?.id;
-    const acct2050 = glAccounts?.find(a => a.account_number === "2050")?.id;
-    const wipAcct = savedDiscount > 0 ? glAccounts?.find(a => a.account_number === wipAccountNumber)?.id : null;
+    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+    const acct2000 = acctMap.get("2000");
+    const acct2050 = acctMap.get("2050");
 
     if (acct2000 && acct2050) {
       const { data: je } = await supabase
@@ -919,11 +1021,11 @@ export async function advanceInvoiceStatus(
         .single();
 
       if (je) {
-        const lines = [
+        const lines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
           {
             journal_entry_id: je.id,
             account_id: acct2000,
-            project_id: invoice.project_id ?? null,
+            project_id: null,
             description: `AP — ${desc}`,
             debit: invoiceAmount,
             credit: 0,
@@ -931,22 +1033,37 @@ export async function advanceInvoiceStatus(
           {
             journal_entry_id: je.id,
             account_id: acct2050,
-            project_id: invoice.project_id ?? null,
+            project_id: null,
             description: `Check issued — ${desc}`,
             debit: 0,
             credit: netAmount,
           },
         ];
 
-        if (savedDiscount > 0 && wipAcct) {
-          lines.push({
-            journal_entry_id: je.id,
-            account_id: wipAcct,
-            project_id: invoice.project_id ?? null,
-            description: `Early-pay discount — ${desc}`,
-            debit: 0,
-            credit: savedDiscount,
-          });
+        // Distribute discount credit across projects pro-rata
+        if (savedDiscount > 0) {
+          let distributed = 0;
+          const groupArr = [...projGroups.values()];
+          for (let i = 0; i < groupArr.length; i++) {
+            const g = groupArr[i];
+            const share = i === groupArr.length - 1
+              ? savedDiscount - distributed
+              : Math.round((g.amount / invoiceAmount) * savedDiscount * 100) / 100;
+            distributed += share;
+            if (share > 0) {
+              const wipAcctId = acctMap.get(g.wipAccountNumber);
+              if (wipAcctId) {
+                lines.push({
+                  journal_entry_id: je.id,
+                  account_id: wipAcctId,
+                  project_id: g.projectId,
+                  description: `Early-pay discount — ${desc}`,
+                  debit: 0,
+                  credit: share,
+                });
+              }
+            }
+          }
         }
 
         await supabase.from("journal_entry_lines").insert(lines);
@@ -980,11 +1097,12 @@ export async function advanceInvoiceStatus(
         .single();
 
       if (je) {
+        // Cleared JE is Cash-side only (DR 2050 / CR 1000) — no project split needed
         await supabase.from("journal_entry_lines").insert([
           {
             journal_entry_id: je.id,
             account_id: acct2050,
-            project_id: invoice.project_id ?? null,
+            project_id: null,
             description: `Outstanding check cleared — ${desc}`,
             debit: netAmount,
             credit: 0,
@@ -992,7 +1110,7 @@ export async function advanceInvoiceStatus(
           {
             journal_entry_id: je.id,
             account_id: acct1000,
-            project_id: invoice.project_id ?? null,
+            project_id: null,
             description: `Cash — ${desc}`,
             debit: 0,
             credit: netAmount,

@@ -659,6 +659,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 
   // Step 3d: Post WIP/AP JEs — skip invoices that already had WIP/AP posted at approval
   // (wip_ap_posted = true means approveInvoice already handled it).
+  // Now reads line items per invoice to get per-project WIP account mapping.
   if (acct1210 && acct1230 && acct2000) {
     type InvDetail = {
       id: string;
@@ -681,26 +682,50 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     let totalWip = 0;
     const newlyPostedInvoiceIds: string[] = [];
 
+    // Collect invoice IDs that need WIP posting
+    const needsWipInvoiceIds: string[] = [];
     for (const di of drawInvoiceDetails ?? []) {
       const inv = di.invoices as InvDetail | null;
       if (!inv || !inv.amount) continue;
-      // Skip if WIP/AP was already posted when invoice was approved outside of draw flow
       if (inv.wip_ap_posted) continue;
-
-      const isLandDev = inv.projects?.project_type === "land_development";
-      const wipAcctId = isLandDev ? acct1230 : acct1210;
-      const invLabel = [inv.vendor, inv.invoice_number].filter(Boolean).join(" — Inv #");
-
-      wipLines.push({
-        journal_entry_id: "", // filled after JE insert
-        account_id: wipAcctId,
-        project_id: inv.project_id ?? null,
-        description: invLabel || "Construction cost",
-        debit: inv.amount,
-        credit: 0,
-      });
-      totalWip += inv.amount;
+      needsWipInvoiceIds.push(inv.id);
       newlyPostedInvoiceIds.push(inv.id);
+      totalWip += inv.amount;
+    }
+
+    // Load line items for invoices that need WIP posting
+    if (needsWipInvoiceIds.length > 0 && totalWip > 0) {
+      const { data: drawLineItems } = await supabase
+        .from("invoice_line_items")
+        .select("invoice_id, amount, project_id, projects ( project_type )")
+        .in("invoice_id", needsWipInvoiceIds);
+
+      // Build debit lines from line items (per project)
+      for (const li of drawLineItems ?? []) {
+        if (!li.amount || li.amount <= 0) continue;
+        const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+        const isLandDev = projType === "land_development";
+        const wipAcctId = isLandDev ? acct1230 : (!li.project_id ? acct1210 : (isLandDev ? acct1230 : acct1210));
+        // Look up the invoice's vendor label for the description
+        const parentDi = (drawInvoiceDetails ?? []).find(d => (d.invoices as InvDetail | null)?.id === li.invoice_id);
+        const parentInv = parentDi?.invoices as InvDetail | null;
+        const invLabel = parentInv ? [parentInv.vendor, parentInv.invoice_number].filter(Boolean).join(" — Inv #") : "Construction cost";
+
+        // Determine correct WIP account from line item project
+        const debitAcctId = !li.project_id ? acct1210 : (isLandDev ? acct1230 : acct1210);
+        // G&A line items (no project) should go to 6900 but that's not loaded here;
+        // however, draw invoices always have a project (draws are project-based),
+        // so this case shouldn't arise. Use acct1210 as fallback.
+
+        wipLines.push({
+          journal_entry_id: "", // filled after JE insert
+          account_id: debitAcctId,
+          project_id: li.project_id ?? null,
+          description: invLabel,
+          debit: li.amount,
+          credit: 0,
+        });
+      }
     }
 
     if (wipLines.length > 0 && totalWip > 0) {
