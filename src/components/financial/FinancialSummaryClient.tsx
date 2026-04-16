@@ -36,19 +36,34 @@ export default function FinancialSummaryClient() {
     async function load() {
       const supabase = createClient();
 
-      // Fetch all GL data, loans, and projects in parallel
-      const [ledgerRes, loansRes, projectsRes] = await Promise.all([
-        supabase.from("journal_entry_lines").select(`
-          debit, credit, project_id,
-          account:chart_of_accounts(account_number, name, type),
-          journal_entry:journal_entries(id, entry_date, status)
-        `),
+      // Fetch loans and projects in parallel; paginate GL lines separately
+      // to break past Supabase's 1000-row default cap.
+      const [loansRes, projectsRes] = await Promise.all([
         supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
         supabase.from("projects").select("id, name").order("name"),
       ]);
 
+      const ledgerSelect = `
+        debit, credit, project_id,
+        account:chart_of_accounts(account_number, name, type),
+        journal_entry:journal_entries(id, entry_date, status)
+      `;
+      let rawLines: any[] = [];
+      let fromIdx = 0;
+      const PAGE_SIZE = 1000;
+      while (true) {
+        const { data: page } = await supabase
+          .from("journal_entry_lines")
+          .select(ledgerSelect)
+          .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+        if (!page || page.length === 0) break;
+        rawLines = rawLines.concat(page);
+        if (page.length < PAGE_SIZE) break;
+        fromIdx += PAGE_SIZE;
+      }
+
       // Filter to posted entries
-      const lines = (ledgerRes.data ?? []).filter((l: any) => l.journal_entry?.status === "posted");
+      const lines = rawLines.filter((l: any) => l.journal_entry?.status === "posted");
 
       // Aggregate by account
       const acctTotals: Record<string, { debit: number; credit: number; type: string }> = {};

@@ -49,16 +49,30 @@ export default function TaxExportClient() {
         const completed: string[] = [];
 
         // 1. GL entries from journal_entry_lines + journal_entries + chart_of_accounts
-        const { data: jelData } = await supabase
-          .from("journal_entry_lines")
-          .select(`
-            debit, credit, description,
-            account:chart_of_accounts(account_number, name, type),
-            journal_entry:journal_entries(entry_date, description, reference, status, source_type),
-            project:projects(name)
-          `);
+        //    Paginate past Supabase's 1000-row default cap; tax export can easily exceed that.
+        const jelSelect = `
+          debit, credit, description,
+          account:chart_of_accounts(account_number, name, type),
+          journal_entry:journal_entries(entry_date, description, reference, status, source_type),
+          project:projects(name)
+        `;
+        let jelData: any[] = [];
+        {
+          let fromIdx = 0;
+          const PAGE_SIZE = 1000;
+          while (true) {
+            const { data: page } = await supabase
+              .from("journal_entry_lines")
+              .select(jelSelect)
+              .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+            if (!page || page.length === 0) break;
+            jelData = jelData.concat(page);
+            if (page.length < PAGE_SIZE) break;
+            fromIdx += PAGE_SIZE;
+          }
+        }
 
-        const glLines = (jelData ?? []).filter((l: any) =>
+        const glLines = jelData.filter((l: any) =>
           l.journal_entry?.status === "posted" &&
           l.journal_entry?.entry_date >= fromDate &&
           l.journal_entry?.entry_date <= toDate

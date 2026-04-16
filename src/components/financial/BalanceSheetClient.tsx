@@ -102,18 +102,30 @@ export default function BalanceSheetClient() {
     setLoading(true);
     const supabase = createClient();
 
-    // Fetch GL data only — AP is fully captured in journal entries (no raw invoice supplement needed)
-    const [ledgerRes] = await Promise.all([
-      supabase.from("journal_entry_lines").select(`
-        id, debit, credit, description, project_id,
-        account:chart_of_accounts(account_number, name, type, subtype, is_active),
-        journal_entry:journal_entries(id, entry_date, status, description, reference),
-        project:projects(id, name)
-      `),
-    ]);
+    // Fetch ALL journal entry lines (paginate past Supabase 1000-row default).
+    // Failing to paginate silently truncates the ledger and breaks the balance sheet.
+    const selectQuery = `
+      id, debit, credit, description, project_id,
+      account:chart_of_accounts(account_number, name, type, subtype, is_active),
+      journal_entry:journal_entries(id, entry_date, status, description, reference),
+      project:projects(id, name)
+    `;
+    let rawLines: any[] = [];
+    let fromIdx = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const { data: page } = await supabase
+        .from("journal_entry_lines")
+        .select(selectQuery)
+        .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+      if (!page || page.length === 0) break;
+      rawLines = rawLines.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      fromIdx += PAGE_SIZE;
+    }
 
     // Filter to posted entries within date range
-    const ledgerLines = (ledgerRes.data ?? []).filter((l: any) =>
+    const ledgerLines = rawLines.filter((l: any) =>
       l.journal_entry?.status === "posted" && l.journal_entry?.entry_date <= asOf
     );
 

@@ -67,17 +67,29 @@ export default function IncomeStatementClient() {
 
     const supabase = createClient();
 
-    // Fetch ALL journal entry lines with account and entry info — filter client-side
-    const { data: ledgerLines } = await supabase
-      .from("journal_entry_lines")
-      .select(`
-        id, debit, credit, description,
-        account:chart_of_accounts(account_number, name, type),
-        journal_entry:journal_entries(entry_date, reference, description, status)
-      `);
+    // Fetch ALL journal entry lines with account and entry info — paginate past
+    // Supabase's 1000-row default cap, then filter client-side.
+    const ledgerSelect = `
+      id, debit, credit, description,
+      account:chart_of_accounts(account_number, name, type),
+      journal_entry:journal_entries(entry_date, reference, description, status)
+    `;
+    let ledgerLines: any[] = [];
+    let fromIdx = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const { data: page } = await supabase
+        .from("journal_entry_lines")
+        .select(ledgerSelect)
+        .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+      if (!page || page.length === 0) break;
+      ledgerLines = ledgerLines.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      fromIdx += PAGE_SIZE;
+    }
 
     // Filter to posted entries within date range (client-side to avoid PostgREST foreign table filter issues)
-    const posted = (ledgerLines ?? []).filter((l: any) =>
+    const posted = ledgerLines.filter((l: any) =>
       l.journal_entry?.status === "posted" &&
       l.journal_entry?.entry_date >= start &&
       l.journal_entry?.entry_date <= end
