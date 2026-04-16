@@ -26,6 +26,9 @@ export interface ReportParams {
   projectId?: string;    // per-project reports
   subdivisionId?: string;
   year?: string;         // tax export
+  projectType?: string;  // job-cost: 'home_construction' | 'land_development'
+  subdivision?: string;  // job-cost: subdivision filter
+  status?: string;       // job-cost: project status filter
 }
 
 export interface ReportDescriptor {
@@ -105,8 +108,8 @@ export const REPORTS: Record<ReportSlug, ReportDescriptor> = {
   "job-cost": {
     slug: "job-cost",
     title: "Job Cost Report",
-    kind: "project",
-    filename: (p) => `Job-Cost-${p.projectId}.pdf`,
+    kind: "range-or-project",
+    filename: (p) => `Job-Cost-${p.projectType ?? "all"}.pdf`,
   },
   "budget-variance": {
     slug: "budget-variance",
