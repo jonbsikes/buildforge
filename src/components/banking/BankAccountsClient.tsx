@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Pencil, Trash2, Plus, X, Check, Building2 } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Check, Building2, Upload } from "lucide-react";
 import {
   createBankAccount,
   updateBankAccount,
   deleteBankAccount,
   type BankAccountInput,
 } from "@/app/actions/banking";
+import CSVImportDialog from "./CSVImportDialog";
 
 interface BankAccount {
   id: string;
@@ -150,6 +151,7 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [importingAccount, setImportingAccount] = useState<BankAccount | null>(null);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -278,6 +280,14 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
 
                 <div className="flex items-center gap-2 justify-end pt-2 border-t border-gray-100">
                   <button
+                    onClick={() => setImportingAccount(acct)}
+                    className="flex items-center gap-1 px-2 py-1 text-xs text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
+                    title="Import CSV"
+                  >
+                    <Upload size={13} />
+                    Import
+                  </button>
+                  <button
                     onClick={() => setEditingId(acct.id)}
                     className="p-1.5 text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
                   >
@@ -312,6 +322,15 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
           <Plus size={15} />
           Add Bank Account
         </button>
+      )}
+
+      {importingAccount && (
+        <CSVImportDialog
+          bankAccountId={importingAccount.id}
+          accountName={`${importingAccount.bank_name} — ${importingAccount.account_name}`}
+          onClose={() => setImportingAccount(null)}
+          onSuccess={() => setImportingAccount(null)}
+        />
       )}
     </div>
   );

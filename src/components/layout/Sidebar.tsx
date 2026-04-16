@@ -106,6 +106,7 @@ const sections: NavSection[] = [
           { href: "/banking/accounts", label: "Bank Accounts" },
           { href: "/banking/loans", label: "Loans" },
           { href: "/banking/payments", label: "Payment Register" },
+          { href: "/banking/reconciliation", label: "Reconciliation" },
           { href: "/draws", label: "Draw Requests" },
         ],
       },

@@ -47,6 +47,82 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_transactions: {
+        Row: {
+          balance: number | null
+          bank_account_id: string
+          category: string | null
+          check_ref: string | null
+          created_at: string | null
+          credit: number | null
+          debit: number | null
+          description: string
+          id: string
+          import_hash: string
+          match_status: string
+          matched_invoice_id: string | null
+          matched_journal_entry_id: string | null
+          notes: string | null
+          transaction_date: string
+        }
+        Insert: {
+          balance?: number | null
+          bank_account_id: string
+          category?: string | null
+          check_ref?: string | null
+          created_at?: string | null
+          credit?: number | null
+          debit?: number | null
+          description: string
+          id?: string
+          import_hash: string
+          match_status?: string
+          matched_invoice_id?: string | null
+          matched_journal_entry_id?: string | null
+          notes?: string | null
+          transaction_date: string
+        }
+        Update: {
+          balance?: number | null
+          bank_account_id?: string
+          category?: string | null
+          check_ref?: string | null
+          created_at?: string | null
+          credit?: number | null
+          debit?: number | null
+          description?: string
+          id?: string
+          import_hash?: string
+          match_status?: string
+          matched_invoice_id?: string | null
+          matched_journal_entry_id?: string | null
+          notes?: string | null
+          transaction_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_transactions_bank_account_id_fkey"
+            columns: ["bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_matched_invoice_id_fkey"
+            columns: ["matched_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_transactions_matched_journal_entry_id_fkey"
+            columns: ["matched_journal_entry_id"]
+            isOneToOne: false
+            referencedRelation: "journal_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       build_stages: {
         Row: {
           actual_end_date: string | null
@@ -644,6 +720,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      gmail_sync_state: {
+        Row: {
+          id: number
+          last_checked_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          last_checked_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          last_checked_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       invoice_line_items: {
         Row: {
@@ -1272,7 +1366,7 @@ export type Database = {
           amount: number
           cleared_date: string | null
           created_at: string
-          discount_amount: number
+          discount_amount: number | null
           draw_id: string | null
           funding_source: string
           id: string
@@ -1290,7 +1384,7 @@ export type Database = {
           amount: number
           cleared_date?: string | null
           created_at?: string
-          discount_amount?: number
+          discount_amount?: number | null
           draw_id?: string | null
           funding_source?: string
           id?: string
@@ -1308,7 +1402,7 @@ export type Database = {
           amount?: number
           cleared_date?: string | null
           created_at?: string
-          discount_amount?: number
+          discount_amount?: number | null
           draw_id?: string | null
           funding_source?: string
           id?: string
@@ -1690,6 +1784,27 @@ export type Database = {
           },
         ]
       }
+      user_profiles: {
+        Row: {
+          created_at: string | null
+          display_name: string
+          id: string
+          role: string
+        }
+        Insert: {
+          created_at?: string | null
+          display_name: string
+          id: string
+          role?: string
+        }
+        Update: {
+          created_at?: string | null
+          display_name?: string
+          id?: string
+          role?: string
+        }
+        Relationships: []
+      }
       vendor_payment_adjustments: {
         Row: {
           amount: number
@@ -1806,35 +1921,6 @@ export type Database = {
           },
         ]
       }
-      user_profiles: {
-        Row: {
-          id: string
-          display_name: string
-          role: string
-          created_at: string
-        }
-        Insert: {
-          id: string
-          display_name: string
-          role?: string
-          created_at?: string
-        }
-        Update: {
-          id?: string
-          display_name?: string
-          role?: string
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_profiles_id_fkey"
-            columns: ["id"]
-            isOneToOne: true
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       vendors: {
         Row: {
           accounting_contact_email: string | null
@@ -1845,6 +1931,7 @@ export type Database = {
           ach_bank_name: string | null
           ach_routing_number: string | null
           address: string | null
+          auto_draft: boolean
           coi_expiry_date: string | null
           created_at: string
           email: string | null
@@ -1870,6 +1957,7 @@ export type Database = {
           ach_bank_name?: string | null
           ach_routing_number?: string | null
           address?: string | null
+          auto_draft?: boolean
           coi_expiry_date?: string | null
           created_at?: string
           email?: string | null
@@ -1895,6 +1983,7 @@ export type Database = {
           ach_bank_name?: string | null
           ach_routing_number?: string | null
           address?: string | null
+          auto_draft?: boolean
           coi_expiry_date?: string | null
           created_at?: string
           email?: string | null
@@ -1919,10 +2008,8 @@ export type Database = {
     }
     Functions: {
       generate_notifications: { Args: never; Returns: Json }
-      get_my_role: {
-        Args: Record<string, never>
-        Returns: Json
-      }
+      get_my_role: { Args: never; Returns: Json }
+      get_user_role: { Args: never; Returns: string }
     }
     Enums: {
       cost_category:
