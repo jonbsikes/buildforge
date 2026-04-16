@@ -968,22 +968,283 @@ function BatchUpload({ projects, vendors, hasAI }: Props) {
   );
 }
 
+// ─── Manual entry flow (no PDF) ───────────────────────────────────────────────
+
+function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = createClient();
+
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceReviewItem[]>([emptyReviewItem()]);
+  const [expandedSet, setExpandedSet] = useState<Set<number>>(new Set([0]));
+  const [vendors, setVendors] = useState<Vendor[]>(initialVendors);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Handle return from vendor creation page
+  useEffect(() => {
+    const returnedVendorId = searchParams.get("vendorId");
+    const returnedVendorName = searchParams.get("vendorName");
+    const vendorCardIdx = searchParams.get("vendorCardIdx");
+    if (returnedVendorId && vendorCardIdx != null) {
+      if (returnedVendorName) {
+        setVendors((prev) => {
+          if (prev.some((v) => v.id === returnedVendorId)) return prev;
+          return [...prev, { id: returnedVendorId, name: returnedVendorName }].sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+      const idx = parseInt(vendorCardIdx, 10);
+      setInvoiceItems((items) => items.map((item, i) => i === idx ? { ...item, vendor_id: returnedVendorId } : item));
+    }
+  }, [searchParams]);
+
+  // Restore draft state when returning from vendor creation
+  useEffect(() => {
+    const draft = sessionStorage.getItem("invoice_manual_draft");
+    if (draft && searchParams.get("vendorId")) {
+      try {
+        const parsed = JSON.parse(draft);
+        if (parsed.invoiceItems?.length) setInvoiceItems(parsed.invoiceItems);
+        if (parsed.expandedSet?.length) setExpandedSet(new Set(parsed.expandedSet));
+      } catch { /* ignore */ }
+      sessionStorage.removeItem("invoice_manual_draft");
+    }
+  }, [searchParams]);
+
+  function toggleExpanded(idx: number) {
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
+  function setItemField(idx: number, field: keyof InvoiceReviewItem, value: string) {
+    setInvoiceItems((items) => items.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  }
+
+  function handleCreateVendor(cardIdx: number) {
+    sessionStorage.setItem("invoice_manual_draft", JSON.stringify({
+      invoiceItems, expandedSet: Array.from(expandedSet),
+    }));
+    const item = invoiceItems[cardIdx];
+    const params = new URLSearchParams();
+    if (item.vendor) params.set("name", item.vendor);
+    params.set("returnTo", "invoice-upload");
+    params.set("mode", "manual");
+    params.set("vendorCardIdx", String(cardIdx));
+    router.push(`/vendors/new?${params.toString()}`);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+
+    // Validate
+    for (let i = 0; i < invoiceItems.length; i++) {
+      const it = invoiceItems[i];
+      if (!it.vendor_id) {
+        setError(`A vendor must be selected. Use "+ Create new vendor" if the vendor isn't listed.`);
+        return;
+      }
+      if (!it.amount || parseFloat(it.amount) <= 0) {
+        setError(`Amount is required and must be greater than zero.`);
+        return;
+      }
+      if (!it.invoice_date) {
+        setError(`Invoice date is required.`);
+        return;
+      }
+    }
+
+    setSaving(true);
+    setError(null);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push("/login"); return; }
+
+    for (let i = 0; i < invoiceItems.length; i++) {
+      const item = invoiceItems[i];
+      const vendorName = vendors.find((v) => v.id === item.vendor_id)?.name ?? item.vendor;
+
+      // Default due_date to entry date if not provided (per CLAUDE.md business rule)
+      const today = new Date().toISOString().split("T")[0];
+      const dueDate = item.due_date || today;
+
+      const insertPayload: Record<string, unknown> = {
+        project_id: item.project_id || null,
+        user_id: user.id,
+        file_path: null,
+        file_name: null,
+        vendor_id: item.vendor_id || null,
+        vendor: vendorName || null,
+        invoice_number: item.invoice_number || null,
+        invoice_date: item.invoice_date || null,
+        due_date: dueDate,
+        amount: parseFloat(item.amount) || null,
+        total_amount: parseFloat(item.amount) || null,
+        processed: true,
+        status: "pending_review",
+        source: "manual",
+      };
+
+      const { data: invoice, error: insertError } = await supabase
+        .from("invoices")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .insert(insertPayload as any)
+        .select("id")
+        .single();
+
+      if (insertError || !invoice) {
+        setError(`Save failed: ${insertError?.message ?? "Unknown error"}`);
+        setSaving(false);
+        return;
+      }
+
+      // Build line items
+      const lineItemsToSave: { cost_code: string | null; description: string; amount: number }[] = [];
+
+      if (item.line_items.length > 0) {
+        item.line_items.forEach((li) => {
+          lineItemsToSave.push({
+            cost_code: li.cost_code || item.cost_code || null,
+            description: li.description || "",
+            amount: li.amount || 0,
+          });
+        });
+      } else {
+        lineItemsToSave.push({
+          cost_code: item.cost_code || null,
+          description: vendorName || "Invoice",
+          amount: parseFloat(item.amount) || 0,
+        });
+      }
+
+      await supabase.from("invoice_line_items").insert(
+        lineItemsToSave.map((li) => ({
+          invoice_id: invoice.id,
+          cost_code: li.cost_code,
+          description: li.description,
+          amount: li.amount,
+          project_id: item.project_id || null,
+        }))
+      );
+    }
+
+    router.push("/invoices");
+  }
+
+  function addAnother() {
+    setInvoiceItems((items) => [...items, emptyReviewItem()]);
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      next.add(invoiceItems.length);
+      return next;
+    });
+  }
+
+  function removeItem(idx: number) {
+    setInvoiceItems((items) => items.filter((_, i) => i !== idx));
+    setExpandedSet((prev) => {
+      const next = new Set<number>();
+      prev.forEach((i) => {
+        if (i < idx) next.add(i);
+        else if (i > idx) next.add(i - 1);
+      });
+      return next;
+    });
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <form onSubmit={handleSave} className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">Manual Invoice Entry</h2>
+          <button type="button" onClick={addAnother}
+            className="text-sm text-[#4272EF] hover:underline font-medium">
+            + Add another
+          </button>
+        </div>
+        <p className="text-sm text-gray-500 -mt-2">
+          Enter invoice details directly — no PDF required.
+        </p>
+
+        {invoiceItems.map((item, idx) => (
+          <div key={idx} className="relative">
+            <InvoiceCard
+              item={item}
+              idx={idx}
+              total={invoiceItems.length}
+              projects={projects}
+              costCodes={costCodes}
+              vendors={vendors}
+              expanded={expandedSet.has(idx)}
+              onToggle={() => toggleExpanded(idx)}
+              onChange={(field, value) => setItemField(idx, field, value)}
+              onCreateVendor={handleCreateVendor}
+            />
+            {invoiceItems.length > 1 && (
+              <button type="button" onClick={() => removeItem(idx)}
+                className="absolute top-3 right-10 text-gray-300 hover:text-red-500 transition-colors"
+                aria-label="Remove invoice">
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        ))}
+
+        {error && (
+          <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <button type="submit" disabled={saving}
+            className="flex-1 py-2 px-4 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            style={{ backgroundColor: "#4272EF" }}>
+            {saving
+              ? <><Loader2 size={16} className="animate-spin" /> Saving…</>
+              : invoiceItems.length > 1
+                ? `Save All ${invoiceItems.length} Invoices`
+                : "Save Invoice"}
+          </button>
+          <Link href="/invoices" className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+            Cancel
+          </Link>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
+
+type Mode = "single" | "batch" | "manual";
 
 export default function InvoiceUploadForm(props: Props) {
   const searchParams = useSearchParams();
-  const [mode, setMode] = useState<"single" | "batch">(
-    searchParams.get("mode") === "batch" ? "batch" : "single"
-  );
+  const initialMode: Mode =
+    searchParams.get("mode") === "batch" ? "batch"
+    : searchParams.get("mode") === "manual" ? "manual"
+    : "single";
+  const [mode, setMode] = useState<Mode>(initialMode);
+
+  const maxWidth = mode === "single" ? "none" : "42rem";
 
   return (
     <main className="flex-1 p-6 overflow-auto">
-      <div className="mx-auto" style={{ maxWidth: mode === "batch" ? "42rem" : "none" }}>
+      <div className="mx-auto" style={{ maxWidth }}>
         <Link href="/invoices" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6">
           <ArrowLeft size={15} /> Accounts Payable
         </Link>
 
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
+          <button onClick={() => setMode("manual")}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "manual" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+            Manual Entry
+          </button>
           <button onClick={() => setMode("single")}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === "single" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
             Upload PDF
@@ -994,7 +1255,9 @@ export default function InvoiceUploadForm(props: Props) {
           </button>
         </div>
 
-        {mode === "single" ? <SingleUpload {...props} /> : <BatchUpload {...props} />}
+        {mode === "single" && <SingleUpload {...props} />}
+        {mode === "batch" && <BatchUpload {...props} />}
+        {mode === "manual" && <ManualEntry {...props} />}
       </div>
     </main>
   );
