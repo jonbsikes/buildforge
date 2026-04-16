@@ -398,7 +398,7 @@ function BSGroup({ label, items }: {
 function BSGroupRow({ item }: {
   item: { label: string; amount: number; note?: string; drillable: boolean; onDrill?: () => void; projectBreakdown?: ProjectBreakdown[] };
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!!item.projectBreakdown?.length);
   const hasBreakdown = item.projectBreakdown && item.projectBreakdown.length > 0;
 
   return (
