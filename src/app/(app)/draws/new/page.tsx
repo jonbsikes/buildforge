@@ -51,8 +51,13 @@ export default async function NewDrawPage() {
     lender_id: l.lender_id,
   }));
 
-  // Only show lenders that have at least one active loan with eligible invoices
-  const projectIdsWithInvoices = new Set(invoices.map((inv) => inv.project?.id).filter(Boolean) as string[]);
+  // Only show lenders that have at least one active loan with eligible invoices.
+  // Include every project touched by each invoice (header + line items), so that
+  // multi-project invoices are reachable from any of their lenders.
+  const projectIdsWithInvoices = new Set<string>();
+  for (const inv of invoices) {
+    for (const pid of inv.project_ids) projectIdsWithInvoices.add(pid);
+  }
   const lenderIdsWithEligibleLoans = new Set(
     allLoans.filter((l) => projectIdsWithInvoices.has(l.project_id)).map((l) => l.lender_id)
   );

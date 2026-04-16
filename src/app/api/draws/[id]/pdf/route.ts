@@ -65,36 +65,45 @@ export async function GET(
     .map((di) => di.invoices as RawInvoice | null)
     .filter(Boolean) as RawInvoice[];
 
-  // ── Loan lookup ──────────────────────────────────────────────────────────
+  // ── Line items lookup ────────────────────────────────────────────────────
 
-  const projectIds = [...new Set(invoiceRows.map((r) => r.projects?.id).filter(Boolean) as string[])];
+  const invoiceIds = invoiceRows.map((r) => r.id);
+  type LineItem = {
+    invoice_id: string;
+    amount: number | null;
+    project_id: string | null;
+    cost_codes: { name: string } | null;
+    projects: { id: string; name: string } | null;
+  };
+  const lineItemsByInvoice = new Map<string, LineItem[]>();
+  const lineItemProjectIds = new Set<string>();
+  if (invoiceIds.length > 0) {
+    const { data: lineItems } = await supabase
+      .from("invoice_line_items")
+      .select(`invoice_id, amount, project_id, cost_codes ( name ), projects ( id, name )`)
+      .in("invoice_id", invoiceIds);
+    for (const li of (lineItems ?? []) as LineItem[]) {
+      if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
+      lineItemsByInvoice.get(li.invoice_id)!.push(li);
+      if (li.project_id) lineItemProjectIds.add(li.project_id);
+    }
+  }
+
+  // ── Loan lookup (header + line-item projects) ────────────────────────────
+
+  const projectIds = new Set<string>();
+  for (const r of invoiceRows) if (r.projects?.id) projectIds.add(r.projects.id);
+  for (const pid of lineItemProjectIds) projectIds.add(pid);
   const loanByProject = new Map<string, string>();
-  if (projectIds.length > 0) {
+  if (projectIds.size > 0) {
     const { data: loanRows } = await supabase
       .from("loans")
       .select("project_id, loan_number, created_at")
-      .in("project_id", projectIds)
+      .in("project_id", Array.from(projectIds))
       .eq("status", "active")
       .order("created_at", { ascending: false });
     for (const l of loanRows ?? []) {
       if (!loanByProject.has(l.project_id)) loanByProject.set(l.project_id, l.loan_number);
-    }
-  }
-
-  // ── Line items lookup ────────────────────────────────────────────────────
-
-  const invoiceIds = invoiceRows.map((r) => r.id);
-  const lineItemsByInvoice = new Map<string, { category: string; amount: number }[]>();
-  if (invoiceIds.length > 0) {
-    const { data: lineItems } = await supabase
-      .from("invoice_line_items")
-      .select(`invoice_id, amount, cost_codes ( name )`)
-      .in("invoice_id", invoiceIds);
-    for (const li of lineItems ?? []) {
-      const cc = li.cost_codes as { name: string } | null;
-      const entry = { category: cc?.name ?? "Uncategorized", amount: li.amount ?? 0 };
-      if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
-      lineItemsByInvoice.get(li.invoice_id)!.push(entry);
     }
   }
 
@@ -111,18 +120,27 @@ export async function GET(
 
   const printRows: PrintRow[] = [];
   for (const inv of invoiceRows) {
-    const proj = inv.projects;
-    const project = proj?.name ?? "—";
-    const loanNumber = proj?.id ? (loanByProject.get(proj.id) ?? "—") : "—";
+    const headerProj = inv.projects;
     const vendor = inv.vendor ?? "—";
     const invoiceNumber = inv.invoice_number ?? "—";
     const lineItems = lineItemsByInvoice.get(inv.id) ?? [];
     if (lineItems.length > 0) {
       for (const li of lineItems) {
-        printRows.push({ project, loanNumber, category: li.category, vendor, invoiceNumber, amount: li.amount });
+        const liProj = li.projects ?? headerProj;
+        const project = liProj?.name ?? "—";
+        const loanNumber = li.project_id
+          ? (loanByProject.get(li.project_id) ?? "—")
+          : headerProj?.id
+          ? (loanByProject.get(headerProj.id) ?? "—")
+          : "—";
+        const category = li.cost_codes?.name ?? "Uncategorized";
+        printRows.push({ project, loanNumber, category, vendor, invoiceNumber, amount: li.amount ?? 0 });
       }
     } else {
-      printRows.push({ project, loanNumber, category: inv.cost_codes?.name ?? "—", vendor, invoiceNumber, amount: inv.amount ?? 0 });
+      const project = headerProj?.name ?? "—";
+      const loanNumber = headerProj?.id ? (loanByProject.get(headerProj.id) ?? "—") : "—";
+      const category = inv.cost_codes?.name ?? "—";
+      printRows.push({ project, loanNumber, category, vendor, invoiceNumber, amount: inv.amount ?? 0 });
     }
   }
 

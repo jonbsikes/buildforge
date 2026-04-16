@@ -27,6 +27,12 @@ export interface DrawableInvoice {
   } | null;
   cost_code: string | null;
   loan_number: string | null;
+  // Per-line-item allocation to loans. For single-project invoices this
+  // has one entry; for multi-project invoices it has one entry per loan
+  // covered by the line items. Sum of amounts equals invoice.amount.
+  loan_allocations: { loan_number: string | null; amount: number }[];
+  // All project IDs touched by this invoice (header + line items)
+  project_ids: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -99,12 +105,37 @@ export async function getDrawableInvoices(): Promise<{
     ),
   ];
 
+  // Load line items so we can allocate per-line-item to the correct loan
+  const invoiceIds = rows.map((r) => r.id);
+  const lineItemsByInvoice = new Map<string, { project_id: string | null; amount: number | null }[]>();
+  if (invoiceIds.length > 0) {
+    const { data: liRows } = await supabase
+      .from("invoice_line_items")
+      .select("invoice_id, project_id, amount")
+      .in("invoice_id", invoiceIds);
+    for (const li of liRows ?? []) {
+      if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
+      lineItemsByInvoice.get(li.invoice_id)!.push({
+        project_id: li.project_id ?? null,
+        amount: li.amount ?? null,
+      });
+    }
+  }
+
+  // Widen project ID lookup to include line-item projects (may differ from header)
+  const allProjectIds = new Set<string>(projectIds);
+  for (const items of lineItemsByInvoice.values()) {
+    for (const li of items) {
+      if (li.project_id) allProjectIds.add(li.project_id);
+    }
+  }
+
   const loanByProject = new Map<string, string>();
-  if (projectIds.length > 0) {
+  if (allProjectIds.size > 0) {
     const { data: loanRows } = await supabase
       .from("loans")
       .select("project_id, loan_number, created_at")
-      .in("project_id", projectIds)
+      .in("project_id", Array.from(allProjectIds))
       .eq("status", "active")
       .order("created_at", { ascending: false });
 
@@ -125,6 +156,30 @@ export async function getDrawableInvoices(): Promise<{
     } | null;
     const cc = row.cost_codes as { code: string } | null;
 
+    // Build per-loan allocations from line items if any exist; otherwise fall
+    // back to a single allocation against the header project's loan.
+    const lineItems = lineItemsByInvoice.get(row.id) ?? [];
+    const allocMap = new Map<string | null, number>();
+    if (lineItems.length > 0) {
+      for (const li of lineItems) {
+        const amt = li.amount ?? 0;
+        if (amt === 0) continue;
+        const loanNum = li.project_id ? (loanByProject.get(li.project_id) ?? null) : null;
+        allocMap.set(loanNum, (allocMap.get(loanNum) ?? 0) + amt);
+      }
+    }
+    if (allocMap.size === 0) {
+      const loanNum = proj?.id ? (loanByProject.get(proj.id) ?? null) : null;
+      allocMap.set(loanNum, row.amount ?? 0);
+    }
+    const loan_allocations = Array.from(allocMap, ([loan_number, amount]) => ({ loan_number, amount }));
+
+    const projectIdSet = new Set<string>();
+    if (proj?.id) projectIdSet.add(proj.id);
+    for (const li of lineItems) {
+      if (li.project_id) projectIdSet.add(li.project_id);
+    }
+
     return {
       id: row.id,
       vendor: row.vendor,
@@ -144,6 +199,8 @@ export async function getDrawableInvoices(): Promise<{
         : null,
       cost_code: cc?.code ?? null,
       loan_number: proj?.id ? (loanByProject.get(proj.id) ?? null) : null,
+      loan_allocations,
+      project_ids: Array.from(projectIdSet),
     };
   });
 
@@ -534,6 +591,58 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     `)
     .eq("draw_id", drawId);
 
+  // Load line items for all invoices in this draw — used to split amounts
+  // across projects (and thus loans) for multi-project invoices.
+  const allInvoiceIds = (drawInvoiceDetails ?? [])
+    .map((di) => (di.invoices as { id: string } | null)?.id)
+    .filter(Boolean) as string[];
+  type DrawLineItem = {
+    invoice_id: string;
+    project_id: string | null;
+    amount: number | null;
+  };
+  const lineItemsByInvoice = new Map<string, DrawLineItem[]>();
+  if (allInvoiceIds.length > 0) {
+    const { data: liRows } = await supabase
+      .from("invoice_line_items")
+      .select("invoice_id, project_id, amount")
+      .in("invoice_id", allInvoiceIds);
+    for (const li of (liRows ?? []) as DrawLineItem[]) {
+      if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
+      lineItemsByInvoice.get(li.invoice_id)!.push(li);
+    }
+  }
+
+  // Build per-project amount totals from line items where available, otherwise
+  // fall back to the invoice's header project. This is the source of truth
+  // for loan balance JE credits and loans.current_balance updates.
+  const projectAmountsForLoan = new Map<string, number>();
+  let untiedAmount = 0; // amount with no project (header null AND no line-item project)
+  for (const di of drawInvoiceDetails ?? []) {
+    const inv = di.invoices as { id: string; project_id: string | null; amount: number | null } | null;
+    if (!inv || !inv.amount) continue;
+    const lineItems = lineItemsByInvoice.get(inv.id) ?? [];
+    if (lineItems.length > 0) {
+      for (const li of lineItems) {
+        const amt = li.amount ?? 0;
+        if (amt === 0) continue;
+        const pid = li.project_id ?? inv.project_id ?? null;
+        if (pid) {
+          projectAmountsForLoan.set(pid, (projectAmountsForLoan.get(pid) ?? 0) + amt);
+        } else {
+          untiedAmount += amt;
+        }
+      }
+    } else if (inv.project_id) {
+      projectAmountsForLoan.set(
+        inv.project_id,
+        (projectAmountsForLoan.get(inv.project_id) ?? 0) + inv.amount
+      );
+    } else {
+      untiedAmount += inv.amount;
+    }
+  }
+
   if (acct1000 && acct1120) {
     const { data: je, error: jeErr } = await supabase
       .from("journal_entries")
@@ -575,20 +684,11 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   }
 
   // Step 3b: Clear Draws Pending Funding (2060) → per-loan Loan Payable (220x)
-  // Group invoice amounts by project → look up each project's active loan from this lender
-  // → credit its specific COA account. This is when the loan balance legitimately increases.
+  // Per-line-item project allocation (projectAmountsForLoan computed above):
+  // each project's share credits that project's specific COA account. This is
+  // when the loan balance legitimately increases. Multi-project invoices split
+  // correctly across loans.
   if (acct2060 && drawInvoiceDetails && drawInvoiceDetails.length > 0) {
-    // Accumulate amount per project
-    const projectAmountsForLoan = new Map<string, number>();
-    for (const di of drawInvoiceDetails) {
-      const inv = di.invoices as { project_id: string | null; amount: number | null } | null;
-      if (!inv?.project_id || !inv?.amount) continue;
-      projectAmountsForLoan.set(
-        inv.project_id,
-        (projectAmountsForLoan.get(inv.project_id) ?? 0) + inv.amount
-      );
-    }
-
     // Look up per-loan COA accounts for these projects
     const pIds = [...projectAmountsForLoan.keys()];
     const loanCOAMap = new Map<string, string>(); // project_id → coa_account_id
@@ -608,7 +708,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
 
     // Group credited amounts by COA account (unmapped → fallback 2100)
     const coaAmounts = new Map<string, number>();
-    let unmapped = 0;
+    let unmapped = untiedAmount;
     for (const [pId, amt] of projectAmountsForLoan) {
       const coaId = loanCOAMap.get(pId);
       if (coaId) {
@@ -780,17 +880,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     }
   }
 
-  // Step 3e: Update each loan's current_balance by the funded amount per project
-  if (draw.lender_id && drawInvoiceDetails && drawInvoiceDetails.length > 0) {
-    // Accumulate funded amount per project
-    const projectAmounts = new Map<string, number>();
-    for (const di of drawInvoiceDetails) {
-      const inv = di.invoices as { project_id: string | null; amount: number | null } | null;
-      if (!inv?.project_id || !inv?.amount) continue;
-      projectAmounts.set(inv.project_id, (projectAmounts.get(inv.project_id) ?? 0) + inv.amount);
-    }
-
-    for (const [projectId, fundedAmt] of projectAmounts) {
+  // Step 3e: Update each loan's current_balance by the funded amount per
+  // project (sourced from line items so multi-project invoices split correctly).
+  if (draw.lender_id && projectAmountsForLoan.size > 0) {
+    for (const [projectId, fundedAmt] of projectAmountsForLoan) {
       const { data: loan } = await supabase
         .from("loans")
         .select("id, current_balance")

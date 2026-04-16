@@ -57,6 +57,7 @@ export default async function DrawDetailPage({ params }: Props) {
       id, invoice_id,
       invoices (
         id, vendor, invoice_number, invoice_date, due_date, amount, file_name,
+        project_id,
         projects ( id, name, address ),
         cost_codes ( code, name )
       )
@@ -83,43 +84,60 @@ export default async function DrawDetailPage({ params }: Props) {
   const hasVendorPayments = (vpCount ?? 0) > 0;
 
   // Build typed invoice rows
+  type RawInv = {
+    id: string;
+    vendor: string | null;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    due_date: string | null;
+    amount: number | null;
+    file_name: string | null;
+    project_id: string | null;
+    projects: { id: string; name: string; address: string | null } | null;
+    cost_codes: { code: string; name: string } | null;
+  };
   const rawRows = (drawInvoices ?? []).map((di) => {
-    const inv = di.invoices as {
-      id: string;
-      vendor: string | null;
-      invoice_number: string | null;
-      invoice_date: string | null;
-      due_date: string | null;
-      amount: number | null;
-      file_name: string | null;
-      projects: { id: string; name: string; address: string | null } | null;
-      cost_codes: { code: string; name: string } | null;
-    } | null;
+    const inv = di.invoices as RawInv | null;
     return { drawInvoiceId: di.id, invoiceId: di.invoice_id, inv };
   }).filter((r) => r.inv !== null) as {
     drawInvoiceId: string;
     invoiceId: string;
-    inv: {
-      id: string;
-      vendor: string | null;
-      invoice_number: string | null;
-      invoice_date: string | null;
-      due_date: string | null;
-      amount: number | null;
-      file_name: string | null;
-      projects: { id: string; name: string; address: string | null } | null;
-      cost_codes: { code: string; name: string } | null;
-    };
+    inv: RawInv;
   }[];
 
-  // Look up active loans for each project so we can show loan # per row
-  const projectIds = [...new Set(rawRows.map((r) => r.inv.projects?.id).filter(Boolean) as string[])];
+  // Load line items so we can allocate each invoice's amount to the correct
+  // loan per-line-item (multi-project invoices split across loans).
+  const invoiceIds = rawRows.map((r) => r.inv.id);
+  type LineItem = {
+    invoice_id: string;
+    project_id: string | null;
+    amount: number | null;
+    projects: { id: string; name: string; address: string | null } | null;
+  };
+  const lineItemsByInvoice = new Map<string, LineItem[]>();
+  const lineItemProjectIds = new Set<string>();
+  if (invoiceIds.length > 0) {
+    const { data: liRows } = await supabase
+      .from("invoice_line_items")
+      .select(`invoice_id, project_id, amount, projects ( id, name, address )`)
+      .in("invoice_id", invoiceIds);
+    for (const li of (liRows ?? []) as LineItem[]) {
+      if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
+      lineItemsByInvoice.get(li.invoice_id)!.push(li);
+      if (li.project_id) lineItemProjectIds.add(li.project_id);
+    }
+  }
+
+  // Look up active loans for every project referenced (header + line items)
+  const projectIds = new Set<string>();
+  for (const r of rawRows) if (r.inv.projects?.id) projectIds.add(r.inv.projects.id);
+  for (const pid of lineItemProjectIds) projectIds.add(pid);
   const loanByProject = new Map<string, string>();
-  if (projectIds.length > 0) {
+  if (projectIds.size > 0) {
     const { data: loanRows } = await supabase
       .from("loans")
       .select("project_id, loan_number, created_at")
-      .in("project_id", projectIds)
+      .in("project_id", Array.from(projectIds))
       .eq("status", "active")
       .order("created_at", { ascending: false });
     for (const l of loanRows ?? []) {
@@ -127,31 +145,85 @@ export default async function DrawDetailPage({ params }: Props) {
     }
   }
 
-  // Enrich rows with loan number
-  const enrichedRows = rawRows.map((r) => ({
-    ...r,
-    loanNumber: r.inv.projects?.id ? (loanByProject.get(r.inv.projects.id) ?? null) : null,
-  }));
+  // Build per-loan display rows. A multi-project invoice produces one row
+  // per loan, each showing that loan's share of the invoice.
+  type DisplayRow = {
+    key: string;
+    drawInvoiceId: string;
+    invoiceId: string;
+    inv: RawInv;
+    loanNumber: string | null;
+    project: { id: string; name: string; address: string | null } | null;
+    amount: number;
+    canRemove: boolean;
+  };
+
+  const displayRows: DisplayRow[] = [];
+  for (const r of rawRows) {
+    const lineItems = lineItemsByInvoice.get(r.inv.id) ?? [];
+    const splits = new Map<string, { loanNumber: string | null; project: DisplayRow["project"]; amount: number }>();
+    if (lineItems.length > 0) {
+      for (const li of lineItems) {
+        const amt = li.amount ?? 0;
+        if (amt === 0) continue;
+        const loanNumber = li.project_id ? (loanByProject.get(li.project_id) ?? null) : null;
+        const key = loanNumber ?? "__none__";
+        const proj = li.projects ?? null;
+        const existing = splits.get(key);
+        if (existing) {
+          existing.amount += amt;
+        } else {
+          splits.set(key, { loanNumber, project: proj, amount: amt });
+        }
+      }
+    }
+    if (splits.size === 0) {
+      const loanNumber = r.inv.projects?.id ? (loanByProject.get(r.inv.projects.id) ?? null) : null;
+      splits.set(loanNumber ?? "__none__", {
+        loanNumber,
+        project: r.inv.projects ?? null,
+        amount: r.inv.amount ?? 0,
+      });
+    }
+    // Only a single-split row can be removed directly (removing an invoice
+    // from the draw removes it in full — not per-line-item).
+    const splitsArr = Array.from(splits.values());
+    const isSingle = splitsArr.length === 1;
+    for (const s of splitsArr) {
+      displayRows.push({
+        key: `${r.drawInvoiceId}:${s.loanNumber ?? "none"}`,
+        drawInvoiceId: r.drawInvoiceId,
+        invoiceId: r.invoiceId,
+        inv: r.inv,
+        loanNumber: s.loanNumber,
+        project: s.project,
+        amount: s.amount,
+        canRemove: isSingle,
+      });
+    }
+  }
 
   // Group by loan number (null → "No Loan")
   type LoanGroup = {
     key: string;
     loanNum: string;
-    rows: typeof enrichedRows;
+    rows: DisplayRow[];
     subtotal: number;
   };
   const groupMap = new Map<string, LoanGroup>();
-  for (const row of enrichedRows) {
+  for (const row of displayRows) {
     const key = row.loanNumber ?? "__none__";
     const loanNum = row.loanNumber ?? "No Loan";
     if (!groupMap.has(key)) groupMap.set(key, { key, loanNum, rows: [], subtotal: 0 });
     const g = groupMap.get(key)!;
     g.rows.push(row);
-    g.subtotal += row.inv.amount ?? 0;
+    g.subtotal += row.amount;
   }
   const loanGroups = Array.from(groupMap.values()).sort((a, b) =>
     a.loanNum.localeCompare(b.loanNum)
   );
+  const totalRows = displayRows.length;
+  const invoiceCount = rawRows.length;
 
   const colSpan = canEdit ? 6 : 5;
   const drawName = drawDisplayName(draw.draw_date);
@@ -239,11 +311,11 @@ export default async function DrawDetailPage({ params }: Props) {
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100">
               <h3 className="text-sm font-semibold text-gray-700">
-                Invoices in this draw ({enrichedRows.length})
+                Invoices in this draw ({invoiceCount})
               </h3>
             </div>
 
-            {enrichedRows.length === 0 ? (
+            {totalRows === 0 ? (
               <p className="text-sm text-gray-400 px-5 py-6">No invoices in this draw.</p>
             ) : (
               <div className="overflow-x-auto">
@@ -271,25 +343,26 @@ export default async function DrawDetailPage({ params }: Props) {
                           </td>
                         </tr>
                       )}
-                      {group.rows.map(({ drawInvoiceId, invoiceId, inv, loanNumber }) => {
+                      {group.rows.map((row) => {
+                        const { drawInvoiceId, invoiceId, inv, key, project, amount, canRemove } = row;
                         const status = dueDateStatus(inv.due_date);
                         const isPastDue = status === "past_due";
                         const isDueSoon = status === "due_soon";
-                        const proj = inv.projects;
                         const cc = inv.cost_codes;
+                        const rowAddress = project?.address ?? project?.name ?? null;
 
                         return (
                           <tr
-                            key={drawInvoiceId}
+                            key={key}
                             className={
                               isPastDue ? "bg-red-50/40" : isDueSoon ? "bg-amber-50/40" : ""
                             }
                           >
                             <td className="px-4 py-3 text-xs text-gray-600">
-                              {proj?.address ?? proj?.name ?? <span className="text-gray-400">—</span>}
+                              {rowAddress ?? <span className="text-gray-400">—</span>}
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-600">
-                              {loanNumber ? `#${loanNumber}` : <span className="text-gray-400">—</span>}
+                              {row.loanNumber ? `#${row.loanNumber}` : <span className="text-gray-400">—</span>}
                             </td>
                             <td className="px-4 py-3">
                               <p className="font-medium text-gray-900 flex items-center gap-1.5">
@@ -303,11 +376,13 @@ export default async function DrawDetailPage({ params }: Props) {
                               {cc ? cc.name : "—"}
                             </td>
                             <td className="px-4 py-3 text-right font-medium text-gray-900">
-                              {fmt(inv.amount)}
+                              {fmt(amount)}
                             </td>
                             {canEdit && (
                               <td className="px-4 py-3">
-                                <RemoveInvoiceButton drawId={id} invoiceId={invoiceId} />
+                                {canRemove ? (
+                                  <RemoveInvoiceButton drawId={id} invoiceId={invoiceId} />
+                                ) : null}
                               </td>
                             )}
                           </tr>

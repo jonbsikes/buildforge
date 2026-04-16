@@ -47,7 +47,12 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
 
   const filteredInvoices = useMemo(() => {
     if (!selectedLenderId) return [];
-    return invoices.filter((inv) => inv.project?.id && lenderProjectIds.has(inv.project.id));
+    // Include the invoice if ANY project it touches (header or any line item)
+    // has a loan with this lender. Multi-project invoices may appear under
+    // more than one lender — each draw will only pull the matching portion.
+    return invoices.filter((inv) =>
+      inv.project_ids.some((pid) => lenderProjectIds.has(pid))
+    );
   }, [invoices, selectedLenderId, lenderProjectIds]);
 
   const selectedInvoices = useMemo(
@@ -76,20 +81,28 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
     }
   }
 
-  // Loan breakdown for summary (only selected invoices)
+  // Loan breakdown for summary (only selected invoices) — allocates each
+  // invoice across loans based on its per-line-item project allocation so
+  // multi-project invoices split correctly between lenders' loans.
   const byLoan = useMemo(() => {
-    const map = new Map<string, { loanNum: string; total: number; count: number }>();
+    const map = new Map<string, { loanNum: string; total: number; invoiceIds: Set<string> }>();
     for (const inv of selectedInvoices) {
-      const key = inv.loan_number ?? "No Loan";
-      const existing = map.get(key);
-      if (existing) {
-        existing.total += inv.amount ?? 0;
-        existing.count += 1;
-      } else {
-        map.set(key, { loanNum: key, total: inv.amount ?? 0, count: 1 });
+      for (const alloc of inv.loan_allocations) {
+        const key = alloc.loan_number ?? "No Loan";
+        const existing = map.get(key);
+        if (existing) {
+          existing.total += alloc.amount;
+          existing.invoiceIds.add(inv.id);
+        } else {
+          map.set(key, { loanNum: key, total: alloc.amount, invoiceIds: new Set([inv.id]) });
+        }
       }
     }
-    return Array.from(map.values());
+    return Array.from(map.values(), (v) => ({
+      loanNum: v.loanNum,
+      total: v.total,
+      count: v.invoiceIds.size,
+    }));
   }, [selectedInvoices]);
 
   function handleSubmit() {
