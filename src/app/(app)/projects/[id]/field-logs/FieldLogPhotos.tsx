@@ -12,6 +12,7 @@ export interface FieldLogPhoto {
   storage_path: string;
   mime_type: string | null;
   created_at: string;
+  url?: string;
 }
 
 interface Props {
@@ -55,7 +56,7 @@ export default function FieldLogPhotos({
       fd.append("field_log_id", fieldLogId);
       fd.append("log_date", logDate);
 
-      // Optimistic placeholder
+      // Optimistic placeholder — use a local object URL for instant preview.
       const tempId = `tmp-${Date.now()}-${file.name}`;
       const previewUrl = URL.createObjectURL(file);
       setPhotos((prev) => [
@@ -63,23 +64,40 @@ export default function FieldLogPhotos({
         {
           id: tempId,
           file_name: file.name,
-          storage_path: previewUrl,
+          storage_path: "",
           mime_type: file.type,
           created_at: new Date().toISOString(),
+          url: previewUrl,
         },
       ]);
 
       startTransition(async () => {
         try {
           await uploadFieldLogPhoto(fd);
-          // Pull the fresh list straight from Supabase so the optimistic row is
-          // replaced with the real record (with real id + public url).
+          // Pull the fresh list, then sign each storage_path so the <img> can load
+          // it from the private bucket.
           const { data } = await supabase
             .from("documents")
             .select("id, file_name, storage_path, mime_type, created_at")
             .eq("field_log_id", fieldLogId)
             .order("created_at", { ascending: true });
-          setPhotos((data as FieldLogPhoto[]) ?? []);
+          const rows = (data ?? []) as FieldLogPhoto[];
+          const signed = await Promise.all(
+            rows.map(async (p) => {
+              const storagePath = p.storage_path ?? "";
+              let relPath = storagePath.includes("/object/")
+                ? storagePath
+                    .replace(/^.*\/object\/(?:public|sign)\/documents\//, "")
+                    .split("?")[0]
+                : storagePath;
+              try { relPath = decodeURIComponent(relPath); } catch {}
+              const { data: sig } = await supabase.storage
+                .from("documents")
+                .createSignedUrl(relPath, 3600);
+              return { ...p, storage_path: relPath, url: sig?.signedUrl ?? "" };
+            }),
+          );
+          setPhotos(signed);
           router.refresh();
         } catch (e) {
           setPhotos((prev) => prev.filter((p) => p.id !== tempId));
@@ -112,7 +130,7 @@ export default function FieldLogPhotos({
               className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-50"
             >
               <a
-                href={photo.storage_path}
+                href={photo.url || photo.storage_path}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block w-full h-full"
@@ -120,7 +138,7 @@ export default function FieldLogPhotos({
                 {/* next/image blocked for arbitrary hosts; use plain img */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={photo.storage_path}
+                  src={photo.url || photo.storage_path}
                   alt={photo.file_name}
                   className="w-full h-full object-cover"
                 />

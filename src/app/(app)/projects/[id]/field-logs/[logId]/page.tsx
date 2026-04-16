@@ -45,7 +45,34 @@ export default async function FieldLogDetailPage({
 
   const log = logRes.data;
   const todos = todosRes.data ?? [];
-  const photos = (photosRes.data ?? []) as FieldLogPhoto[];
+
+  // Generate signed URLs for each photo. The `documents` bucket is private,
+  // so the stored `storage_path` must be signed before the browser can load it.
+  // Legacy rows may have a full public URL in `storage_path` — strip the prefix
+  // so those still render.
+  const rawPhotos = photosRes.data ?? [];
+  const photos: FieldLogPhoto[] = await Promise.all(
+    rawPhotos.map(async (p) => {
+      const storagePath = p.storage_path ?? "";
+      let relPath = storagePath.includes("/object/")
+        ? storagePath.replace(/^.*\/object\/(?:public|sign)\/documents\//, "").split("?")[0]
+        : storagePath;
+      // Legacy rows stored the public URL, which URL-encodes spaces (e.g. Field%20Photos).
+      // createSignedUrl expects the raw storage key.
+      try { relPath = decodeURIComponent(relPath); } catch {}
+      const { data: signed } = await supabase.storage
+        .from("documents")
+        .createSignedUrl(relPath, 3600);
+      return {
+        id: p.id,
+        file_name: p.file_name,
+        storage_path: relPath,
+        mime_type: p.mime_type,
+        created_at: p.created_at,
+        url: signed?.signedUrl ?? "",
+      };
+    }),
+  );
 
   return (
     <>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useRef, useState, useCallback, useEffect } from "react";
 import { ClipboardList, Camera, Check, FileText } from "lucide-react";
 import { haptic } from "@/lib/haptics";
@@ -44,7 +44,6 @@ const DISMISS_THRESHOLD = 120;
 const VELOCITY_THRESHOLD = 0.5;
 
 export default function QuickActionSheet({ onClose }: QuickActionSheetProps) {
-  const router = useRouter();
   const sheetRef = useRef<HTMLDivElement>(null);
   const [dragY, setDragY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -89,13 +88,13 @@ export default function QuickActionSheet({ onClose }: QuickActionSheetProps) {
     dragStart.current = null;
   }, [dragY, handleClose]);
 
-  function handleAction(href: string) {
+  function handleActionClick() {
+    // Native <Link> handles navigation; we just close the sheet.
+    // Using anchor navigation instead of router.push works reliably in iOS
+    // PWA standalone mode, where router.push inside a mid-animating sheet
+    // was dropping on real devices.
     haptic("medium");
-    // Navigate immediately, then play the slide-down animation.
-    // Previously the push was queued in a setTimeout that fired after the
-    // sheet had unmounted — on mobile WebKit that navigation would silently drop.
-    router.push(href);
-    handleClose();
+    onClose();
   }
 
   const backdropOpacity = isClosing ? 0 : Math.max(0, 1 - dragY / 300);
@@ -126,9 +125,11 @@ export default function QuickActionSheet({ onClose }: QuickActionSheetProps) {
 
         <div className="grid grid-cols-2 gap-3 pb-4">
           {actions.map(({ icon: Icon, label, desc, color, href }) => (
-            <button
+            <Link
               key={label}
-              onClick={() => handleAction(href)}
+              href={href}
+              prefetch={false}
+              onClick={handleActionClick}
               className="flex items-center gap-3 p-4 rounded-xl border border-gray-100 bg-gray-50 hover:bg-gray-100 active:scale-[0.97] transition-all text-left"
             >
               <div
@@ -140,7 +141,7 @@ export default function QuickActionSheet({ onClose }: QuickActionSheetProps) {
                 <p className="text-sm font-semibold text-gray-900">{label}</p>
                 <p className="text-xs text-gray-500">{desc}</p>
               </div>
-            </button>
+            </Link>
           ))}
         </div>
       </div>

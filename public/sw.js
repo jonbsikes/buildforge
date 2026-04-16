@@ -1,4 +1,4 @@
-const CACHE_NAME = "buildforge-v1";
+const CACHE_NAME = "buildforge-v2";
 const SHELL_URLS = ["/dashboard", "/invoices", "/projects"];
 
 self.addEventListener("install", (event) => {

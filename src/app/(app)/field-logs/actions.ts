@@ -98,14 +98,14 @@ export async function uploadFieldLogPhoto(formData: FormData) {
     throw new Error(`Upload failed: ${uploadError.message}`);
   }
 
-  const { data: urlData } = supabase.storage.from("documents").getPublicUrl(storagePath);
-
+  // The `documents` bucket is private, so we store the relative storage key.
+  // Signed URLs are generated at render time (see field log detail page).
   const { error: insertError } = await supabase.from("documents").insert({
     project_id: projectId,
     field_log_id: fieldLogId,
     folder: "Field Photos",
     file_name: datedFileName,
-    storage_path: urlData?.publicUrl ?? storagePath,
+    storage_path: storagePath,
     file_size_kb: Math.ceil(file.size / 1024),
     mime_type: file.type,
     notes: `Field log photo — ${logDate}`,
