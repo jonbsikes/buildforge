@@ -30,6 +30,9 @@ export async function GET(
     projectId: sp.get("projectId") ?? undefined,
     subdivisionId: sp.get("subdivisionId") ?? undefined,
     year: sp.get("year") ?? undefined,
+    projectType: sp.get("projectType") ?? undefined,
+    subdivision: sp.get("subdivision") ?? undefined,
+    status: sp.get("status") ?? undefined,
   };
 
   // Sensible defaults so a missing query param never 500s
