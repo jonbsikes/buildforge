@@ -58,28 +58,55 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
   }));
   const projectIds = projectList.map((pr) => pr.id);
 
-  // Fetch cost codes for type
+  // Fetch cost codes for type (include id for JE line mapping)
   const { data: ccData } = await supabase
     .from("cost_codes")
-    .select("code, name, project_type")
+    .select("id, code, name, project_type")
     .eq("project_type", projectType as "land_development" | "home_construction" | "general_admin")
     .eq("is_active", true)
     .order("sort_order");
 
-  // Fetch invoice line items for actuals
-  let actualsMap: Record<string, Record<string, number>> = {};
+  // Build cost_code_id → code lookup
+  const ccIdToCode: Record<string, string> = {};
+  for (const cc of ccData ?? []) ccIdToCode[cc.id] = cc.code;
+
+  const actualsMap: Record<string, Record<string, number>> = {};
   if (projectIds.length > 0) {
+    // Invoice line items
     const { data: lineData } = await supabase
       .from("invoice_line_items")
       .select("cost_code, amount, project_id, invoice:invoices!inner(status)")
       .in("project_id", projectIds)
-      .in("invoice.status", ["approved", "released", "cleared"]);
+      .in("invoice.status" as any, ["approved", "released", "cleared"]);
 
     for (const row of lineData ?? []) {
       if (!row.cost_code || !row.project_id) continue;
       if (!actualsMap[row.cost_code]) actualsMap[row.cost_code] = {};
       actualsMap[row.cost_code][row.project_id] =
         (actualsMap[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
+    }
+
+    // Journal entry lines (manual JEs, lot costs, etc. — skip invoice-related to avoid double-counting)
+    const { data: jeLineData } = await supabase
+      .from("journal_entry_lines")
+      .select("cost_code_id, project_id, debit, credit, journal_entry:journal_entries!inner(status, source_type)")
+      .in("project_id", projectIds)
+      .not("cost_code_id", "is", null);
+
+    for (const row of jeLineData ?? []) {
+      const je = (row as any).journal_entry;
+      if (!je || je.status !== "posted") continue;
+      if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
+      if (!row.cost_code_id || !row.project_id) continue;
+
+      const code = ccIdToCode[row.cost_code_id];
+      if (!code) continue;
+
+      const amount = (row.debit ?? 0) - (row.credit ?? 0);
+      if (amount === 0) continue;
+
+      if (!actualsMap[code]) actualsMap[code] = {};
+      actualsMap[code][row.project_id] = (actualsMap[code][row.project_id] ?? 0) + amount;
     }
   }
 

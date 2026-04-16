@@ -17,6 +17,7 @@ interface Project {
 }
 
 interface CostCode {
+  id: string;
   code: string;
   name: string;
   project_type: string | null;
@@ -62,7 +63,7 @@ export default function JobCostReportClient() {
         .order("name"),
       supabase
         .from("cost_codes")
-        .select("code, name, project_type")
+        .select("id, code, name, project_type")
         .eq("is_active", true)
         .order("sort_order"),
     ]).then(([projRes, ccRes]) => {
@@ -109,6 +110,13 @@ export default function JobCostReportClient() {
     setSubdivision("all");
   }, [projectType]);
 
+  // Build cost_code_id → code lookup
+  const ccIdToCode = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const cc of costCodes) map[cc.id] = cc.code;
+    return map;
+  }, [costCodes]);
+
   // Fetch actuals when filtered projects change
   useEffect(() => {
     if (filteredProjects.length === 0) {
@@ -119,24 +127,51 @@ export default function JobCostReportClient() {
     const supabase = createClient();
     const projectIds = filteredProjects.map((p) => p.id);
 
-    // Query invoice_line_items joined with invoices for status filter
-    supabase
-      .from("invoice_line_items")
-      .select("cost_code, amount, project_id, invoice:invoices!inner(status)")
-      .in("project_id", projectIds)
-      .in("invoice.status", ["approved", "released", "cleared"])
-      .then(({ data, error }) => {
-        const map: ActualsMap = {};
-        for (const row of data ?? []) {
-          if (!row.cost_code || !row.project_id) continue;
-          if (!map[row.cost_code]) map[row.cost_code] = {};
-          map[row.cost_code][row.project_id] =
-            (map[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
-        }
-        setActuals(map);
-        setDataLoading(false);
-      });
-  }, [filteredProjects]);
+    Promise.all([
+      // Invoice line items
+      supabase
+        .from("invoice_line_items")
+        .select("cost_code, amount, project_id, invoice:invoices!inner(status)")
+        .in("project_id", projectIds)
+        .in("invoice.status", ["approved", "released", "cleared"]),
+      // Journal entry lines (manual JEs, lot costs, etc.)
+      supabase
+        .from("journal_entry_lines")
+        .select("cost_code_id, project_id, debit, credit, journal_entry:journal_entries!inner(status, source_type)")
+        .in("project_id", projectIds)
+        .not("cost_code_id", "is", null),
+    ]).then(([invRes, jeRes]) => {
+      const map: ActualsMap = {};
+
+      // Add invoice line item actuals
+      for (const row of invRes.data ?? []) {
+        if (!row.cost_code || !row.project_id) continue;
+        if (!map[row.cost_code]) map[row.cost_code] = {};
+        map[row.cost_code][row.project_id] =
+          (map[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
+      }
+
+      // Add JE-based actuals (skip invoice-related to avoid double-counting)
+      for (const row of jeRes.data ?? []) {
+        const je = row.journal_entry as any;
+        if (!je || je.status !== "posted") continue;
+        if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
+        if (!row.cost_code_id || !row.project_id) continue;
+
+        const code = ccIdToCode[row.cost_code_id];
+        if (!code) continue;
+
+        const amount = (row.debit ?? 0) - (row.credit ?? 0);
+        if (amount === 0) continue;
+
+        if (!map[code]) map[code] = {};
+        map[code][row.project_id] = (map[code][row.project_id] ?? 0) + amount;
+      }
+
+      setActuals(map);
+      setDataLoading(false);
+    });
+  }, [filteredProjects, ccIdToCode]);
 
   // Build table data
   const rows = useMemo(() => {
