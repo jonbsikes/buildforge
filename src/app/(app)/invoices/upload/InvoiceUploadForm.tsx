@@ -1267,6 +1267,11 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
               <option value="disputed">Disputed</option>
               <option value="void">Void</option>
             </select>
+            {status !== "pending_review" && status !== "disputed" && (
+              <p className="mt-1 text-xs text-amber-700">
+                Saving with this status will automatically post the corresponding journal entries to the ledger.
+              </p>
+            )}
           </ManualField>
           <ManualField label="Payment Method">
             <input type="text" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}

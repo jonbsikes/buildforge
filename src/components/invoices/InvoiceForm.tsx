@@ -568,6 +568,11 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               <option value="disputed">Disputed</option>
               <option value="void">Void</option>
             </select>
+            {status !== "pending_review" && status !== "disputed" && (
+              <p className="mt-1 text-xs text-amber-700">
+                Saving with this status will automatically post the corresponding journal entries to the ledger.
+              </p>
+            )}
           </Field>
 
           <label className="flex items-center gap-2 pb-2 cursor-pointer select-none">

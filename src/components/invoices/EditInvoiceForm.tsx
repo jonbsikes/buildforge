@@ -360,6 +360,11 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
               <option value="disputed">Disputed</option>
               <option value="void">Void</option>
             </select>
+            {status !== initial.status && (
+              <p className="mt-1 text-xs text-amber-700">
+                Changing the status will automatically post the corresponding journal entries (or reversals) to the ledger.
+              </p>
+            )}
           </Field>
           <Field label="Payment Method">
             <input
