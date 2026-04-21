@@ -218,7 +218,7 @@ export async function approveInvoice(
     .from("invoices")
     .select(`
       status, ai_confidence, manually_reviewed, pending_draw,
-      total_amount, amount, project_id, vendor, invoice_number,
+      total_amount, amount, project_id, vendor, vendor_id, invoice_number,
       direct_cash_payment,
       projects ( project_type )
     `)
@@ -346,6 +346,39 @@ export async function approveInvoice(
 
           await supabase.from("journal_entry_lines").insert(jeLines);
         }
+      }
+    }
+
+    // Create a Payment Register row so bank auto-drafts are visible in /banking/payments.
+    // payment_method = 'auto_draft', status = 'cleared', funding_source = 'dda'.
+    if (invoiceAmount > 0) {
+      const { data: paymentRow } = await supabase
+        .from("payments")
+        .insert({
+          payment_number: null,
+          payment_method: "auto_draft",
+          payee: invoice.vendor ?? "Bank",
+          vendor_id: invoice.vendor_id ?? null,
+          amount: invoiceAmount,
+          discount_amount: 0,
+          payment_date: today,
+          cleared_date: today,
+          status: "cleared",
+          funding_source: "dda",
+          draw_id: null,
+          vendor_payment_id: null,
+          notes: `Bank auto-draft — ${invLabel}`,
+          user_id: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (paymentRow) {
+        await supabase.from("payment_invoices").insert({
+          payment_id: paymentRow.id,
+          invoice_id: invoiceId,
+          amount: invoiceAmount,
+        });
       }
     }
   } else {
