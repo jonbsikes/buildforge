@@ -10,6 +10,7 @@ import {
   Plus, Trash2,
 } from "lucide-react";
 import type { ExtractedInvoiceData } from "@/app/api/invoices/extract/route";
+import { saveInvoice } from "@/app/actions/invoices";
 
 interface CostCode { code: string; category: string; name: string; project_type: "home_construction" | "land_development" | "general_admin" | null; }
 interface Vendor { id: string; name: string; }
@@ -1013,9 +1014,31 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
   const [invoiceDate, setInvoiceDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [status, setStatus] = useState<"pending_review" | "approved" | "released" | "cleared" | "disputed" | "void">("pending_review");
-  const [paymentMethod, setPaymentMethod] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"" | "check" | "ach" | "wire" | "credit_card">("");
   const [pendingDraw, setPendingDraw] = useState(false);
+  const [directCashPayment, setDirectCashPayment] = useState(false);
   const [lineItems, setLineItems] = useState<ManualLineItem[]>([{ ...EMPTY_MANUAL_LINE }]);
+
+  // Detect Loan Interest cost codes (121/122) — drives the auto-draft callout
+  const hasLoanInterestCode = lineItems.some((li) => li.cost_code === "121" || li.cost_code === "122");
+
+  // Auto-clear directCashPayment when Loan Interest code is removed
+  useEffect(() => {
+    if (!hasLoanInterestCode && directCashPayment) {
+      setDirectCashPayment(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasLoanInterestCode]);
+
+  // Auto-set payment method to ACH when auto-draft is enabled
+  useEffect(() => {
+    if (directCashPayment && paymentMethod !== "ach") {
+      setPaymentMethod("ach");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directCashPayment]);
+
+  const showPaymentMethod = status === "released" || status === "cleared" || directCashPayment;
   const [vendors, setVendors] = useState<Vendor[]>(initialVendors);
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -1051,6 +1074,7 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
         if (parsed.status) setStatus(parsed.status);
         if (parsed.paymentMethod) setPaymentMethod(parsed.paymentMethod);
         if (typeof parsed.pendingDraw === "boolean") setPendingDraw(parsed.pendingDraw);
+        if (typeof parsed.directCashPayment === "boolean") setDirectCashPayment(parsed.directCashPayment);
         if (parsed.lineItems?.length) setLineItems(parsed.lineItems);
       } catch { /* ignore */ }
       sessionStorage.removeItem("invoice_manual_draft");
@@ -1079,7 +1103,7 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
 
   function handleCreateVendor() {
     sessionStorage.setItem("invoice_manual_draft", JSON.stringify({
-      invoiceNumber, invoiceDate, dueDate, status, paymentMethod, pendingDraw, lineItems,
+      invoiceNumber, invoiceDate, dueDate, status, paymentMethod, pendingDraw, directCashPayment, lineItems,
     }));
     const params = new URLSearchParams();
     params.set("returnTo", "invoice-upload");
@@ -1105,17 +1129,15 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
 
-    const vendorName = vendors.find((v) => v.id === vendorId)?.name ?? null;
+    const vendorName = vendors.find((v) => v.id === vendorId)?.name ?? "";
 
-    // Dominant project = project on the largest line item
+    // Dominant project = project on the largest line item (for display name)
     const dominantLine = lineItems.reduce((max, li) => {
       const a = parseFloat(li.amount) || 0;
       const b = parseFloat(max.amount) || 0;
       return a > b ? li : max;
     }, lineItems[0]);
-    const dominantProjectId = dominantLine?.project_id || null;
-
-    const total = lineTotal;
+    const dominantProject = projects.find((p) => p.id === dominantLine?.project_id) ?? null;
 
     // Default due_date to entry date if not provided (per CLAUDE.md business rule)
     const today = new Date().toISOString().split("T")[0];
@@ -1138,50 +1160,33 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
       uploadedName = file.name;
     }
 
-    const insertPayload: Record<string, unknown> = {
-      project_id: dominantProjectId,
-      user_id: user.id,
-      file_path: uploadedPath,
-      file_name: uploadedName,
+    // Route through saveInvoice so applyStatusTransition fires the correct JEs
+    const result = await saveInvoice({
       vendor_id: vendorId,
-      vendor: vendorName,
-      invoice_number: invoiceNumber || null,
+      vendor_name: vendorName,
+      invoice_number: invoiceNumber,
       invoice_date: invoiceDate,
       due_date: resolvedDueDate,
-      amount: total,
-      total_amount: total,
-      payment_method: paymentMethod || null,
-      pending_draw: pendingDraw,
-      processed: true,
-      status,
       source: "manual",
-    };
-
-    const { data: invoice, error: insertError } = await supabase
-      .from("invoices")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .insert(insertPayload as any)
-      .select("id")
-      .single();
-
-    if (insertError || !invoice) {
-      setSubmitError(`Save failed: ${insertError?.message ?? "Unknown error"}`);
-      setSaving(false);
-      return;
-    }
-
-    const { error: liError } = await supabase.from("invoice_line_items").insert(
-      lineItems.map((li) => ({
-        invoice_id: invoice.id,
-        cost_code: li.cost_code || null,
-        description: li.description || "",
+      file_path: uploadedPath,
+      file_name_original: uploadedName,
+      ai_confidence: "high",
+      ai_notes: "",
+      line_items: lineItems.map((li) => ({
+        cost_code: li.cost_code,
+        description: li.description,
         amount: parseFloat(li.amount) || 0,
         project_id: li.project_id || null,
-      }))
-    );
+      })),
+      project_name: dominantProject?.name ?? "Company",
+      status,
+      pending_draw: pendingDraw && !directCashPayment,
+      direct_cash_payment: directCashPayment,
+      payment_method: paymentMethod || null,
+    });
 
-    if (liError) {
-      setSubmitError(`Line items save failed: ${liError.message}`);
+    if (result.error) {
+      setSubmitError(result.error);
       setSaving(false);
       return;
     }
@@ -1257,7 +1262,7 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
           </ManualField>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid ${showPaymentMethod ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
           <ManualField label="Status">
             <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className={manualFieldClass()}>
               <option value="pending_review">Pending Review</option>
@@ -1273,16 +1278,40 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
               </p>
             )}
           </ManualField>
-          <ManualField label="Payment Method">
-            <input type="text" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}
-              placeholder="e.g. Check, ACH, Wire" className={manualFieldClass()} />
-          </ManualField>
+          {showPaymentMethod && (
+            <ManualField label="Payment Method" required={status === "released" || status === "cleared"}>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
+                disabled={directCashPayment}
+                className={manualFieldClass()}
+              >
+                <option value="">— Select payment method —</option>
+                <option value="check">Check</option>
+                <option value="ach">ACH / Auto-Draft</option>
+                <option value="wire">Wire</option>
+                <option value="credit_card">Credit Card</option>
+              </select>
+              {directCashPayment && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Auto-set to ACH because bank auto-draft is enabled.
+                </p>
+              )}
+            </ManualField>
+          )}
         </div>
 
         <label className="flex items-center gap-2.5 cursor-pointer">
-          <input type="checkbox" checked={pendingDraw} onChange={(e) => setPendingDraw(e.target.checked)}
-            className="w-4 h-4 rounded accent-[#4272EF]" />
-          <span className="text-sm text-gray-700">Include in pending draw request</span>
+          <input
+            type="checkbox"
+            checked={pendingDraw && !directCashPayment}
+            onChange={(e) => setPendingDraw(e.target.checked)}
+            disabled={directCashPayment}
+            className="w-4 h-4 rounded accent-[#4272EF] disabled:opacity-40"
+          />
+          <span className={`text-sm ${directCashPayment ? "text-gray-400" : "text-gray-700"}`}>
+            Include in pending draw request
+          </span>
         </label>
       </section>
 
@@ -1341,6 +1370,32 @@ function ManualEntry({ projects, costCodes, vendors: initialVendors }: Props) {
           Add line item
         </button>
       </section>
+
+      {/* Auto-draft callout — surfaces when cost code 121/122 is selected */}
+      {hasLoanInterestCode && (
+        <section className="bg-amber-50 rounded-xl border-2 border-amber-300 p-5">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={directCashPayment}
+              onChange={(e) => {
+                setDirectCashPayment(e.target.checked);
+                if (e.target.checked) setPendingDraw(false);
+              }}
+              className="mt-0.5 w-4 h-4 rounded border-amber-400 accent-[#4272EF]"
+            />
+            <div className="flex-1">
+              <span className="text-sm font-semibold text-amber-900">
+                Loan Interest detected — is this bank auto-drafted from your operating account?
+              </span>
+              <p className="text-xs text-amber-800 mt-1">
+                Check this box if your bank pulls the interest directly (most construction loans). On approval, posts
+                DR WIP/CIP / CR Cash as a single entry — skips AP and draw. Payment date is set to today.
+              </p>
+            </div>
+          </label>
+        </section>
+      )}
 
       {submitError && (
         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{submitError}</div>
