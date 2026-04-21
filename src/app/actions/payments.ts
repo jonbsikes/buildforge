@@ -4,6 +4,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { approveInvoice } from "./invoices";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,6 +169,49 @@ export async function createPayment(
   // For ACH/wire/auto_draft: invoices go to 'cleared'
   const newInvoiceStatus = isCheck ? "released" : "cleared";
   const invoiceIds = input.invoices.map((i) => i.invoice_id);
+
+  // ---------------------------------------------------------------------------
+  // Ensure every linked invoice has had its DR WIP/CIP / CR AP entry posted
+  // (wip_ap_posted = true). Without this, the payment JE below would post
+  // DR AP / CR Cash against an AP balance that was never opened — leaving
+  // WIP/CIP un-debited and AP with a phantom negative balance.
+  //
+  // If an invoice is still in pending_review we auto-approve it here so the
+  // approval leg is posted first. Any other status combined with
+  // wip_ap_posted = false is a corrupt state and we refuse to proceed.
+  // ---------------------------------------------------------------------------
+  for (const invId of invoiceIds) {
+    const { data: invCheck } = await supabase
+      .from("invoices")
+      .select("status, wip_ap_posted, direct_cash_payment, invoice_number")
+      .eq("id", invId)
+      .single();
+    if (!invCheck) continue;
+    if (invCheck.wip_ap_posted) continue; // approval leg already posted — nothing to do
+
+    if (invCheck.status !== "pending_review") {
+      return {
+        error: `Invoice ${invCheck.invoice_number ?? invId} is in status '${invCheck.status}' with wip_ap_posted=false. This is a corrupt state — reset the invoice to pending_review and retry, or contact support.`,
+      };
+    }
+
+    // createPayment posts the standard two-leg path (DR AP / CR Cash). If the
+    // invoice was flagged direct_cash_payment, approveInvoice would post a
+    // one-leg DR WIP / CR Cash entry and there would be no AP balance for us
+    // to debit. Flip the flag off so approveInvoice runs the two-leg path.
+    if (invCheck.direct_cash_payment) {
+      const { error: flipErr } = await supabase
+        .from("invoices")
+        .update({ direct_cash_payment: false })
+        .eq("id", invId);
+      if (flipErr) return { error: flipErr.message };
+    }
+
+    const { error: approveErr } = await approveInvoice(invId);
+    if (approveErr) {
+      return { error: `Failed to auto-approve invoice ${invCheck.invoice_number ?? invId} before payment: ${approveErr}` };
+    }
+  }
 
   const invoiceUpdates: Record<string, unknown> = {
     status: newInvoiceStatus,

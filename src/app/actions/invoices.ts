@@ -38,6 +38,7 @@ export interface SaveInvoiceInput {
   pending_draw?: boolean;
   // When the bank auto-drafts the payment, skip AP and post DR WIP / CR Cash at approval
   direct_cash_payment?: boolean;
+  payment_method?: "check" | "ach" | "wire" | "credit_card" | null;
 }
 
 export async function saveInvoice(
@@ -84,13 +85,37 @@ export async function saveInvoice(
   const dominant = input.line_items.reduce((max, li) => (li.amount > max.amount ? li : max));
   const headerProjectId = dominant.project_id || null;
 
-  // Look up the UUID for the dominant cost code
-  const { data: dominantCode } = await supabase
-    .from("cost_codes")
-    .select("id, name")
-    .eq("code", String(parseInt(dominant.cost_code) || 0))
-    .is("user_id", null)
-    .single();
+  // Look up the UUID for the dominant cost code.
+  // Use maybeSingle() so a miss returns null instead of erroring. If the code
+  // can't be resolved globally, fall back to a user-scoped row before giving up
+  // so we don't silently write cost_code_id = null to the invoice header.
+  const dominantCodeStr = dominant.cost_code ? String(dominant.cost_code).trim() : "";
+  const dominantCodeNumeric = dominantCodeStr ? String(parseInt(dominantCodeStr) || 0) : "";
+  let dominantCode: { id: string; name: string | null } | null = null;
+  if (dominantCodeNumeric && dominantCodeNumeric !== "0") {
+    const { data: globalCode } = await supabase
+      .from("cost_codes")
+      .select("id, name")
+      .eq("code", dominantCodeNumeric)
+      .is("user_id", null)
+      .maybeSingle();
+    if (globalCode) {
+      dominantCode = globalCode;
+    } else {
+      const { data: userCode } = await supabase
+        .from("cost_codes")
+        .select("id, name")
+        .eq("code", dominantCodeNumeric)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      dominantCode = userCode ?? null;
+    }
+    if (!dominantCode) {
+      console.warn(
+        `[saveInvoice] Could not resolve cost_code_id for code="${dominantCodeStr}" — invoice header will have cost_code_id=null.`
+      );
+    }
+  }
 
   // Look up vendor name if vendor_id provided
   let vendorDisplay = input.vendor_name.trim() || "Unknown Vendor";
@@ -134,6 +159,7 @@ export async function saveInvoice(
       cost_code_id: dominantCode?.id ?? null,
       pending_draw: input.pending_draw ?? false,
       direct_cash_payment: input.direct_cash_payment ?? false,
+      payment_method: input.payment_method ?? null,
       manually_reviewed: false,
     })
     .select("id")

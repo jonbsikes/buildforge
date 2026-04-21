@@ -97,6 +97,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
   const [status, setStatus] = useState<"pending_review" | "approved" | "released" | "cleared" | "disputed" | "void">("pending_review");
   const [pendingDraw, setPendingDraw] = useState(false);
   const [directCashPayment, setDirectCashPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"" | "check" | "ach" | "wire" | "credit_card">("");
 
   // Line items
   const [lineItems, setLineItems] = useState<LineItem[]>([{ ...EMPTY_LINE }]);
@@ -159,6 +160,17 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasLoanInterestCode]);
+
+  // Auto-set payment method to ACH when auto-draft is enabled
+  useEffect(() => {
+    if (directCashPayment && paymentMethod !== "ach") {
+      setPaymentMethod("ach");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directCashPayment]);
+
+  // Show payment method when status implies payment has occurred
+  const showPaymentMethod = status === "released" || status === "cleared" || directCashPayment;
 
   // Auto-clear cost code when project changes on a line item (code may not apply)
   function updateLineProject(idx: number, newProjectId: string) {
@@ -372,6 +384,7 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
         status,
         pending_draw: pendingDraw && !directCashPayment,
         direct_cash_payment: directCashPayment,
+        payment_method: paymentMethod || null,
       });
 
       if (result.error) {
@@ -589,27 +602,6 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
           </label>
         </div>
 
-        {/* Auto-draft toggle — only shown when a Loan Interest cost code is present */}
-        {hasLoanInterestCode && (
-          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-            <input
-              type="checkbox"
-              id="directCashPayment"
-              checked={directCashPayment}
-              onChange={(e) => {
-                setDirectCashPayment(e.target.checked);
-                if (e.target.checked) setPendingDraw(false);
-              }}
-              className="mt-0.5 w-4 h-4 rounded border-blue-300 text-[#4272EF] focus:ring-[#4272EF]"
-            />
-            <label htmlFor="directCashPayment" className="cursor-pointer select-none">
-              <span className="text-sm font-medium text-blue-900">Bank auto-drafts from operating account</span>
-              <p className="text-xs text-blue-700 mt-0.5">
-                On approval, posts DR WIP/CIP / CR Cash directly — skips AP and draw. Payment date set to today.
-              </p>
-            </label>
-          </div>
-        )}
       </section>
 
       {/* Line Items */}
@@ -698,6 +690,61 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
           Add line item
         </button>
       </section>
+
+      {/* Payment section — appears after line items so users see it in top-down flow */}
+      {(hasLoanInterestCode || showPaymentMethod) && (
+        <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-gray-700">Payment</h2>
+
+          {/* Prominent auto-draft callout — surfaces when cost code 121/122 is in use */}
+          {hasLoanInterestCode && (
+            <div className="flex items-start gap-3 bg-amber-50 border-2 border-amber-300 rounded-lg px-4 py-3">
+              <input
+                type="checkbox"
+                id="directCashPayment"
+                checked={directCashPayment}
+                onChange={(e) => {
+                  setDirectCashPayment(e.target.checked);
+                  if (e.target.checked) setPendingDraw(false);
+                }}
+                className="mt-0.5 w-4 h-4 rounded border-amber-400 text-[#4272EF] focus:ring-[#4272EF]"
+              />
+              <label htmlFor="directCashPayment" className="cursor-pointer select-none flex-1">
+                <span className="text-sm font-semibold text-amber-900">
+                  Loan Interest detected — is this bank auto-drafted from your operating account?
+                </span>
+                <p className="text-xs text-amber-800 mt-1">
+                  Check this box if your bank pulls the interest directly (most construction loans). On approval, posts
+                  DR WIP/CIP / CR Cash as a single entry — skips AP and draw. Payment date is set to today.
+                </p>
+              </label>
+            </div>
+          )}
+
+          {/* Payment method — shown when status implies payment, or when auto-draft is on */}
+          {showPaymentMethod && (
+            <Field label="Payment Method" required={status === "released" || status === "cleared"}>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
+                disabled={directCashPayment}
+                className={inputClass(false)}
+              >
+                <option value="">— Select payment method —</option>
+                <option value="check">Check</option>
+                <option value="ach">ACH / Auto-Draft</option>
+                <option value="wire">Wire</option>
+                <option value="credit_card">Credit Card</option>
+              </select>
+              {directCashPayment && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Auto-set to ACH because bank auto-draft is enabled.
+                </p>
+              )}
+            </Field>
+          )}
+        </section>
+      )}
 
       {/* Submit */}
       {submitError && (
