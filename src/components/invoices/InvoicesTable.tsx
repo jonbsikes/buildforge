@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown, Check, MoreVertical, Zap, CreditCard, FileText } from "lucide-react";
+import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown, Check, MoreVertical, Zap, CreditCard, FileText, Landmark } from "lucide-react";
 import {
   deleteInvoice,
   setInvoiceStatus,
@@ -81,6 +81,12 @@ type InvoiceRow = {
   projects: { id: string; name: string } | null;
   cost_codes: { code: string; name: string } | null;
   vendors?: { auto_draft: boolean | null } | null;
+  in_draw?: {
+    id: string;
+    draw_number: number | null;
+    draw_date: string | null;
+    status: string | null;
+  } | null;
 };
 
 export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
@@ -569,6 +575,20 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                     <td className="px-4 py-2 relative" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
                         <StatusDot status={effectiveStatus} />
+                        {inv.in_draw && (
+                          <Link
+                            href={`/draws/${inv.in_draw.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title={
+                              inv.in_draw.draw_date
+                                ? `In draw request — ${inv.in_draw.draw_date}${inv.in_draw.status ? ` (${inv.in_draw.status})` : ""}`
+                                : "In draw request"
+                            }
+                            className="text-[#4272EF] hover:text-[#3461de] transition-colors flex-shrink-0"
+                          >
+                            <Landmark size={14} />
+                          </Link>
+                        )}
 
                         {effectiveStatus === "pending_review" && (
                           <button

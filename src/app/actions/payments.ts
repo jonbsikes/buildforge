@@ -229,6 +229,95 @@ export async function createPayment(
   }
 
   // ---------------------------------------------------------------------------
+  // Sync vendor_payments on any draw that contains these invoices.
+  //
+  // Context: the draw detail page reads vendor_payments.status to decide
+  // whether each vendor line on the draw is "open" or "paid". If the user
+  // pays an invoice via the Payment Register (this action) instead of via
+  // the draw's "Mark Vendor Paid" workflow, those vendor_payments rows are
+  // never updated and the draw page keeps showing the line as open.
+  //
+  // We close the loop here: for every vendor_payment whose invoice set is
+  // fully covered by this payment, mark it paid and stamp the check info.
+  // If that paid the last open line on a draw, auto-close the draw.
+  //
+  // No GL entries are posted here — createPayment has already posted the
+  // DR AP / CR 2050 (or 1000) entry. This is purely a status sync.
+  // ---------------------------------------------------------------------------
+  const affectedDrawIds = new Set<string>();
+  if (invoiceIds.length > 0) {
+    const paidSet = new Set<string>(invoiceIds);
+
+    const { data: vpLinks } = await supabase
+      .from("vendor_payment_invoices")
+      .select("vendor_payment_id, invoice_id")
+      .in("invoice_id", invoiceIds);
+
+    const candidateVpIds = Array.from(
+      new Set((vpLinks ?? []).map((l) => l.vendor_payment_id))
+    );
+
+    if (candidateVpIds.length > 0) {
+      // Load every vendor_payment involved and all of its invoice links so
+      // we can tell which ones are fully covered by this payment.
+      const { data: vps } = await supabase
+        .from("vendor_payments")
+        .select("id, draw_id, status")
+        .in("id", candidateVpIds);
+
+      const { data: allLinks } = await supabase
+        .from("vendor_payment_invoices")
+        .select("vendor_payment_id, invoice_id")
+        .in("vendor_payment_id", candidateVpIds);
+
+      const invoicesByVp = new Map<string, string[]>();
+      for (const l of allLinks ?? []) {
+        const arr = invoicesByVp.get(l.vendor_payment_id) ?? [];
+        arr.push(l.invoice_id);
+        invoicesByVp.set(l.vendor_payment_id, arr);
+      }
+
+      for (const vp of vps ?? []) {
+        if (vp.status === "paid") {
+          if (vp.draw_id) affectedDrawIds.add(vp.draw_id);
+          continue;
+        }
+        const linkedInvoiceIds = invoicesByVp.get(vp.id) ?? [];
+        if (linkedInvoiceIds.length === 0) continue;
+        const fullyCovered = linkedInvoiceIds.every((id) => paidSet.has(id));
+        if (!fullyCovered) continue;
+
+        await supabase
+          .from("vendor_payments")
+          .update({
+            status: "paid",
+            check_number: input.payment_number?.trim() || null,
+            payment_date: input.payment_date,
+          })
+          .eq("id", vp.id);
+
+        if (vp.draw_id) affectedDrawIds.add(vp.draw_id);
+      }
+    }
+
+    // Auto-close any draw whose vendor_payments are now all paid.
+    for (const drawId of affectedDrawIds) {
+      const { data: allVps } = await supabase
+        .from("vendor_payments")
+        .select("status")
+        .eq("draw_id", drawId);
+      if (!allVps || allVps.length === 0) continue;
+      const allPaid = allVps.every((v) => v.status === "paid");
+      if (allPaid) {
+        await supabase
+          .from("loan_draws")
+          .update({ status: "paid" })
+          .eq("id", drawId);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // If discount taken, distribute across invoices and determine WIP accounts
   // ---------------------------------------------------------------------------
   type DiscountByWip = { accountNumber: string; projectId: string | null; amount: number };
@@ -364,6 +453,12 @@ export async function createPayment(
 
   revalidatePath("/banking/payments");
   revalidatePath("/invoices");
+  if (affectedDrawIds.size > 0) {
+    revalidatePath("/draws");
+    for (const drawId of affectedDrawIds) {
+      revalidatePath(`/draws/${drawId}`);
+    }
+  }
   return { paymentId: payment.id };
 }
 

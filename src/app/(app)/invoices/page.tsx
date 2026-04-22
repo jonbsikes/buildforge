@@ -25,7 +25,36 @@ export default async function InvoicesPage() {
     `)
     .order("created_at", { ascending: false });
 
-  const rows = invoices ?? [];
+  const baseRows = invoices ?? [];
+
+  // Look up which invoices are attached to a draw request so we can show
+  // a bank icon next to the status on the AP screen. A single invoice can
+  // (rarely) be linked to more than one draw — show the most recent one.
+  const invoiceIds = baseRows.map((r) => r.id);
+  const drawByInvoice = new Map<
+    string,
+    { id: string; draw_number: number | null; draw_date: string | null; status: string | null }
+  >();
+  if (invoiceIds.length > 0) {
+    const { data: drawLinks } = await supabase
+      .from("draw_invoices")
+      .select(`invoice_id, loan_draws ( id, draw_number, draw_date, status )`)
+      .in("invoice_id", invoiceIds);
+    for (const link of drawLinks ?? []) {
+      const d = (link as { loan_draws: { id: string; draw_number: number | null; draw_date: string | null; status: string | null } | null }).loan_draws;
+      if (!d) continue;
+      const existing = drawByInvoice.get((link as { invoice_id: string }).invoice_id);
+      // Keep the most recent draw (by draw_date)
+      if (!existing || (d.draw_date && (!existing.draw_date || d.draw_date > existing.draw_date))) {
+        drawByInvoice.set((link as { invoice_id: string }).invoice_id, d);
+      }
+    }
+  }
+
+  const rows = baseRows.map((r) => ({
+    ...r,
+    in_draw: drawByInvoice.get(r.id) ?? null,
+  }));
 
   const lowConfCount = rows.filter(
     (i) => i.ai_confidence === "low" && i.status === "pending_review"
