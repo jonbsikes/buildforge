@@ -107,19 +107,22 @@ Plus: open-redirect in `/auth/callback`, public un-auth'd `/api/reports/[slug]`,
 
 ---
 
-### Step 2 — Extract shared GL helpers
+### Step 2 — Extract shared GL helpers ✅ DONE
 
-**Goal:** One place for "post a balanced journal entry" and "look up account IDs by number." Prep work for Steps 3–5.
+**Status:** Completed 2026-04-22 on branch `overhaul/step-2-gl-helpers`. Merged to `main` in Step 15.
 
-**What to do:**
-- Create `src/lib/gl/accounts.ts` with: `getAccountIdMap(supabase, accountNumbers: string[]): Promise<Map<string, string>>`.
-- Create `src/lib/gl/postEntry.ts` with `postJournalEntry(supabase, header, lines): Promise<{ id: string } | { error: string }>` — inserts header, inserts lines, rolls back header if lines fail, asserts `sum(debits) === sum(credits)` before posting.
-- Replace all ~15 inline `chart_of_accounts` lookups in `invoices.ts`, `draws.ts`, `banking.ts`, `payments.ts`, `journal-entries.ts` with the new helpers.
-- Replace all `journal_entries` + `journal_entry_lines` insert pairs with `postJournalEntry` calls.
+**What shipped:**
+- [src/lib/gl/accounts.ts](src/lib/gl/accounts.ts) — `getAccountIdMap(supabase, accountNumbers)` returns a `Map<string, string>` of account number → uuid in one query.
+- [src/lib/gl/postEntry.ts](src/lib/gl/postEntry.ts) — `postJournalEntry(supabase, header, lines)` inserts the header, inserts the lines, asserts `sum(debits) === sum(credits)` before posting (returns `{ error }` on imbalance), rolls back the header if lines fail.
+- All `journal_entries` + `journal_entry_lines` insert pairs in `invoices.ts`, `draws.ts`, `banking.ts`, `payments.ts`, `journal-entries.ts` route through `postJournalEntry`.
+- All `chart_of_accounts` lookups in those files use `getAccountIdMap`.
 
-**Acceptance:** `grep "chart_of_accounts" src/app/actions` returns only calls to the helper. `grep "journal_entry_lines" src/app/actions` returns only calls to `postJournalEntry`.
+**Invariants after this step:**
+- Every JE posted is balanced (helper enforces it).
+- Every line-insert failure aborts the header — no half-posted entries.
+- Adding a new JE-posting code path costs ~5 lines, not 30.
 
-**References:** Findings C6, I2, I3.
+**References:** Findings C6, I2, I3 — all closed.
 
 ---
 
@@ -199,7 +202,7 @@ Plus: open-redirect in `/auth/callback`, public un-auth'd `/api/reports/[slug]`,
 
 ---
 
-### Step 6 — Security hardening round ✅ DONE (migration not yet applied)
+### Step 6 — Security hardening round ✅ DONE (migration applied 2026-04-23 in Step 15)
 
 **Status:** Code changes completed 2026-04-22 on branch `overhaul/step-2-gl-helpers`. Not yet merged. **The RLS migration file is committed but has NOT been applied to the live Supabase DB** — see "Deferred" below.
 
@@ -468,7 +471,7 @@ Plus: open-redirect in `/auth/callback`, public un-auth'd `/api/reports/[slug]`,
 
 ---
 
-### Step 14 — Kill the legacy-schema ghosts (C10) ✅ DONE (migration not yet applied)
+### Step 14 — Kill the legacy-schema ghosts (C10) ✅ DONE (migration applied 2026-04-23 in Step 15)
 
 **Status:** Completed 2026-04-22 on branch `overhaul/step-2-gl-helpers`. Not yet merged. Typecheck clean (`npx tsc --noEmit` EXIT=0). **Migration `023_drop_legacy_schema_ghosts.sql` is committed but NOT applied to live DB** — same deferral pattern as migration 022 (Step 6).
 
@@ -501,6 +504,64 @@ Plus: open-redirect in `/auth/callback`, public un-auth'd `/api/reports/[slug]`,
 - **Legacy-related orphan enums** (`sale_type`, `stage_status`) and the orphaned `project_stages` / `stage_photos` / `stage_documents` schema island that `StageTrackerClient.tsx` references — out of C10 scope, separate cleanup.
 
 **References:** Finding C10 (closed).
+
+---
+
+### Step 15 — Ship Steps 2–14 ✅ DONE
+
+**Status:** Completed 2026-04-23. `main` is at `3a5cb14` locally and on `origin`.
+
+**What shipped:**
+
+- **Commit `2f894fe`** on `overhaul/step-2-gl-helpers`: 80-file overhaul covering Steps 2–14 (3,982 insertions / 8,186 deletions). Single commit because the steps are interdependent and the OVERHAUL_PLAN/CLAUDE.md updates only make sense alongside the code.
+- **Migration 022 applied** to live DB via Supabase MCP. RLS policies on `loan_draws`, `draw_invoices`, `gl_entries`, `vendor_payments`, `vendor_payment_invoices`, `vendor_payment_adjustments` swapped from `auth.role() = 'authenticated'` to project-ownership checks; new `current_user_owns_any_project()` helper function. Verified: all 6 tables now expose exactly one `_owner_access` policy each. Smoke test in dev: `/draws` (3 draws, $118,592.55 total) and `/banking/payments` (19 rows) loaded normally.
+- **Migration 023 applied** to live DB. Dropped `cost_items` (118 stale rows), `stages` (0 rows), `sales` (0 rows), `milestones` (0 rows) with `CASCADE`. Verified: all four tables gone from `information_schema.tables`. Smoke test: `/reports` still 200, no console errors.
+- **`src/types/database.ts` regenerated** from live DB. Net change: −249 lines / +1 metadata header line. The four legacy table types are gone; 31 tables remain. Typecheck clean. Committed as `3a5cb14`.
+- **Fast-forward merge** to local `main` (via `git merge --ff-only` from the main worktree) and **pushed to `origin/main`** (`4399485..3a5cb14`).
+- **Token rotation** done out of band: rotated the GitHub PAT that had been embedded in the `origin` URL (leaked via this conversation). New token cached in Windows Credential Manager via GCM; the `origin` URL is now plaintext-token-free.
+- **Worktrees cleaned up:** removed `buildforge-migrations` (overhaul/step-1-migrations branch) and the two scratch `.claude/worktrees/*` (their commits were already in `main`). Only the canonical `C:\Users\jonsi\Projects\buildforge` worktree remains.
+
+**Invariants after this step:**
+
+- `git log --oneline origin/main` includes `3a5cb14` and `2f894fe`.
+- Live DB has migrations 022 + 023 applied; `pg_policies` shows the new `_owner_access` policies; `cost_items` / `stages` / `sales` / `milestones` no longer exist.
+- `git remote -v` shows `https://github.com/jonbsikes/buildforge.git` (no embedded credentials).
+
+**Deferred:**
+
+- The `buildforge-step2` worktree wasn't removable from this session (Bash sessions held a directory handle). User to remove from a fresh PowerShell:
+  ```
+  cd C:\Users\jonsi\Projects\buildforge
+  git worktree remove C:\Users\jonsi\Projects\buildforge-step2
+  git branch -d overhaul/step-2-gl-helpers
+  ```
+
+**References:** Closes the Step 6 + Step 14 deferred-migration TODOs.
+
+---
+
+### Step 16 — Important hardening pass (Step 11 leftovers)
+
+**Goal:** Close the I- and M-findings from the Step 11 second-pass audit that were explicitly deferred. None block fresh-environment provisioning, but each is a real correctness or hardening gap.
+
+**Recommended grouping (smallest to largest):**
+
+1. **Quick-win minor fixes (≤30 LoC each):** M8 (`\bWIRE\b` regex in bank-transactions categorize), M9 (missing `requireAdmin()` on `getReconciliationSummary`), M10 (interest accrual reference includes day to dodge same-month collisions), M11 (account_last_four input validation), M13 (null-coalesce on `total_budget` / `budgeted_amount` reducers in `ReportsClient`), M16 (named env-var error throws in the Gmail edge function).
+2. **`payments.ts` hardening:** I14 (`voidPayment` blocked when any linked invoice is cleared — route through `applyStatusTransition`), I27 (status-gated bulk `.update().in().eq("status","approved")` with affected-row count check in `createPayment`), I28 (accumulate `discount_taken` instead of overwrite). All in one file, related semantics.
+3. **`bank-transactions.ts` correctness:** I17 (CSV parser handles quoted fields — adds papaparse or a minimal state machine), I18 (only mark `matched` when `jeId != null`), I19 (escape `%` / `_` in `loanRef` before `.ilike`), M12 (track matched txn ids in a `Set` for O(n)), M15 (decide on `auto_draft` payment_method handling). Self-contained.
+4. **`stages.ts` rigor:** I20 (DST-safe day diff via `Date.UTC` or `date-fns`), I21 (`resetSchedule` collects errors, returns first one, doesn't silently partial-succeed), I22 (parallel update `Promise.all` aggregates errors).
+5. **Gmail poller correctness:** I24 (vendor matcher requires ≥2 shared tokens), I25 (escape `,` and `)` in `findProjectByHint` PostgREST filter), I26 (upload file AFTER successful invoice insert; rollback storage on failure), M14 (chunked base64 encoding for >65KB PDFs).
+6. **COA race + orphan:** I15 (UNIQUE constraint on `chart_of_accounts.account_number` — new migration; retry loop on conflict in `createLoan`).
+7. **Project-costs bug:** the `project-costs.ts` server action writes `actual_amount` to `project_cost_codes`, but that column doesn't exist on the live table (verified during Step 14). The file is `// @ts-nocheck` so the bug is silently masked. Fix the column name OR drop the sync function entirely if it's dead. Then remove the directive.
+
+**Suggested cadence:** group 1 (~1 hour), then groups 2 + 3 + 4 in one focused session, then 5 + 6 + 7 in another. Each group is independent and can be its own commit/PR.
+
+**Out of scope for this step:**
+- The `project_stages` / `stage_photos` / `stage_documents` schema island that `StageTrackerClient.tsx` reads from. CLAUDE.md doesn't document these tables; they may be more legacy ghosts. Audit before fixing.
+- Orphan enums `sale_type` and `stage_status` left behind by migration 023. Drop with a one-line migration when convenient.
+- Removing `// @ts-nocheck` from `draws.ts` (the last action-file god-module with the directive). Same playbook as Step 13.
+
+**References:** Findings I14, I15, I17–I22, I24–I28, M8–M16.
 
 ---
 
