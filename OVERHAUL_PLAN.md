@@ -801,15 +801,66 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 26 — Final ship: close the OVERHAUL_PLAN
+### Step 26 — Final ship: close the OVERHAUL_PLAN ✅ DONE
 
-**What to do:**
-- Final typecheck: `npx tsc --noEmit` → EXIT=0.
-- Confirm no `@ts-nocheck` anywhere in `src/`.
-- Write closing entry to OVERHAUL_PLAN stating the overhaul is complete.
-- Fast-forward merge feature branch(es) to `main`, push.
+**Status:** Completed 2026-04-23. `main` is at the final overhaul commit. All 26 steps shipped.
 
-**References:** closes the Phase 2 backlog. Overhaul doc retires.
+**Final verification:**
+- `npx tsc --noEmit` → EXIT=0.
+- `grep -rn "ts-nocheck" src` → empty.
+- 26 commits on `main` tracing Steps 1 through 26 of the overhaul (audit → reconcile migrations → fix correctness → harden → delete dead code → strict typecheck).
+
+**What the overhaul delivered end-to-end:**
+
+**Audit + structure (Steps 1, 11):**
+- Reconciled migrations folder vs live DB — live DB became the source of truth; baseline migration regenerated.
+- Two-pass code audit surfaced 54 findings (C1–C17, I1–I28, M1–M16) — every critical and important finding closed or deliberately deferred.
+
+**Correctness (Steps 2, 3, 4, 5, 16):**
+- Shared GL helpers (`getAccountIdMap`, `postJournalEntry`) — every JE posted is balanced-by-construction; every line-insert failure rolls back the header.
+- `fundDraw` atomicity — status flip moved to last, every prior step guarded, retries produce duplicate JEs not stuck state.
+- `markVendorPaymentPaid` — discount math split into separate JE with clean audit trail.
+- All invoice status changes routed through `applyStatusTransition` — full transition matrix, no bypasses.
+- `payInvoiceAutoDraft` hardened, documented, adopted (not killed).
+- `createPayment` prerequisite loop reordered + status-gated bulk update — no orphan payment rows.
+- CSV parser handles quoted fields; DST-safe date arithmetic; chunked base64 for large PDFs; Gmail poller vendor matcher + project-hint sanitizer + upload-after-insert rollback chain.
+
+**Security (Steps 6):**
+- `/auth/callback` next-param validation — open redirect closed.
+- `/api/reports/[slug]`, `/api/draws/[id]/pdf`, `/api/draws/[id]/remittances-pdf` all 401-gated.
+- Migration 022 tightened RLS on `loan_draws`, `draw_invoices`, `gl_entries`, `vendor_payments`, `vendor_payment_invoices`, `vendor_payment_adjustments` from blanket `auth.role()='authenticated'` to per-project ownership checks.
+- Migration 024 added UNIQUE (`account_number`) on `chart_of_accounts`; `mintLoanCoaAccount` retries on 23505.
+
+**Code organization (Steps 7, 8, 10):**
+- 8 route-level `actions.ts` files consolidated into `src/app/actions/*` — one canonical action layer.
+- Server Component + Server Action + `useTransition` standardized for forms; no more client-side `supabase.from().insert()` in New*Form components.
+- `<ConfirmButton />` primitive replaces 14 native `confirm()` calls; focus-ring color swept to brand `#4272EF`; `inputCls` shared constant.
+
+**Dead code elimination (Steps 14, 21, 24):**
+- Legacy schema ghosts `cost_items`, `stages`, `sales`, `milestones` tables dropped (migration 023); orphan enums `sale_type`, `stage_status` dropped (migration 025).
+- Ghost `/projects/[id]/stages` + `/purchase-orders` subtrees deleted (Step 21).
+- Ghost `/loans`, `/projects/[id]/loans/**`, `/projects/[id]/budget/**`, `/settings/cost-codes/**` subtrees deleted + replaced dead `AppShell`/`Sidebar`/`MobileMenuButton` (Step 24).
+- Dead `project-costs.ts` server action file deleted (Step 16).
+- Net: ~6,000 lines of dead code removed across the overhaul.
+
+**Type safety (Steps 13, 22, 23, 24, 25):**
+- Started: 34 files with `// @ts-nocheck` masking real bugs (non-existent columns, ghost tables, typos).
+- Ended: **zero `@ts-nocheck` directives** in the entire `src` tree.
+- Removing the directives surfaced real bugs that got fixed in-scope: `contract_price` → `total_budget` rename in WIP report, missing `invoice_number` in tax export `.select()`, `JournalEntriesClient` referencing non-existent `projects.type`.
+- All PostgREST nested-join narrowing done with explicit local type aliases — no `as any`.
+
+**Migration stack as of the final commit:**
+- Migration 022 (RLS tightening) — applied.
+- Migration 023 (drop legacy ghost tables) — applied.
+- Migration 024 (UNIQUE on chart_of_accounts.account_number) — applied.
+- Migration 025 (drop orphan enums) — applied.
+
+**What's left (deliberately out of scope, tracked in "What To Leave Alone"):**
+- Remaining `as any` casts in 7 sibling PDF report files (`budgetVariance`, `fieldLogs`, `gantt`, `incomeStatement`, `jobCost`, `selections`, `subdivisionOverview`) — these files were never `@ts-nocheck`; the casts are a separate sweep.
+- `"scheduled"` invoice status used in 6 `.in()` filters but not in CLAUDE.md's status enum — harmless no-op filter, looks like deliberate forward-compat. Needs a product decision: implement as a real status or prune.
+- Old `master` branch and remote `origin/Financial-Dump` / `origin/claude/magical-margulis` branches — left alone per overhaul-plan assumption; user's call if they should be deleted.
+
+**Overhaul doc retires here.** Future improvements get their own docs/issues. This file is now historical.
 
 ---
 
