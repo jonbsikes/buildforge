@@ -745,21 +745,44 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 24 — Remove `@ts-nocheck` from loans/draws/budget/phases pages
+### Step 24 — Remove `@ts-nocheck` from loans/draws/budget/phases pages ✅ DONE
 
-**Goal:** Clear the ~10 mixed read/write page components.
+**Status:** Completed 2026-04-23 on branch `overhaul/step-24-pages`.
 
-**Files (~10, contingent on Step 21's deletions):**
-- `(app)/draws/[id]/page.tsx`, `(app)/draws/[id]/remittances/page.tsx`
-- `(app)/loans/page.tsx`
-- `(app)/projects/[id]/loans/page.tsx`, `NewLoanForm.tsx`, `[loanId]/page.tsx`, `[loanId]/LoanDetailClient.tsx`
-- `(app)/projects/[id]/budget/page.tsx`, `BudgetClient.tsx`
-- `(app)/projects/[id]/stages/page.tsx`, `StageTrackerClient.tsx` (only if Step 21 kept it)
-- `components/draws/VendorPaymentsPanel.tsx`
-- `components/layout/AppShell.tsx`
-- `components/projects/tabs/PhasesTab.tsx`
+**Scope pivoted mid-step: most of the targeted files were dead code.** An initial subagent pass tried to *rewrite* 7 files that turned out to reference non-existent tables and columns (loans ghost tables `loan_draw_items` / `loan_payments`, ghost columns `loans.total_amount` / `loans.rate_type` / `loan_draws.amount_approved`, `projects.contract_price`, `project_budget` table, etc.). Rather than accept the rewrites, I audited route reachability. Findings: the subagent had correctly identified that the canonical UIs for those features live elsewhere (`/banking/loans`, `BudgetTab` inline in `ProjectTabs`), but didn't draw the conclusion — delete, not fix.
 
-**Verify:** `grep "ts-nocheck" src/app/\(app\)/{draws,loans,projects} src/components/{draws,layout,projects}` empty.
+**Reachability audit (read-only before any edits):**
+
+| Path | Canonical live path | Sidebar-linked? | Verdict |
+|---|---|---|---|
+| `src/app/(app)/loans/page.tsx` | `/banking/loans/page.tsx` | No (Sidebar links `/banking/loans`; DesktopNavRail's `matchPaths` array contains `/loans` but nothing `href`s to it) | DEAD |
+| `src/app/(app)/projects/[id]/loans/**` (4 files) | `/banking/loans/` subtree | No — only ref was the dead `/loans/page.tsx` | DEAD |
+| `src/app/(app)/projects/[id]/budget/**` (2 files) | `BudgetTab` rendered inline in `ProjectTabs` | No — dashboard links to `/projects/[id]`, not `/projects/[id]/budget` | DEAD |
+| `src/app/(app)/settings/cost-codes/**` (2 files) | `SettingsClient` manages cost codes inline at `/settings` | No href anywhere to `/settings/cost-codes` | DEAD |
+| `src/components/layout/AppShell.tsx`, `Sidebar.tsx`, `MobileMenuButton.tsx` | `DesktopNavRail` + `BottomTabBar` are the live shells | No external imports; only imported by each other | DEAD (confirmed by `UI-REDESIGN-PROGRESS.md` Phase 2 notes) |
+
+**What shipped:**
+
+**Deletions (12 files, all orphaned behind `@ts-nocheck`):**
+- `src/app/(app)/loans/page.tsx`
+- `src/app/(app)/projects/[id]/loans/page.tsx` + `new/NewLoanForm.tsx` + `new/page.tsx` + `[loanId]/page.tsx` + `[loanId]/LoanDetailClient.tsx`
+- `src/app/(app)/projects/[id]/budget/page.tsx` + `BudgetClient.tsx`
+- `src/app/(app)/settings/cost-codes/page.tsx` + `CostCodesClient.tsx`
+- `src/components/layout/AppShell.tsx` + `Sidebar.tsx` + `MobileMenuButton.tsx`
+
+**Directive removed from 4 live files:**
+- `src/app/(app)/draws/[id]/page.tsx` — no surfaced errors.
+- `src/app/(app)/draws/[id]/remittances/page.tsx` — no surfaced errors.
+- `src/components/draws/VendorPaymentsPanel.tsx` — no surfaced errors.
+- `src/components/projects/tabs/PhasesTab.tsx` — `parseForm` tightened from `phase_number: number | undefined` to `number | null` to match the DB column and the `Phase` type; [projects.ts](src/app/actions/projects.ts) `createPhase.phase_number` signature widened to `?: number | null` to match `updatePhase` and the nullable DB column.
+
+**Invariants after this step:**
+- `find src/app/\(app\)/loans src/app/\(app\)/projects/\[id\]/loans src/app/\(app\)/projects/\[id\]/budget src/app/\(app\)/settings/cost-codes src/components/layout/AppShell.tsx` → empty.
+- `grep "ts-nocheck" src/app/\(app\)/draws src/components/draws src/components/projects` → empty.
+- Only remaining `@ts-nocheck` in the codebase is `src/app/(app)/invoices/upload/page.tsx` (Step 25).
+- `npx tsc --noEmit` → EXIT=0.
+
+**References:** Shrinks the repo by 12 more dead files. Step 25 is now a single-file cleanup. Follows the same Step 20-21 pattern: when a subagent finds the code can only compile by fixing phantom schema references, the code is dead — delete, don't fix.
 
 ---
 

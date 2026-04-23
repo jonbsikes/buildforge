@@ -298,7 +298,7 @@ export async function removeProjectCostCode(
 export async function createPhase(
   projectId: string,
   data: {
-    phase_number?: number;
+    phase_number?: number | null;
     name: string;
     size_acres?: number | null;
     number_of_lots?: number | null;

@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useState, useTransition } from "react";
@@ -37,7 +36,7 @@ const EMPTY_FORM: PhaseForm = {
 
 function parseForm(f: PhaseForm) {
   return {
-    phase_number: f.phase_number ? parseInt(f.phase_number, 10) : undefined,
+    phase_number: f.phase_number ? parseInt(f.phase_number, 10) : null,
     name: f.name.trim(),
     size_acres: f.size_acres ? parseFloat(f.size_acres) : null,
     number_of_lots: f.number_of_lots ? parseInt(f.number_of_lots, 10) : null,
