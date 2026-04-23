@@ -626,6 +626,135 @@ All 22 named findings closed (I14, I15, I17–I22, I24–I28, M8–M16) plus a b
 
 ---
 
+## Phase 2 backlog (Steps 18–26): finish cleanup + kill all `@ts-nocheck`
+
+Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The work below is queued into small focused steps — each committed independently so any regression has a clean revert point.
+
+**Assumptions going in:**
+- **Branch cleanup:** delete only merged feature branches (`overhaul/step-16-hardening`). The local `master` branch alongside `main`, plus remotes `origin/Financial-Dump` and `origin/claude/magical-margulis`, are left alone until explicitly scoped — could be user's manual work.
+- **Purchase Orders feature status:** unknown. `(app)/purchase-orders/**` is not in CLAUDE.md schema. Step 20 investigates before Step 21 decides keep-or-delete.
+- **Schema island:** `project_stages`, `stage_photos`, `stage_documents` read by `StageTrackerClient.tsx` — undocumented in CLAUDE.md. Step 20 audits.
+
+---
+
+### Step 18 — Drop orphan enums + delete merged branch
+
+**Goal:** Close the remaining tail of Step 14's migration 023.
+
+**What to do:**
+- Write `supabase/migrations/025_drop_orphan_enums.sql`: `DROP TYPE IF EXISTS sale_type; DROP TYPE IF EXISTS stage_status;`. Both enums were orphaned when migration 023 dropped their parent tables (`sales`, `stages`).
+- Apply migration 025 to live DB via Supabase MCP.
+- `git branch -d overhaul/step-16-hardening` (FF-merged — safe delete).
+
+**Verify:** live-DB query `SELECT typname FROM pg_type WHERE typname IN ('sale_type','stage_status')` returns empty. `git branch` no longer shows the overhaul branch.
+
+---
+
+### Step 19 — UI consistency sweep
+
+**Goal:** Close the two UI drift items flagged at the end of Step 10.
+
+**What to do:**
+- **`confirm()` → `<ConfirmButton />`:** 14 native `confirm()` call sites remain (`DocumentsClient.tsx:341`, `FieldLogPhotos.tsx:111`, `SettingsClient.tsx:150`, `VendorsClient.tsx:289`, 6 in `InvoicesTable.tsx`, `PaymentRegisterClient.tsx:206`, `SelectionsTab.tsx:83`, `VendorDocuments.tsx:109`). Wrap each in the existing primitive — same pattern as `DeleteLoanButton` / `DeleteContractButton`.
+- **Focus-ring drift:** ~45 files still have `focus:ring-amber-400`, `focus:ring-amber-500`, or `focus:ring-blue-500` — `#4272EF` is the mandated brand ring per CLAUDE.md. Replace with the existing `inputCls` constant where applicable; for non-form focus rings, swap to `focus:ring-[#4272EF]` directly.
+
+**Verify:** `grep -rn "confirm(" src --include="*.tsx"` returns the only legitimate `form.confirm_*` data-attribute hits (if any). `grep -rn "focus:ring-\(amber\|blue\)" src --include="*.tsx"` empty. `npx tsc --noEmit` clean.
+
+---
+
+### Step 20 — Audit ghost features (read-only, no code changes)
+
+**Goal:** Decide what's live vs dead before fixing types on potentially-dead code.
+
+**What to investigate:**
+- **`project_stages` / `stage_photos` / `stage_documents` schema island.** Used by `StageTrackerClient.tsx`. These tables are not in CLAUDE.md's documented schema. Confirm: do they exist on live DB? Row counts? Is `StageTrackerClient` reachable from the current sidebar nav, or is it orphaned? Can `build_stages` (the canonical table) cover everything this component needs?
+- **`src/app/(app)/purchase-orders/**` subtree.** 3 files, all `@ts-nocheck`. `purchase_orders` table not in CLAUDE.md schema. Confirm: live DB table status, UI reachability from sidebar, recent commit activity.
+- **Anything else** that comes up while reading.
+
+**Deliverable:** list of confirmed dead items to feed Step 21, plus any surprises worth promoting to their own step.
+
+---
+
+### Step 21 — Delete confirmed ghosts
+
+**Goal:** Shrink the surface Steps 22–25 have to touch. No point fixing types on code we're about to delete.
+
+**What to do:**
+- For each confirmed dead item from Step 20: delete the files, delete the DB tables (new migration if needed), update CLAUDE.md if the item was documented.
+- This step is contingent on Step 20's findings — scope determined there.
+
+---
+
+### Step 22 — Remove `@ts-nocheck` from `draws.ts` (god-module)
+
+**Goal:** Kill the directive on the last large action-file god-module. Same playbook as Step 13 (`payments.ts` / `projects.ts`).
+
+**What to do:**
+- Remove the directive, run `npx tsc --noEmit`, fix real errors one by one.
+- Expected fallout patterns (from Step 13 experience): PostgREST joined-result narrowing, optional-field dereferences, enum-string casts.
+- NO `as any`. Each error is either a real bug (fix it) or a missing narrow (write it).
+
+**Verify:** `grep "ts-nocheck" src/app/actions/draws.ts` empty. `npx tsc --noEmit` clean.
+
+---
+
+### Step 23 — Remove `@ts-nocheck` from financial reports
+
+**Goal:** Clear the largest cluster of `@ts-nocheck` in one themed session.
+
+**Files (~15):**
+- `src/components/financial/*.tsx` (7 files: BalanceSheet, CashFlow, FinancialSummary, IncomeStatement, JournalEntries, TaxExport, WIP)
+- `src/lib/reports/reports/*.tsx` (8 files: apAging, balanceSheet, cashFlow, financialSummary, stageProgress, taxExport, vendorSpend, wip)
+
+**Rationale for batching:** all read-only display code; errors cluster around the same GL / account / invoice joined-result types. Fixing them together means writing each narrowing helper once.
+
+**Verify:** `grep "ts-nocheck" src/components/financial src/lib/reports/reports` empty. `npx tsc --noEmit` clean.
+
+---
+
+### Step 24 — Remove `@ts-nocheck` from loans/draws/budget/phases pages
+
+**Goal:** Clear the ~10 mixed read/write page components.
+
+**Files (~10, contingent on Step 21's deletions):**
+- `(app)/draws/[id]/page.tsx`, `(app)/draws/[id]/remittances/page.tsx`
+- `(app)/loans/page.tsx`
+- `(app)/projects/[id]/loans/page.tsx`, `NewLoanForm.tsx`, `[loanId]/page.tsx`, `[loanId]/LoanDetailClient.tsx`
+- `(app)/projects/[id]/budget/page.tsx`, `BudgetClient.tsx`
+- `(app)/projects/[id]/stages/page.tsx`, `StageTrackerClient.tsx` (only if Step 21 kept it)
+- `components/draws/VendorPaymentsPanel.tsx`
+- `components/layout/AppShell.tsx`
+- `components/projects/tabs/PhasesTab.tsx`
+
+**Verify:** `grep "ts-nocheck" src/app/\(app\)/{draws,loans,projects} src/components/{draws,layout,projects}` empty.
+
+---
+
+### Step 25 — Remove `@ts-nocheck` from remaining stragglers
+
+**Goal:** Whatever's left after 22–24.
+
+**Known candidates (pending Step 20 / 21):**
+- `(app)/invoices/upload/page.tsx`
+- `(app)/settings/cost-codes/CostCodesClient.tsx`
+- `(app)/purchase-orders/*` (if kept by Step 21)
+
+**Verify:** `grep -rn "ts-nocheck" src --include="*.ts" --include="*.tsx"` returns empty.
+
+---
+
+### Step 26 — Final ship: close the OVERHAUL_PLAN
+
+**What to do:**
+- Final typecheck: `npx tsc --noEmit` → EXIT=0.
+- Confirm no `@ts-nocheck` anywhere in `src/`.
+- Write closing entry to OVERHAUL_PLAN stating the overhaul is complete.
+- Fast-forward merge feature branch(es) to `main`, push.
+
+**References:** closes the Phase 2 backlog. Overhaul doc retires.
+
+---
+
 ## What To Leave Alone
 
 - **`proxy.ts` naming** — Next.js 15.3+ convention, not a typo.
