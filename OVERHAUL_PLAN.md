@@ -650,38 +650,54 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 19 — UI consistency sweep
+### Step 19 — UI consistency sweep ✅ DONE
 
-**Goal:** Close the two UI drift items flagged at the end of Step 10.
+**Status:** Completed 2026-04-23. Merged to `main` at `a4945bf`.
 
-**What to do:**
-- **`confirm()` → `<ConfirmButton />`:** 14 native `confirm()` call sites remain (`DocumentsClient.tsx:341`, `FieldLogPhotos.tsx:111`, `SettingsClient.tsx:150`, `VendorsClient.tsx:289`, 6 in `InvoicesTable.tsx`, `PaymentRegisterClient.tsx:206`, `SelectionsTab.tsx:83`, `VendorDocuments.tsx:109`). Wrap each in the existing primitive — same pattern as `DeleteLoanButton` / `DeleteContractButton`.
-- **Focus-ring drift:** ~45 files still have `focus:ring-amber-400`, `focus:ring-amber-500`, or `focus:ring-blue-500` — `#4272EF` is the mandated brand ring per CLAUDE.md. Replace with the existing `inputCls` constant where applicable; for non-form focus rings, swap to `focus:ring-[#4272EF]` directly.
+**What shipped (15 files touched):**
+- **Task 1 (9 files):** 13 native `confirm()` call sites replaced with `<ConfirmButton />`. Destructive actions use `tone="danger"`, revert-to-pending and mark-as-auto-drafted use `tone="neutral"`. PaymentRegisterClient's `onVoid` prop type tightened to `() => Promise<unknown> | unknown` so error bubbling flows into the modal.
+- **Task 2 (7 files):** `focus:ring-amber-400` / `focus:ring-blue-500` swept to `focus:ring-[#4272EF]` — LoginForm, CostCodesClient, NewPOForm, StageTrackerClient, BudgetClient, NewLoanForm, LoanDetailClient.
+- Verified: `grep confirm(` empty, `grep focus:ring-(amber|blue)` empty, `tsc --noEmit` clean.
 
-**Verify:** `grep -rn "confirm(" src --include="*.tsx"` returns the only legitimate `form.confirm_*` data-attribute hits (if any). `grep -rn "focus:ring-\(amber\|blue\)" src --include="*.tsx"` empty. `npx tsc --noEmit` clean.
-
----
-
-### Step 20 — Audit ghost features (read-only, no code changes)
-
-**Goal:** Decide what's live vs dead before fixing types on potentially-dead code.
-
-**What to investigate:**
-- **`project_stages` / `stage_photos` / `stage_documents` schema island.** Used by `StageTrackerClient.tsx`. These tables are not in CLAUDE.md's documented schema. Confirm: do they exist on live DB? Row counts? Is `StageTrackerClient` reachable from the current sidebar nav, or is it orphaned? Can `build_stages` (the canonical table) cover everything this component needs?
-- **`src/app/(app)/purchase-orders/**` subtree.** 3 files, all `@ts-nocheck`. `purchase_orders` table not in CLAUDE.md schema. Confirm: live DB table status, UI reachability from sidebar, recent commit activity.
-- **Anything else** that comes up while reading.
-
-**Deliverable:** list of confirmed dead items to feed Step 21, plus any surprises worth promoting to their own step.
+**References:** closes Step 10 follow-ups (I13 + M3 drift).
 
 ---
 
-### Step 21 — Delete confirmed ghosts
+### Step 20 — Audit ghost features ✅ DONE
 
-**Goal:** Shrink the surface Steps 22–25 have to touch. No point fixing types on code we're about to delete.
+**Status:** Completed 2026-04-23 on branch `overhaul/step-20-21-ghosts`. Read-only audit; no code changes in this step.
 
-**What to do:**
-- For each confirmed dead item from Step 20: delete the files, delete the DB tables (new migration if needed), update CLAUDE.md if the item was documented.
-- This step is contingent on Step 20's findings — scope determined there.
+**Findings — both confirmed DEAD:**
+
+| Path | Tables referenced | Live DB? | Nav-linked? | Verdict |
+|---|---|---|---|---|
+| `src/app/(app)/projects/[id]/stages/` (2 files: `page.tsx` + `StageTrackerClient.tsx`) | `project_stages`, `build_stages` (the code reads from both; only `build_stages` actually exists) | `project_stages` ❌ (never existed on live DB) | No — `ProjectTabs.tsx` renders `GanttTab` + `StageReportTab` inline; no `Link` anywhere in codebase points at `/projects/[id]/stages` | DEAD |
+| `src/app/(app)/purchase-orders/` (3 files) | `purchase_orders`, `purchase_order_items` | Both ❌ (never existed) | No — no sidebar / dashboard / layout reference | DEAD |
+
+**How they slipped past review:** `@ts-nocheck` masked the Supabase type errors that would have surfaced the missing tables. The pages were pure dead code — anyone who navigated to them would have seen a broken fetch; nobody ever did because no links.
+
+**References:** sets up Step 21 scope.
+
+---
+
+### Step 21 — Delete confirmed ghosts ✅ DONE
+
+**Status:** Completed 2026-04-23 on branch `overhaul/step-20-21-ghosts`.
+
+**What shipped:**
+- Deleted `src/app/(app)/projects/[id]/stages/` entirely (`page.tsx`, `StageTrackerClient.tsx`).
+- Deleted `src/app/(app)/purchase-orders/` entirely (`page.tsx`, `new/page.tsx`, `new/NewPOForm.tsx`).
+- No live DB tables to drop — neither table set ever existed. `information_schema.tables` for all 5 candidates returned empty.
+- `src/types/database.ts` already clean (regenerated from live DB in Step 15 — the ghost tables were never there).
+- Cleared stale `.next/dev/types` cache from the route deletions.
+
+**Invariants after this step:**
+- `grep -rn "project_stages\|stage_photos\|stage_documents\|purchase_orders\|purchase_order_items" src` returns zero.
+- `find src/app/\(app\)/projects/\[id\]/stages src/app/\(app\)/purchase-orders` returns empty.
+- `npx tsc --noEmit` → EXIT=0.
+- **Shrunk the @ts-nocheck surface by 5 files** (project_stages page + StageTrackerClient + 3 purchase-orders files). Steps 24–25 now have less to touch.
+
+**References:** Finding C10-tail (schema island) + ghost purchase-orders feature — both closed.
 
 ---
 
