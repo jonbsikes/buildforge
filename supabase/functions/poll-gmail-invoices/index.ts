@@ -1,13 +1,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GMAIL_CLIENT_ID = Deno.env.get("GMAIL_CLIENT_ID")!;
-const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET")!;
-const GMAIL_REFRESH_TOKEN = Deno.env.get("GMAIL_REFRESH_TOKEN")!;
-const BUILDFORGE_USER_ID = Deno.env.get("BUILDFORGE_USER_ID")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+function requireEnv(name: string): string {
+  const v = Deno.env.get(name);
+  if (!v) throw new Error(`Missing required environment variable: ${name}`);
+  return v;
+}
+
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+const GMAIL_CLIENT_ID = requireEnv("GMAIL_CLIENT_ID");
+const GMAIL_CLIENT_SECRET = requireEnv("GMAIL_CLIENT_SECRET");
+const GMAIL_REFRESH_TOKEN = requireEnv("GMAIL_REFRESH_TOKEN");
+const BUILDFORGE_USER_ID = requireEnv("BUILDFORGE_USER_ID");
+const ANTHROPIC_API_KEY = requireEnv("ANTHROPIC_API_KEY");
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 
@@ -96,26 +102,42 @@ function normalizeVendorName(raw: string): string {
  * Find the best matching vendor from the in-memory list.
  * Match strategy (in order):
  *   1. Exact normalized match
- *   2. One name contains the other (catches "ABC Concrete" vs "ABC Concrete LLC")
- * Returns vendor id if matched, null if no match found (invoice will be flagged for review).
+ *   2. Token-overlap match — at least 2 shared normalized tokens AND a
+ *      common substring of length ≥ 4. The previous bare-containment match
+ *      was too greedy ("ABC" inside "Plumbing ABC Services" attributed to
+ *      the wrong vendor; "Co" + entity-suffix stripping collapsed distinct
+ *      vendors like "Co Plumbing" / "Co Electric").
+ * Returns vendor id if matched, null otherwise (invoice flagged for review).
  */
 function findVendor(
   extractedName: string,
   allVendors: { id: string; name: string }[],
 ): string | null {
   const normalized = normalizeVendorName(extractedName);
+  if (!normalized) return null;
 
   // 1) Exact normalized match
-  let best = allVendors.find(
+  const exact = allVendors.find(
     (v) => normalizeVendorName(v.name) === normalized
   );
+  if (exact) return exact.id;
 
-  // 2) Containment match — one name contains the other
-  if (!best) {
-    best = allVendors.find((v) => {
-      const vNorm = normalizeVendorName(v.name);
-      return vNorm.includes(normalized) || normalized.includes(vNorm);
-    });
+  // 2) Token-overlap match
+  const extractedTokens = new Set(normalized.split(" ").filter((t) => t.length >= 3));
+  if (extractedTokens.size === 0) return null;
+
+  let best: { id: string; overlap: number } | null = null;
+  for (const v of allVendors) {
+    const vNorm = normalizeVendorName(v.name);
+    if (!vNorm) continue;
+    const vTokens = vNorm.split(" ").filter((t) => t.length >= 3);
+    let overlap = 0;
+    for (const t of vTokens) if (extractedTokens.has(t)) overlap++;
+    // Require ≥2 shared tokens to call it a match. Single-token overlap is too
+    // permissive given how many vendors share generic words ("Construction",
+    // "Services", "Supply", trade names).
+    if (overlap < 2) continue;
+    if (!best || overlap > best.overlap) best = { id: v.id, overlap };
   }
 
   return best?.id ?? null;
@@ -176,16 +198,24 @@ async function downloadAttachment(
   return decodeBase64(data.data);
 }
 
+// Chunked base64 encoder. The previous one-liner
+// `btoa(String.fromCharCode(...buffer))` blows up for PDFs >65KB because the
+// argument-count limit on `String.fromCharCode` is hit. Encode in 8KB chunks.
+function uint8ToBase64(buffer: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < buffer.length; i += CHUNK) {
+    const slice = buffer.subarray(i, i + CHUNK);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
 async function extractInvoicesFromPdf(
   buffer: Uint8Array
 ): Promise<ExtractedData[]> {
-  if (!ANTHROPIC_API_KEY) {
-    console.warn("ANTHROPIC_API_KEY not set; skipping invoice extraction");
-    return [];
-  }
-
   // Send to Anthropic with base64 encoding
-  const base64Data = btoa(String.fromCharCode(...buffer));
+  const base64Data = uint8ToBase64(buffer);
   const mediaType = "application/pdf";
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -257,11 +287,19 @@ async function findProjectByHint(
 ): Promise<string | null> {
   if (!hint) return null;
 
+  // Sanitize the Claude-extracted hint before interpolating into PostgREST's
+  // .or() filter DSL. Commas and parentheses break the DSL parser; %/_ act as
+  // ilike wildcards; backslashes and quotes can confuse the parser further.
+  // Strip them all rather than escape them — losing a comma in a project hint
+  // does no harm; a malformed query returns zero rows silently.
+  const safe = hint.replace(/[,()%_\\"']/g, " ").trim();
+  if (!safe) return null;
+
   const { data } = await supabase
     .from("projects")
     .select("id")
     .or(
-      `name.ilike.%${hint}%,address.ilike.%${hint}%,subdivision.ilike.%${hint}%`
+      `name.ilike.%${safe}%,address.ilike.%${safe}%,subdivision.ilike.%${safe}%`
     )
     .limit(1);
 
@@ -390,21 +428,10 @@ Deno.serve(async () => {
               // Find vendor
               const vendorId = findVendor(inv.vendor, vendorList);
 
-              // Store file
-              const safeName = (
-                attachment.filename || `invoice_${Date.now()}`
-              ).replace(/[^a-zA-Z0-9._-]/g, "_");
-              const filePath = `${BUILDFORGE_USER_ID}/${Date.now()}-${safeName}`;
-
-              const { data: uploadData } = await supabase.storage
-                .from("invoices")
-                .upload(filePath, buffer, {
-                  contentType: attachment.mimeType,
-                });
-
               const displayName = `${inv.vendor} – ${inv.invoice_number}`;
 
-              // Insert the invoice row. The live `invoices` table has no
+              // Insert the invoice row FIRST without file_path. If the insert
+              // fails we never touch storage. The live `invoices` table has no
               // `vendor_name` / `file_name_original` / `created_by` / `line_items`
               // columns — the canonical column names are `vendor`, `file_name`,
               // `user_id`, and line items live in the separate `invoice_line_items`
@@ -424,7 +451,6 @@ Deno.serve(async () => {
                   ai_notes: inv.ai_notes,
                   status: "pending_review",
                   source: "email",
-                  file_path: uploadData?.path,
                   file_name: displayName,
                   email_message_id: msg.id,
                   user_id: BUILDFORGE_USER_ID,
@@ -466,6 +492,47 @@ Deno.serve(async () => {
                   errors++;
                   continue;
                 }
+              }
+
+              // Now upload the attachment to storage and stamp the path on
+              // the invoice. If the upload fails we delete the invoice row +
+              // line items so we don't leave a record pointing at no file.
+              const safeName = (
+                attachment.filename || `invoice_${Date.now()}`
+              ).replace(/[^a-zA-Z0-9._-]/g, "_");
+              const filePath = `${BUILDFORGE_USER_ID}/${Date.now()}-${safeName}`;
+
+              const { data: uploadData, error: uploadErr } = await supabase.storage
+                .from("invoices")
+                .upload(filePath, buffer, {
+                  contentType: attachment.mimeType,
+                });
+
+              if (uploadErr || !uploadData) {
+                console.error(
+                  `Failed to upload attachment for invoice ${invRow.id}:`,
+                  uploadErr
+                );
+                // Roll back invoice + line items (CASCADE on FK handles the latter
+                // if defined; otherwise delete explicitly).
+                await supabase.from("invoice_line_items").delete().eq("invoice_id", invRow.id);
+                await supabase.from("invoices").delete().eq("id", invRow.id);
+                errors++;
+                continue;
+              }
+
+              const { error: pathErr } = await supabase
+                .from("invoices")
+                .update({ file_path: uploadData.path })
+                .eq("id", invRow.id);
+
+              if (pathErr) {
+                console.error(
+                  `Failed to stamp file_path on invoice ${invRow.id}:`,
+                  pathErr
+                );
+                // Best-effort: remove the orphan storage object; invoice keeps no path.
+                await supabase.storage.from("invoices").remove([uploadData.path]);
               }
 
               console.log(

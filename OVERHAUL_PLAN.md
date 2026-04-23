@@ -540,28 +540,65 @@ Plus: open-redirect in `/auth/callback`, public un-auth'd `/api/reports/[slug]`,
 
 ---
 
-### Step 16 — Important hardening pass (Step 11 leftovers)
+### Step 16 — Important hardening pass (Step 11 leftovers) ✅ DONE
 
-**Goal:** Close the I- and M-findings from the Step 11 second-pass audit that were explicitly deferred. None block fresh-environment provisioning, but each is a real correctness or hardening gap.
+**Status:** Completed 2026-04-22 on branch `overhaul/step-16-hardening`. Not yet merged. Typecheck clean (`npx tsc --noEmit` EXIT=0). **Migration `024_chart_of_accounts_unique_account_number.sql` is committed but NOT applied to live DB** — same defer-to-ship pattern as 022/023.
 
-**Recommended grouping (smallest to largest):**
+All 22 named findings closed (I14, I15, I17–I22, I24–I28, M8–M16) plus a bonus dead-code deletion for the project-costs.ts ghost.
 
-1. **Quick-win minor fixes (≤30 LoC each):** M8 (`\bWIRE\b` regex in bank-transactions categorize), M9 (missing `requireAdmin()` on `getReconciliationSummary`), M10 (interest accrual reference includes day to dodge same-month collisions), M11 (account_last_four input validation), M13 (null-coalesce on `total_budget` / `budgeted_amount` reducers in `ReportsClient`), M16 (named env-var error throws in the Gmail edge function).
-2. **`payments.ts` hardening:** I14 (`voidPayment` blocked when any linked invoice is cleared — route through `applyStatusTransition`), I27 (status-gated bulk `.update().in().eq("status","approved")` with affected-row count check in `createPayment`), I28 (accumulate `discount_taken` instead of overwrite). All in one file, related semantics.
-3. **`bank-transactions.ts` correctness:** I17 (CSV parser handles quoted fields — adds papaparse or a minimal state machine), I18 (only mark `matched` when `jeId != null`), I19 (escape `%` / `_` in `loanRef` before `.ilike`), M12 (track matched txn ids in a `Set` for O(n)), M15 (decide on `auto_draft` payment_method handling). Self-contained.
-4. **`stages.ts` rigor:** I20 (DST-safe day diff via `Date.UTC` or `date-fns`), I21 (`resetSchedule` collects errors, returns first one, doesn't silently partial-succeed), I22 (parallel update `Promise.all` aggregates errors).
-5. **Gmail poller correctness:** I24 (vendor matcher requires ≥2 shared tokens), I25 (escape `,` and `)` in `findProjectByHint` PostgREST filter), I26 (upload file AFTER successful invoice insert; rollback storage on failure), M14 (chunked base64 encoding for >65KB PDFs).
-6. **COA race + orphan:** I15 (UNIQUE constraint on `chart_of_accounts.account_number` — new migration; retry loop on conflict in `createLoan`).
-7. **Project-costs bug:** the `project-costs.ts` server action writes `actual_amount` to `project_cost_codes`, but that column doesn't exist on the live table (verified during Step 14). The file is `// @ts-nocheck` so the bug is silently masked. Fix the column name OR drop the sync function entirely if it's dead. Then remove the directive.
+**What shipped — group by group:**
 
-**Suggested cadence:** group 1 (~1 hour), then groups 2 + 3 + 4 in one focused session, then 5 + 6 + 7 in another. Each group is independent and can be its own commit/PR.
+**Group 1 — Quick-win minor fixes:**
+- **M8** ([bank-transactions.ts:79](src/app/actions/bank-transactions.ts:79)) — `categorize()` now uses `\bWIRE\b` / `\bACH\b` regex word boundaries instead of `includes()`. No more "FIREWIRE" / "WIRELESS" mis-categorization.
+- **M9** ([bank-transactions.ts:546](src/app/actions/bank-transactions.ts:546)) — `getReconciliationSummary` gets the missing `requireAdmin()` gate. Matches the rest of the file.
+- **M10** ([banking.ts:336](src/app/actions/banking.ts:336)) — interest accrual reference now `INT-{loan8}-{YYYY-MM-DD}` instead of `-{YYYY-MM}`. Same-month accruals on the same loan no longer collide.
+- **M11** ([banking.ts:81](src/app/actions/banking.ts:81)) — new `validateAccountLastFour()` helper hard-rejects anything that isn't exactly 4 digits. Used by both `createBankAccount` and `updateBankAccount`. The previous `.replace(/\D/g, "").slice(-4)` silently truncated full account numbers — security hazard if a user pasted a real account number expecting it to be stored masked.
+- **M13** — already closed by Step 14's `/reports` rewrite (the page no longer references `total_budget` / `c.budgeted_amount`; the new `pcc.budgeted_amount ?? 0` reducer is null-safe by construction). Verified in `ReportsClient.tsx:79`.
+- **M16** ([poll-gmail-invoices/index.ts:4-15](supabase/functions/poll-gmail-invoices/index.ts:4-15)) — new `requireEnv()` helper throws a named error per missing env var at module load. The 7 non-null assertions (`Deno.env.get("X")!`) are gone. Removed the now-dead `if (!ANTHROPIC_API_KEY)` early-return inside `extractInvoicesFromPdf` since the load-time check guarantees presence.
 
-**Out of scope for this step:**
-- The `project_stages` / `stage_photos` / `stage_documents` schema island that `StageTrackerClient.tsx` reads from. CLAUDE.md doesn't document these tables; they may be more legacy ghosts. Audit before fixing.
-- Orphan enums `sale_type` and `stage_status` left behind by migration 023. Drop with a one-line migration when convenient.
-- Removing `// @ts-nocheck` from `draws.ts` (the last action-file god-module with the directive). Same playbook as Step 13.
+**Group 2 — `payments.ts` hardening:**
+- **I27** ([payments.ts:131-167, 209-228](src/app/actions/payments.ts:131-167)) — Two-pronged fix: (a) the prerequisite loop now also requires `status = 'approved'` for already-`wip_ap_posted` invoices, refusing to pay anything in `released`/`cleared`/`disputed`/`void` BEFORE writing the payment row (no orphan rows on validation failure); (b) the bulk invoice-status update gates on `.eq("status", "approved")` and verifies affected-row count matches `invoiceIds.length`. Closes the TOCTOU race between prereq and bulk update.
+- **I28** ([payments.ts:328-346](src/app/actions/payments.ts:328-346)) — Discount distribution reads prior `discount_taken` per invoice into a Map and writes `prior + share`. Re-paying after a void no longer erases the historical discount.
+- **I14** ([payments.ts:577-610, 619-625](src/app/actions/payments.ts:577-610)) — `voidPayment` pre-validates linked invoice statuses BEFORE any writes; refuses if any linked invoice is `cleared` (audit trail erasure rule from Step 4 now also applies to payment voids). Status-gated revert: only invoices in `'released'` walk back to `'approved'`.
 
-**References:** Findings I14, I15, I17–I22, I24–I28, M8–M16.
+**Group 3 — `bank-transactions.ts` correctness:**
+- **I17** ([bank-transactions.ts:88-119](src/app/actions/bank-transactions.ts:88-119)) — New `parseCsvRow()` state-machine parser handles double-quoted fields and `""` escapes. Bank exports with `"PAYMENT, INC"` no longer corrupt every row's column alignment. Used by both header and row parsing.
+- **I18** ([bank-transactions.ts:328-358](src/app/actions/bank-transactions.ts:328-358)) — Loan-advance auto-match now only flips `match_status = 'matched'` when a JE is actually found. Recognised-but-no-JE rows stay `unmatched` with an annotated note explaining why. The previous code marked them `matched` with a NULL `matched_journal_entry_id` and they looked actionable in the UI but weren't.
+- **I19** ([bank-transactions.ts:365-405](src/app/actions/bank-transactions.ts:365-405)) — `loanRef` (regex-extracted from description) is escaped with `replace(/([\\%_])/g, "\\$1")` before `.ilike`. If multiple loans match, skip the auto-match and annotate "Ambiguous interest payment" instead of arbitrarily picking `loans[0]`. Same recognised-but-no-JE pattern as I18 for the JE lookup.
+- **M12** ([bank-transactions.ts:222-269](src/app/actions/bank-transactions.ts:222-269)) — New `matchedIds` `Set<string>` tracks transactions matched in this run. The "still unmatched" filter at line 269 went from `O(n²)` (`vpMatches?.some(...)`) to `O(1)` per check. Subsequent passes (loan advances, interest) also skip via the same Set.
+- **M15** — Documented in CLAUDE.md (`payment_method` schema row) rather than a code change. The Payment Register row keeps `'auto_draft'`; the invoice's own `payment_method` is mapped to `'ach'` because the invoice column doesn't enumerate `auto_draft`. Querying for auto-drafted invoices: go via the Payment Register, not the invoice row.
+
+**Group 4 — `stages.ts` rigor:**
+- **I20** ([stages.ts:179-198](src/app/actions/stages.ts:179-198)) — Replaced local-time `Date(.. + "T00:00:00")` arithmetic with UTC-only helpers (`parseYmd`, `diffCalendarDays`, `shiftDate` rewritten to use `Date.UTC`). A stage transition across a DST boundary used to produce a delta of N±1, skewing every later stage by a day. Inputs are YYYY-MM-DD strings throughout — no Date objects piped through local-time math.
+- **I21** ([stages.ts:144-188](src/app/actions/stages.ts:144-188)) — `resetSchedule` collects errors per stage with `{ stage, op, message }` failure records. On any failure: log every failure to the server console, return the first as the user-facing error, and revalidate the path so the user can see the partial state. Previous behaviour silently swallowed errors.
+- **I22** ([stages.ts:93-104](src/app/actions/stages.ts:93-104)) — `Promise.all` shift loop now logs every failed shift (not just the first), and reports `{N} of {total}` in the surfaced error. Diagnosis is no longer a guessing game.
+
+**Group 5 — Gmail poller correctness:**
+- **I24** ([poll-gmail-invoices/index.ts:108-145](supabase/functions/poll-gmail-invoices/index.ts:108-145)) — `findVendor` rewritten: exact-normalized first, then token-overlap requiring ≥2 shared tokens of length ≥3. The previous `includes()` containment match was too greedy and the entity-suffix stripping (`llc`, `inc`, `co`, `company`) collapsed distinct vendors. Best-overlap wins ties.
+- **I25** ([poll-gmail-invoices/index.ts:271-295](supabase/functions/poll-gmail-invoices/index.ts:271-295)) — `findProjectByHint` strips `,()%_\\"'` characters from the hint before interpolating into the PostgREST `.or()` filter DSL. Empty-after-strip returns null. Dropping vs. escaping was the right call — losing a comma in a project name hint is harmless, a malformed query silently returns zero rows.
+- **I26** ([poll-gmail-invoices/index.ts:441-516](supabase/functions/poll-gmail-invoices/index.ts:441-516)) — Reordered: insert invoice row → insert line items → upload file → stamp `file_path` on invoice. If the upload fails, delete line items and invoice row (no orphan storage object). If the path-stamp UPDATE fails after a successful upload, best-effort delete the storage object so we don't leak it.
+- **M14** ([poll-gmail-invoices/index.ts:185-196](supabase/functions/poll-gmail-invoices/index.ts:185-196)) — New `uint8ToBase64()` chunked encoder uses 8KB slices. The old `btoa(String.fromCharCode(...buffer))` blew up on PDFs >65KB because of the `String.fromCharCode` argument-count limit.
+
+**Group 6 — COA UNIQUE constraint:**
+- **I15** ([banking.ts:20-78](src/app/actions/banking.ts:20-78)) — `mintLoanCoaAccount` rewritten with a bounded retry loop (10 attempts) on PostgreSQL unique-violation `code === "23505"`. On conflict, increment `candidate` and retry; on any other error, bail. `supabase/migrations/024_chart_of_accounts_unique_account_number.sql` adds `UNIQUE (account_number)` to `chart_of_accounts`. Verified pre-flight: zero duplicate `account_number` values exist in live DB, so the constraint applies cleanly without a backfill.
+
+**Group 7 — `project-costs.ts` deletion:**
+- **C-side of plan #7** — Deleted `src/app/actions/project-costs.ts` entirely. Both functions (`syncProjectActualsFromGL`, `syncAllProjectActuals`) had zero external callers (verified by `grep -rn`). They wrote `actual_amount` to `project_cost_codes`, a column that doesn't exist on the live table (verified — the table has `budgeted_amount`, `budget_amount`, `notes`, `enabled` and no `actual_amount`). The file was `// @ts-nocheck`, so the bug had been silently masked. Dead code with a hidden bug is the easiest deletion. Removed `project-costs.ts` from the CLAUDE.md "Action file architecture" list.
+
+**Invariants after this step:**
+- `npx tsc --noEmit` → EXIT=0 (after clearing stale `.next/types` cache from Step 7/14 route deletions).
+- `grep "ts-nocheck" src/app/actions/` returns matches only in `draws.ts` (the lone remaining god-module — out of Step 16 scope).
+- `find src/app/actions -name project-costs.ts` returns empty.
+- `grep -rn "auth.role()" supabase/migrations/0*.sql` unchanged from Step 6.
+
+**Deferred / not done:**
+- **Migration 024 not applied to live DB.** Same defer-to-ship pattern as 022 and 023. Apply alongside the eventual merge of this branch — the constraint is additive (zero violations exist) so the application is low-risk; smoke-test by creating a new loan from `/banking/loans` after apply.
+- **Preview verification NOT done.** No `.env.local` in this worktree (same gap as Steps 12 / 14). Typecheck clean; behaviour changes are server-side (CSV parser, JE references, RLS-adjacent logic) and not directly observable in a browser without test data.
+- **Removing `// @ts-nocheck` from `draws.ts`** — explicitly out of scope per Step 16 plan. Same playbook as Step 13 if a future session wants it.
+- **Orphan enums** `sale_type`, `stage_status` left behind by migration 023. Same one-line cleanup as before — bundle with the next maintenance migration.
+- **`project_stages` / `stage_photos` / `stage_documents` schema island** — needs a separate audit; CLAUDE.md doesn't document these tables.
+
+**References:** Findings I14, I15, I17–I22, I24–I28, M8–M16 — all closed. Dead-code deletion of `project-costs.ts` closes the Step 16 plan #7.
 
 ---
 

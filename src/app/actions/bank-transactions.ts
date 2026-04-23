@@ -76,14 +76,50 @@ function categorize(description: string, checkRef: string | null): string {
   if (d.includes("LOAN ADVANCE")) return "loan_advance";
   if (d.includes("PAYMENT TO CONSTRUCTION LOAN") || d.includes("PAYMENT TO REAL ESTATE LOAN") || d.includes("PAYMENT TO LAND")) return "interest_payment";
   if (d.includes("PAYMENT TO LOAN")) return "interest_payment";
-  if (d.includes("WIRE") || d.includes("OUTGOING WIRE")) return "wire";
-  if (d.includes("ACH") || d.includes("PAYMENT") || d.includes("SALE")) return "ach_payment";
+  if (/\bWIRE\b/.test(d) || /\bOUTGOING WIRE\b/.test(d)) return "wire";
+  if (/\bACH\b/.test(d) || d.includes("PAYMENT") || d.includes("SALE")) return "ach_payment";
   return "other";
 }
 
 function hashRow(date: string, debit: number, credit: number, description: string): string {
   const raw = `${date}|${debit}|${credit}|${description}`;
   return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
+
+// Minimal RFC-4180-ish CSV row parser: handles double-quoted fields with
+// embedded commas and "" escapes. Bank exports occasionally have descriptions
+// like `"PAYMENT, INC"` and the previous naive split mis-aligned every column
+// for the affected row.
+function parseCsvRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+  }
+  out.push(cur);
+  return out;
 }
 
 function parseBankCSV(csvText: string): {
@@ -94,7 +130,7 @@ function parseBankCSV(csvText: string): {
   if (lines.length < 2) return { error: "CSV file is empty or has no data rows" };
 
   // Parse header
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const header = parseCsvRow(lines[0]).map((h) => h.trim().toLowerCase());
   const dateIdx = header.findIndex((h) => h === "date");
   const descIdx = header.findIndex((h) => h === "description");
   const debitIdx = header.findIndex((h) => h === "debit");
@@ -111,8 +147,7 @@ function parseBankCSV(csvText: string): {
     const line = lines[i].trim();
     if (!line) continue;
 
-    // Simple CSV split (handles basic commas; bank CSVs typically don't quote)
-    const cols = line.split(",");
+    const cols = parseCsvRow(line);
     const dateRaw = cols[dateIdx]?.trim();
     const desc = cols[descIdx]?.trim();
     if (!dateRaw || !desc) continue;
@@ -232,6 +267,10 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
   if (!unmatchedRaw || unmatchedRaw.length === 0) return { matched: 0 };
   const unmatched = unmatchedRaw.map((t) => ({ ...t, debit: t.debit ?? 0, credit: t.credit ?? 0 }));
 
+  // Track transaction ids that have been matched in this run so subsequent
+  // passes can O(1)-skip them instead of re-scanning the vpMatches array.
+  const matchedIds = new Set<string>();
+
   // ---- Match checks to released invoices ----
   const checkTxns = unmatched.filter((t) => t.category === "check" && t.check_ref);
   if (checkTxns.length > 0) {
@@ -262,15 +301,14 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
               notes: `Auto-matched to vendor payment (check #${txn.check_ref})`,
             })
             .eq("id", txn.id);
+          matchedIds.add(txn.id);
           matched++;
         }
       }
     }
 
     // Also try matching directly against invoices that have check_number set
-    const stillUnmatched = checkTxns.filter(
-      (t) => !vpMatches?.some((v) => v.check_number === t.check_ref && Math.abs(v.amount - t.debit) < 0.01)
-    );
+    const stillUnmatched = checkTxns.filter((t) => !matchedIds.has(t.id));
 
     if (stillUnmatched.length > 0) {
       const stillCheckNums = stillUnmatched.map((t) => t.check_ref!);
@@ -295,6 +333,7 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
                 notes: `Auto-matched to invoice (check #${txn.check_ref})`,
               })
               .eq("id", txn.id);
+            matchedIds.add(txn.id);
             matched++;
           }
         }
@@ -319,13 +358,6 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
         .maybeSingle();
 
       if (loan) {
-        // Try to match to a specific funded draw by amount + date proximity
-        const { data: draws } = await supabase
-          .from("loan_draws")
-          .select("id, amount_approved, funded_date")
-          .eq("loan_id", loan.id)
-          .eq("status", "funded");
-
         // Find JE for the draw funding
         const { data: jes } = await supabase
           .from("journal_entries")
@@ -337,15 +369,30 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
 
         const jeId = jes?.[0]?.id ?? null;
 
-        await supabase
-          .from("bank_transactions")
-          .update({
-            match_status: "matched",
-            matched_journal_entry_id: jeId,
-            notes: `Auto-matched to loan ${noteNum} advance`,
-          })
-          .eq("id", txn.id);
-        matched++;
+        if (jeId) {
+          // Real match — both sides resolved.
+          await supabase
+            .from("bank_transactions")
+            .update({
+              match_status: "matched",
+              matched_journal_entry_id: jeId,
+              notes: `Auto-matched to loan ${noteNum} advance`,
+            })
+            .eq("id", txn.id);
+          matchedIds.add(txn.id);
+          matched++;
+        } else {
+          // Loan recognised but no matching JE — leave as unmatched but
+          // annotate so the user knows what to look for in manual recon.
+          // Without this, the row used to flip to 'matched' with a NULL
+          // matched_journal_entry_id and looked actionable but wasn't.
+          await supabase
+            .from("bank_transactions")
+            .update({
+              notes: `Identified loan ${noteNum} advance but no funding JE found on ${txn.transaction_date}`,
+            })
+            .eq("id", txn.id);
+        }
       }
     }
   }
@@ -359,31 +406,59 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
       if (!loanMatch) continue;
       const loanRef = loanMatch[1];
 
+      // Escape PostgREST ilike wildcards so a stray % / _ from the
+      // description regex doesn't broaden the match arbitrarily.
+      const safeLoanRef = loanRef.replace(/([\\%_])/g, "\\$1");
+
       // Find loan by partial loan_number match
       const { data: loans } = await supabase
         .from("loans")
         .select("id, loan_number")
-        .ilike("loan_number", `%${loanRef}`);
+        .ilike("loan_number", `%${safeLoanRef}`);
 
-      if (loans && loans.length > 0) {
-        // Find matching JE (interest accrual) near this date
-        const { data: jes } = await supabase
-          .from("journal_entries")
-          .select("id")
-          .eq("loan_id", loans[0].id)
-          .eq("source_type", "manual")
-          .gte("entry_date", txn.transaction_date)
-          .lte("entry_date", txn.transaction_date);
+      if (!loans || loans.length === 0) continue;
 
+      // Multiple loans match — ambiguous; skip auto-match and annotate.
+      // Picking loans[0] is order-undefined and gave wrong attributions.
+      if (loans.length > 1) {
+        await supabase
+          .from("bank_transactions")
+          .update({
+            notes: `Ambiguous interest payment — ${loans.length} loans match "${loanRef}". Match manually.`,
+          })
+          .eq("id", txn.id);
+        continue;
+      }
+
+      // Find matching JE (interest accrual) near this date
+      const { data: jes } = await supabase
+        .from("journal_entries")
+        .select("id")
+        .eq("loan_id", loans[0].id)
+        .eq("source_type", "manual")
+        .gte("entry_date", txn.transaction_date)
+        .lte("entry_date", txn.transaction_date);
+
+      const jeId = jes?.[0]?.id ?? null;
+
+      if (jeId) {
         await supabase
           .from("bank_transactions")
           .update({
             match_status: "matched",
-            matched_journal_entry_id: jes?.[0]?.id ?? null,
+            matched_journal_entry_id: jeId,
             notes: `Auto-matched to loan interest payment (${loanRef})`,
           })
           .eq("id", txn.id);
+        matchedIds.add(txn.id);
         matched++;
+      } else {
+        await supabase
+          .from("bank_transactions")
+          .update({
+            notes: `Identified interest payment for loan ${loanRef} but no accrual JE found on ${txn.transaction_date}`,
+          })
+          .eq("id", txn.id);
       }
     }
   }
@@ -542,6 +617,9 @@ export async function getReconciliationSummary(
   unmatched: number;
   ignored: number;
 }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error, total: 0, matched: 0, unmatched: 0, ignored: 0 };
+
   const supabase = await createClient();
 
   const { data, error } = await supabase

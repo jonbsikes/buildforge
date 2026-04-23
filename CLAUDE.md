@@ -249,7 +249,7 @@ Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" 
 | amount | decimal | Total invoice amount (sum of all line items) |
 | status | string | `'pending_review'`, `'approved'`, `'released'`, `'cleared'`, `'disputed'`, `'void'` |
 | payment_date | date | nullable — set when check clears bank (status = `cleared`) |
-| payment_method | string | `'check'`, `'ach'`, `'wire'`, `'credit_card'` (nullable) |
+| payment_method | string | `'check'`, `'ach'`, `'wire'`, `'credit_card'` (nullable). The Payment Register row supports `'auto_draft'` as well, but on the invoice itself `auto_draft` is mapped to `'ach'` because the invoice column does not enumerate `auto_draft`. The distinction is preserved on `payments.payment_method`; if you need to identify auto-drafted invoices, query via the Payment Register, not the invoice row. |
 | ai_confidence | string | `'high'`, `'medium'`, `'low'` |
 | ai_notes | text | |
 | source | string | `'email'`, `'upload'` |
@@ -815,7 +815,7 @@ All journal entries are posted automatically by server actions. **Never manually
 - File uploads: `documents` bucket for docs; `invoices` bucket for invoice attachments
 - Keep storage lean — no auto-upload of images unless user explicitly attaches them
 - **Supabase type fix:** `@supabase/ssr` passes Schema as 3rd generic but `supabase-js 2.101+` expects SchemaName (string). In `server.ts` and `client.ts`, cast the client: `return client as unknown as SupabaseClient<Database>;`
-- **Action file architecture:** All server actions live in `src/app/actions/`. There are no route-level `actions.ts` files under `src/app/(app)/**`. Current files: `banking.ts`, `bank-transactions.ts`, `contacts.ts`, `contracts.ts`, `cost-codes.ts`, `create-project.ts`, `documents.ts`, `draws.ts`, `field-logs.ts`, `invoice-batch.ts`, `invoices.ts`, `journal-entries.ts`, `notifications.ts`, `payments.ts`, `project-costs.ts`, `projects.ts`, `stages.ts`, `todos.ts`, `vendors.ts`
+- **Action file architecture:** All server actions live in `src/app/actions/`. There are no route-level `actions.ts` files under `src/app/(app)/**`. Current files: `banking.ts`, `bank-transactions.ts`, `contacts.ts`, `contracts.ts`, `cost-codes.ts`, `create-project.ts`, `documents.ts`, `draws.ts`, `field-logs.ts`, `invoice-batch.ts`, `invoices.ts`, `journal-entries.ts`, `notifications.ts`, `payments.ts`, `projects.ts`, `stages.ts`, `todos.ts`, `vendors.ts`
 - **GL system:** Write all new journal entries to `journal_entries` + `journal_entry_lines`. The `gl_entries` table is legacy — do not use it for new entries
 - **`wip_ap_posted` flag:** Set to `true` on an invoice once DR WIP / CR AP has been posted. `fundDraw` checks this flag before posting WIP/AP to prevent double-entry. Always check this flag when writing any code that might post WIP/AP entries
 - **`loans.current_balance`:** Auto-incremented by `fundDraw` — do not manually update unless correcting historical data

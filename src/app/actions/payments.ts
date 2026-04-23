@@ -135,7 +135,19 @@ export async function createPayment(
       .eq("id", invId)
       .single();
     if (!invCheck) continue;
-    if (invCheck.wip_ap_posted) continue; // approval leg already posted — nothing to do
+
+    // The bulk status update at the end of this function gates on
+    // status='approved'. Anything in 'released', 'cleared', 'disputed', 'void'
+    // would silently fail that gate and leave a dangling payment row. Refuse
+    // up front before we write anything.
+    if (invCheck.wip_ap_posted) {
+      if (invCheck.status !== "approved") {
+        return {
+          error: `Invoice ${invCheck.invoice_number ?? invId} is in status '${invCheck.status}' — only approved invoices can be paid.`,
+        };
+      }
+      continue; // approval leg already posted; ready to pay
+    }
 
     if (invCheck.status !== "pending_review") {
       return {
@@ -207,10 +219,23 @@ export async function createPayment(
   }
 
   if (invoiceIds.length > 0) {
-    await supabase
+    // Status-gated update — every invoice must currently be in 'approved'
+    // (set by the prerequisite loop above). If anything raced in between
+    // (rare; single-user today) we want to surface it rather than silently
+    // overwrite a 'released' / 'cleared' / 'disputed' status.
+    const { data: updated, error: updateErr } = await supabase
       .from("invoices")
       .update(invoiceUpdates)
-      .in("id", invoiceIds);
+      .in("id", invoiceIds)
+      .eq("status", "approved")
+      .select("id");
+
+    if (updateErr) return { error: updateErr.message };
+    if (!updated || updated.length !== invoiceIds.length) {
+      return {
+        error: `Concurrent invoice status change detected — ${updated?.length ?? 0} of ${invoiceIds.length} invoices updated. Reload and retry.`,
+      };
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -319,6 +344,16 @@ export async function createPayment(
         (s, inv) => s + ((inv.total_amount ?? inv.amount ?? 0) as number), 0
       );
 
+      // Read prior discount_taken on each invoice so we accumulate, not overwrite.
+      // Re-paying after a void should sum, not erase the historical discount.
+      const { data: priorDiscounts } = await supabase
+        .from("invoices")
+        .select("id, discount_taken")
+        .in("id", invoiceIds);
+      const priorMap = new Map<string, number>(
+        (priorDiscounts ?? []).map((r) => [r.id, (r.discount_taken ?? 0) as number])
+      );
+
       let distributed = 0;
       for (let i = 0; i < invoiceDetails.length; i++) {
         const inv = invoiceDetails[i];
@@ -329,10 +364,11 @@ export async function createPayment(
         distributed += share;
 
         if (share > 0) {
-          // Save discount on the invoice record
+          // Save discount on the invoice record (accumulate vs overwrite)
+          const prior = priorMap.get(inv.id) ?? 0;
           await supabase
             .from("invoices")
-            .update({ discount_taken: share })
+            .update({ discount_taken: Math.round((prior + share) * 100) / 100 })
             .eq("id", inv.id);
 
           const projType = (inv.projects as { project_type: string } | null)?.project_type;
@@ -569,6 +605,32 @@ export async function voidPayment(
   if (!payment) return { error: "Payment not found" };
   if (payment.status === "void") return { error: "Payment is already void" };
 
+  // Pre-validate linked invoice statuses BEFORE any writes. A 'cleared'
+  // invoice means the check has cleared the bank — voiding the payment
+  // would silently rewrite that to 'approved' and erase the audit trail.
+  // Mirrors the rule applied to disputeInvoice / voidInvoice in Step 4.
+  const { data: links } = await supabase
+    .from("payment_invoices")
+    .select("invoice_id")
+    .eq("payment_id", paymentId);
+
+  const invoiceIds = (links ?? []).map((l) => l.invoice_id);
+
+  if (invoiceIds.length > 0) {
+    const { data: linkedInvoices } = await supabase
+      .from("invoices")
+      .select("id, status, invoice_number")
+      .in("id", invoiceIds);
+
+    const cleared = (linkedInvoices ?? []).filter((i) => i.status === "cleared");
+    if (cleared.length > 0) {
+      const refs = cleared.map((i) => i.invoice_number ?? i.id.slice(0, 8)).join(", ");
+      return {
+        error: `Cannot void — ${cleared.length} linked invoice(s) already cleared the bank: ${refs}. Reverse the bank clearing first if this was a bank reversal.`,
+      };
+    }
+  }
+
   // Mark void
   const { error: updErr } = await supabase
     .from("payments")
@@ -577,18 +639,15 @@ export async function voidPayment(
 
   if (updErr) return { error: updErr.message };
 
-  // Revert linked invoices to 'approved'
-  const { data: links } = await supabase
-    .from("payment_invoices")
-    .select("invoice_id")
-    .eq("payment_id", paymentId);
-
-  const invoiceIds = (links ?? []).map((l) => l.invoice_id);
   if (invoiceIds.length > 0) {
+    // Status-gated revert: only invoices currently in 'released' should be
+    // walked back to 'approved'. Already-approved (e.g. partially-paid in
+    // future) stays put.
     await supabase
       .from("invoices")
       .update({ status: "approved", payment_date: null, payment_method: null })
-      .in("id", invoiceIds);
+      .in("id", invoiceIds)
+      .eq("status", "released");
   }
 
   // Reverse original GL entries by posting counter-entries

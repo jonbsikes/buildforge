@@ -33,6 +33,12 @@ export async function mintLoanCoaAccount(
     ? `Dev Loan Payable — #${loanNumber}`
     : `Constr Loan — #${loanNumber}`;
 
+  // Read-then-insert is racy. Migration 024 adds a UNIQUE constraint on
+  // chart_of_accounts.account_number; retry on conflict (SQLSTATE 23505)
+  // by incrementing until the insert succeeds. Bounded so we don't spin
+  // forever on a non-conflict error.
+  const MAX_ATTEMPTS = 10;
+
   const { data: maxAcctRow } = await supabase
     .from("chart_of_accounts")
     .select("account_number")
@@ -43,27 +49,34 @@ export async function mintLoanCoaAccount(
     .limit(1)
     .maybeSingle();
 
-  const nextAcctNum = maxAcctRow
-    ? String(parseInt(maxAcctRow.account_number) + 1)
-    : "2201";
+  let candidate = maxAcctRow ? parseInt(maxAcctRow.account_number) + 1 : 2201;
 
-  const { data: coaAcct, error: coaErr } = await supabase
-    .from("chart_of_accounts")
-    .insert({
-      account_number: nextAcctNum,
-      name: coaName,
-      type: "liability",
-      subtype: "loan",
-      is_system: false,
-      is_active: true,
-    })
-    .select("id")
-    .single();
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const { data: coaAcct, error: coaErr } = await supabase
+      .from("chart_of_accounts")
+      .insert({
+        account_number: String(candidate),
+        name: coaName,
+        type: "liability",
+        subtype: "loan",
+        is_system: false,
+        is_active: true,
+      })
+      .select("id")
+      .single();
 
-  if (coaErr || !coaAcct) {
-    return { error: coaErr?.message ?? "Failed to create COA account for loan" };
+    if (coaAcct) return { coaAccountId: coaAcct.id };
+
+    // PostgREST surfaces unique violations with code "23505" on the error
+    // object. Anything else is a real failure — bail.
+    if (coaErr?.code !== "23505") {
+      return { error: coaErr?.message ?? "Failed to create COA account for loan" };
+    }
+
+    candidate++;
   }
-  return { coaAccountId: coaAcct.id };
+
+  return { error: `Failed to mint COA account after ${MAX_ATTEMPTS} attempts — too many concurrent loan creations or a numbering anomaly. Investigate.` };
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +91,14 @@ export interface BankAccountInput {
   notes: string;
 }
 
+function validateAccountLastFour(raw: string): { error?: string; value?: string } {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 0) return { error: "Account last four digits are required" };
+  if (digits.length > 4) return { error: "Account last four must be exactly 4 digits — do not paste the full account number" };
+  if (digits.length < 4) return { error: "Account last four must be exactly 4 digits" };
+  return { value: digits };
+}
+
 export async function createBankAccount(
   input: BankAccountInput
 ): Promise<{ error?: string; id?: string }> {
@@ -88,12 +109,15 @@ export async function createBankAccount(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const lastFour = validateAccountLastFour(input.account_last_four);
+  if (lastFour.error) return { error: lastFour.error };
+
   const { data, error } = await supabase
     .from("bank_accounts")
     .insert({
       bank_name: input.bank_name.trim(),
       account_name: input.account_name.trim(),
-      account_last_four: input.account_last_four.replace(/\D/g, "").slice(-4),
+      account_last_four: lastFour.value!,
       account_type: input.account_type,
       notes: input.notes.trim() || null,
     })
@@ -115,12 +139,15 @@ export async function updateBankAccount(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const lastFour = validateAccountLastFour(input.account_last_four);
+  if (lastFour.error) return { error: lastFour.error };
+
   const { error } = await supabase
     .from("bank_accounts")
     .update({
       bank_name: input.bank_name.trim(),
       account_name: input.account_name.trim(),
-      account_last_four: input.account_last_four.replace(/\D/g, "").slice(-4),
+      account_last_four: lastFour.value!,
       account_type: input.account_type,
       notes: input.notes.trim() || null,
     })
@@ -333,7 +360,7 @@ export async function accrueConstructionInterest(
     supabase,
     {
       entry_date: input.accrual_date,
-      reference: `INT-${input.loan_id.slice(0, 8)}-${input.accrual_date.slice(0, 7)}`,
+      reference: `INT-${input.loan_id.slice(0, 8)}-${input.accrual_date.slice(0, 10)}`,
       description: desc,
       status: "posted",
       source_type: "manual",
