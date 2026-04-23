@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renderToBuffer } from "@react-pdf/renderer";
+import { createClient } from "@/lib/supabase/server";
 import { REPORTS, type ReportSlug, type ReportParams } from "@/lib/reports/types";
 import { renderReport } from "@/lib/reports/registry";
 
@@ -15,6 +16,14 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
+
   const { slug: rawSlug } = await params;
   const slug = rawSlug as ReportSlug;
   const descriptor = REPORTS[slug];

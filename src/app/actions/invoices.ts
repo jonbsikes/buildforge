@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { getAccountIdMap } from "@/lib/gl/accounts";
+import { postJournalEntry } from "@/lib/gl/postEntry";
 
 export interface LineItemInput {
   cost_code: string; // text code, e.g. "47"
@@ -226,7 +228,6 @@ export async function approveInvoice(
     .single();
 
   if (!invoice) return { error: "Invoice not found" };
-  if (invoice.status !== "pending_review") return { error: "Invoice is not in pending_review status" };
 
   // Low-confidence lock: cannot approve without manual review
   if (invoice.ai_confidence === "low" && !invoice.manually_reviewed) {
@@ -235,6 +236,9 @@ export async function approveInvoice(
         "This invoice was flagged as low confidence by AI. Please review and edit at least one field before approving.",
     };
   }
+
+  // Status gate is enforced in the UPDATE predicate below (race-safe) — no
+  // separate check here, to avoid a time-of-check/time-of-use gap.
 
   const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
   const today = new Date().toISOString().split("T")[0];
@@ -279,7 +283,7 @@ export async function approveInvoice(
     // JE: DR WIP/CIP per line-item project / CR Cash (1000)
     // Invoice advances directly to 'cleared'.
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("invoices")
       .update({
         status: "cleared",
@@ -287,24 +291,49 @@ export async function approveInvoice(
         payment_method: "ach",
         wip_ap_posted: true,
       })
-      .eq("id", invoiceId);
+      .eq("id", invoiceId)
+      .eq("status", "pending_review")
+      .select("id");
 
     if (error) return { error: error.message };
+    if (!updated || updated.length === 0) {
+      return { error: "Invoice is not in pending_review status (it may already have been approved)" };
+    }
 
     if (invoiceAmount > 0) {
       allAccountNumbers.add("1000");
-      const { data: glAccounts } = await supabase
-        .from("chart_of_accounts")
-        .select("id, account_number")
-        .in("account_number", [...allAccountNumbers]);
-
-      const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+      const acctMap = await getAccountIdMap(supabase, allAccountNumbers);
       const acct1000 = acctMap.get("1000");
 
       if (acct1000 && debitGroups.size > 0) {
-        const { data: je } = await supabase
-          .from("journal_entries")
-          .insert({
+        const jeLines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
+
+        // Debit lines per project group
+        for (const g of debitGroups.values()) {
+          const acctId = acctMap.get(g.accountNumber);
+          if (acctId) {
+            jeLines.push({
+              account_id: acctId,
+              project_id: g.projectId,
+              description: `Loan interest — ${invLabel}`,
+              debit: g.amount,
+              credit: 0,
+            });
+          }
+        }
+
+        // Single credit line for Cash
+        jeLines.push({
+          account_id: acct1000,
+          project_id: null,
+          description: `Bank auto-draft — ${invLabel}`,
+          debit: 0,
+          credit: invoiceAmount,
+        });
+
+        await postJournalEntry(
+          supabase,
+          {
             entry_date: today,
             reference: `INV-CASH-${invoiceId.slice(0, 8)}`,
             description: `Loan interest — bank auto-draft — ${invLabel}`,
@@ -312,40 +341,9 @@ export async function approveInvoice(
             source_type: "invoice_approval",
             source_id: invoiceId,
             user_id: user.id,
-          })
-          .select("id")
-          .single();
-
-        if (je) {
-          const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
-
-          // Debit lines per project group
-          for (const g of debitGroups.values()) {
-            const acctId = acctMap.get(g.accountNumber);
-            if (acctId) {
-              jeLines.push({
-                journal_entry_id: je.id,
-                account_id: acctId,
-                project_id: g.projectId,
-                description: `Loan interest — ${invLabel}`,
-                debit: g.amount,
-                credit: 0,
-              });
-            }
-          }
-
-          // Single credit line for Cash
-          jeLines.push({
-            journal_entry_id: je.id,
-            account_id: acct1000,
-            project_id: null,
-            description: `Bank auto-draft — ${invLabel}`,
-            debit: 0,
-            credit: invoiceAmount,
-          });
-
-          await supabase.from("journal_entry_lines").insert(jeLines);
-        }
+          },
+          jeLines
+        );
       }
     }
 
@@ -385,27 +383,52 @@ export async function approveInvoice(
     // ── Standard AP path ────────────────────────────────────────────────────
     // Post WIP/AP JE per line-item project. fundDraw checks wip_ap_posted to prevent double-entry.
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("invoices")
       .update({ status: "approved" })
-      .eq("id", invoiceId);
+      .eq("id", invoiceId)
+      .eq("status", "pending_review")
+      .select("id");
 
     if (error) return { error: error.message };
+    if (!updated || updated.length === 0) {
+      return { error: "Invoice is not in pending_review status (it may already have been approved)" };
+    }
 
     if (invoiceAmount > 0) {
       allAccountNumbers.add("2000");
-      const { data: glAccounts } = await supabase
-        .from("chart_of_accounts")
-        .select("id, account_number")
-        .in("account_number", [...allAccountNumbers]);
-
-      const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+      const acctMap = await getAccountIdMap(supabase, allAccountNumbers);
       const acct2000 = acctMap.get("2000");
 
       if (acct2000 && debitGroups.size > 0) {
-        const { data: je } = await supabase
-          .from("journal_entries")
-          .insert({
+        const jeLines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
+
+        // Debit lines per project group
+        for (const g of debitGroups.values()) {
+          const acctId = acctMap.get(g.accountNumber);
+          if (acctId) {
+            jeLines.push({
+              account_id: acctId,
+              project_id: g.projectId,
+              description: invLabel,
+              debit: g.amount,
+              credit: 0,
+            });
+          }
+        }
+
+        // Single credit line for AP
+        jeLines.push({
+          account_id: acct2000,
+          project_id: null,
+          description: `AP — ${invLabel}`,
+          debit: 0,
+          credit: invoiceAmount,
+        });
+
+        const result = await postJournalEntry(
+          supabase,
+          {
             entry_date: today,
             reference: `INV-APPR-${invoiceId.slice(0, 8)}`,
             description: `Invoice approved — ${invLabel}`,
@@ -413,40 +436,11 @@ export async function approveInvoice(
             source_type: "invoice_approval",
             source_id: invoiceId,
             user_id: user.id,
-          })
-          .select("id")
-          .single();
+          },
+          jeLines
+        );
 
-        if (je) {
-          const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
-
-          // Debit lines per project group
-          for (const g of debitGroups.values()) {
-            const acctId = acctMap.get(g.accountNumber);
-            if (acctId) {
-              jeLines.push({
-                journal_entry_id: je.id,
-                account_id: acctId,
-                project_id: g.projectId,
-                description: invLabel,
-                debit: g.amount,
-                credit: 0,
-              });
-            }
-          }
-
-          // Single credit line for AP
-          jeLines.push({
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: null,
-            description: `AP — ${invLabel}`,
-            debit: 0,
-            credit: invoiceAmount,
-          });
-
-          await supabase.from("journal_entry_lines").insert(jeLines);
-
+        if (result.id) {
           // Flag so fundDraw skips re-posting WIP/AP for this invoice
           await supabase
             .from("invoices")
@@ -560,10 +554,103 @@ async function isInFundedDraw(
 
 type InvoiceStatus = "pending_review" | "approved" | "released" | "cleared" | "disputed" | "void";
 
+type Supa = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Post DR AP (2000) / CR WIP per line-item project to reverse a previously
+ * posted WIP/AP entry. Used by un-approve, approve→dispute, approve→void, and
+ * dispute→void transitions. Caller is responsible for flipping the invoice
+ * status and `wip_ap_posted` flag afterward.
+ */
+async function postWipApReversal(
+  supabase: Supa,
+  invoiceId: string,
+  userId: string,
+  reference: string,
+  headerDescription: string,
+  apLineDescription: string,
+  wipLineDescription: string
+): Promise<{ error?: string }> {
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("total_amount, amount, vendor, invoice_number")
+    .eq("id", invoiceId)
+    .single();
+
+  if (!invoice) return { error: "Invoice not found" };
+
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  if (invoiceAmount <= 0) return {};
+
+  const today = new Date().toISOString().split("T")[0];
+  const invLabel =
+    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
+
+  const { data: liRows } = await supabase
+    .from("invoice_line_items")
+    .select("amount, project_id, projects ( project_type )")
+    .eq("invoice_id", invoiceId);
+
+  const accountNumbers = new Set(["2000"]);
+  type Grp = { projectId: string | null; wipAccountNumber: string; amount: number };
+  const groups = new Map<string, Grp>();
+  for (const li of liRows ?? []) {
+    if (!li.amount || li.amount <= 0) continue;
+    const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+    const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
+    accountNumbers.add(wipAcctNum);
+    const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
+    const existing = groups.get(key);
+    if (existing) existing.amount += li.amount;
+    else groups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount });
+  }
+
+  const acctMap = await getAccountIdMap(supabase, accountNumbers);
+  const acct2000 = acctMap.get("2000");
+  if (!acct2000 || groups.size === 0) return {};
+
+  const lines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
+    {
+      account_id: acct2000,
+      project_id: null,
+      description: `${apLineDescription} — ${invLabel}`,
+      debit: invoiceAmount,
+      credit: 0,
+    },
+  ];
+  for (const g of groups.values()) {
+    const wipAcctId = acctMap.get(g.wipAccountNumber);
+    if (wipAcctId) {
+      lines.push({
+        account_id: wipAcctId,
+        project_id: g.projectId,
+        description: `${wipLineDescription} — ${invLabel}`,
+        debit: 0,
+        credit: g.amount,
+      });
+    }
+  }
+
+  const result = await postJournalEntry(
+    supabase,
+    {
+      entry_date: today,
+      reference,
+      description: `${headerDescription} — ${invLabel}`,
+      status: "posted",
+      source_type: "manual",
+      source_id: invoiceId,
+      user_id: userId,
+    },
+    lines
+  );
+  if (result.error) return { error: result.error };
+  return {};
+}
+
 /**
  * Reverses a posted WIP/AP entry and flips an invoice back to pending_review.
  * Used for "un-approve" and for disputed-with-JE → pending_review transitions.
- * JE posted: DR 2000 AP / CR WIP/CIP/6900 (per line-item project).
  */
 async function unapproveInvoice(invoiceId: string): Promise<{ error?: string }> {
   const supabase = await createClient();
@@ -572,7 +659,7 @@ async function unapproveInvoice(invoiceId: string): Promise<{ error?: string }> 
 
   const { data: invoice } = await supabase
     .from("invoices")
-    .select(`status, total_amount, amount, wip_ap_posted, vendor, invoice_number`)
+    .select("status, wip_ap_posted")
     .eq("id", invoiceId)
     .single();
 
@@ -584,81 +671,17 @@ async function unapproveInvoice(invoiceId: string): Promise<{ error?: string }> 
     return { error: "This invoice is part of a funded draw and cannot be un-approved." };
   }
 
-  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const today = new Date().toISOString().split("T")[0];
-  const invLabel =
-    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
-
-  if (invoiceAmount > 0 && invoice.wip_ap_posted) {
-    const { data: liRows } = await supabase
-      .from("invoice_line_items")
-      .select("amount, project_id, projects ( project_type )")
-      .eq("invoice_id", invoiceId);
-
-    const accountNumbers = new Set(["2000"]);
-    type Grp = { projectId: string | null; wipAccountNumber: string; amount: number };
-    const groups = new Map<string, Grp>();
-    for (const li of liRows ?? []) {
-      if (!li.amount || li.amount <= 0) continue;
-      const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
-      const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
-      accountNumbers.add(wipAcctNum);
-      const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
-      const existing = groups.get(key);
-      if (existing) { existing.amount += li.amount; }
-      else { groups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount }); }
-    }
-
-    const { data: glAccounts } = await supabase
-      .from("chart_of_accounts")
-      .select("id, account_number")
-      .in("account_number", [...accountNumbers]);
-
-    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
-    const acct2000 = acctMap.get("2000");
-
-    if (acct2000 && groups.size > 0) {
-      const { data: je } = await supabase
-        .from("journal_entries")
-        .insert({
-          entry_date: today,
-          reference: `INV-UNAPPR-${invoiceId.slice(0, 8)}`,
-          description: `Invoice un-approved — ${invLabel}`,
-          status: "posted",
-          source_type: "manual",
-          source_id: invoiceId,
-          user_id: user.id,
-        })
-        .select("id")
-        .single();
-
-      if (je) {
-        const lines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: null,
-            description: `AP reversed — un-approve — ${invLabel}`,
-            debit: invoiceAmount,
-            credit: 0,
-          },
-        ];
-        for (const g of groups.values()) {
-          const wipAcctId = acctMap.get(g.wipAccountNumber);
-          if (wipAcctId) {
-            lines.push({
-              journal_entry_id: je.id,
-              account_id: wipAcctId,
-              project_id: g.projectId,
-              description: `WIP reversal — un-approve — ${invLabel}`,
-              debit: 0,
-              credit: g.amount,
-            });
-          }
-        }
-        await supabase.from("journal_entry_lines").insert(lines);
-      }
-    }
+  if (invoice.wip_ap_posted) {
+    const r = await postWipApReversal(
+      supabase,
+      invoiceId,
+      user.id,
+      `INV-UNAPPR-${invoiceId.slice(0, 8)}`,
+      "Invoice un-approved",
+      "AP reversed — un-approve",
+      "WIP reversal — un-approve"
+    );
+    if (r.error) return r;
   }
 
   const { error } = await supabase
@@ -671,10 +694,89 @@ async function unapproveInvoice(invoiceId: string): Promise<{ error?: string }> 
 }
 
 /**
- * Router for any invoice status change. Routes to approveInvoice,
- * advanceInvoiceStatus, voidInvoice, or unapproveInvoice so that the proper
- * journal entries are posted. Direct writes to the `status` column bypass
- * the GL and must not happen elsewhere.
+ * Internal: approve→disputed. Reverses WIP/AP (if posted) and flips status.
+ * Clears pending_draw so the invoice isn't pulled into a new draw.
+ */
+async function disputeApproved(invoiceId: string, wipApPosted: boolean): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  if (wipApPosted) {
+    const r = await postWipApReversal(
+      supabase,
+      invoiceId,
+      user.id,
+      `INV-DISPUTE-${invoiceId.slice(0, 8)}`,
+      "Invoice disputed",
+      "AP reversed — invoice disputed",
+      "WIP reversal — invoice disputed"
+    );
+    if (r.error) return r;
+  }
+
+  const { error } = await supabase
+    .from("invoices")
+    .update({ status: "disputed", wip_ap_posted: false, pending_draw: false })
+    .eq("id", invoiceId);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+/**
+ * Internal: any→void. Posts the correct reversing JE based on the invoice's
+ * current state:
+ *   - pending_review (wip_ap_posted = false): just void, no GL work
+ *   - approved (wip_ap_posted = true): DR AP / CR WIP reversal
+ *   - disputed (wip_ap_posted = true): DR AP / CR WIP reversal (subsumes
+ *     the old `voidAfterDraw` case, where fundDraw re-posted WIP/AP for a
+ *     disputed invoice that was included in a funded draw)
+ *   - disputed (wip_ap_posted = false): just void, dispute already reversed
+ *   - released/cleared: blocked
+ */
+async function voidFrom(invoiceId: string, from: InvoiceStatus, wipApPosted: boolean): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  if (from === "released") {
+    return { error: "Cannot void a released invoice — the check must be cancelled first. Contact your accountant to reverse the check issuance." };
+  }
+  if (from === "cleared") {
+    return { error: "Cannot void a cleared invoice — payment has already been made." };
+  }
+  if (from === "void") {
+    return { error: "Invoice is already voided." };
+  }
+
+  if (wipApPosted) {
+    const wasDrawn = await isInFundedDraw(supabase, invoiceId);
+    const headerDesc = wasDrawn ? "Void after draw — vendor not paid" : "Invoice voided";
+    const apDesc = wasDrawn ? "AP cleared — vendor not paid" : "AP cleared — invoice voided";
+    const wipDesc = wasDrawn ? "WIP reduction — disputed invoice voided" : "WIP reversal — invoice voided";
+    const reference = wasDrawn ? `VOID-DRAWN-${invoiceId.slice(0, 8)}` : `VOID-${invoiceId.slice(0, 8)}`;
+
+    const r = await postWipApReversal(
+      supabase, invoiceId, user.id, reference, headerDesc, apDesc, wipDesc
+    );
+    if (r.error) return r;
+  }
+
+  const { error } = await supabase
+    .from("invoices")
+    .update({ status: "void", wip_ap_posted: false, pending_draw: false })
+    .eq("id", invoiceId);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+/**
+ * Router for any invoice status change. Every mutation of the `status`
+ * column must flow through here so the correct journal entries post. The
+ * private helpers (unapproveInvoice, disputeApproved, voidFrom) and the
+ * approve/advance actions are the only places that write `status` directly.
  */
 async function applyStatusTransition(
   invoiceId: string,
@@ -689,22 +791,6 @@ async function applyStatusTransition(
   if (!inv) return { error: "Invoice not found" };
   const from = inv.status as InvoiceStatus;
   if (from === to) return {};
-
-  // Flag-only flips (no JE posted by either side of the transition).
-  // Note: approved/disputed both carry wip_ap_posted = true, so flipping
-  // between them is just metadata and the ledger is unchanged.
-  const noLedgerFlip = new Set([
-    "pending_review->disputed",
-    "approved->disputed",
-    "disputed->approved",
-  ]);
-  if (noLedgerFlip.has(`${from}->${to}`)) {
-    const { error } = await supabase
-      .from("invoices")
-      .update({ status: to })
-      .eq("id", invoiceId);
-    return error ? { error: error.message } : {};
-  }
 
   // Forward chain from pending_review
   if (from === "pending_review") {
@@ -723,53 +809,88 @@ async function applyStatusTransition(
       }
       return {};
     }
+    if (to === "disputed") {
+      // Flag-only — no WIP/AP was posted, nothing to reverse.
+      const { error } = await supabase
+        .from("invoices")
+        .update({ status: "disputed", pending_draw: false })
+        .eq("id", invoiceId);
+      return error ? { error: error.message } : {};
+    }
     if (to === "void") {
-      const r = await voidInvoice(invoiceId);
-      return r.error ? { error: r.error } : {};
+      return await voidFrom(invoiceId, from, false);
     }
   }
 
-  // disputed → pending_review: reverse WIP/AP if it was posted
-  if (from === "disputed" && to === "pending_review") {
-    if (inv.wip_ap_posted) return await unapproveInvoice(invoiceId);
-    const { error } = await supabase
-      .from("invoices")
-      .update({ status: "pending_review" })
-      .eq("id", invoiceId);
-    return error ? { error: error.message } : {};
-  }
-
-  // disputed → void: voidInvoice handles the WIP/AP reversal if needed
-  if (from === "disputed" && to === "void") {
-    const r = await voidInvoice(invoiceId);
-    return r.error ? { error: r.error } : {};
-  }
-
-  // approved → pending_review (un-approve)
-  if (from === "approved" && to === "pending_review") {
-    return await unapproveInvoice(invoiceId);
-  }
-
-  // approved → released / cleared / void
+  // approved → *
   if (from === "approved") {
+    if (to === "pending_review") return await unapproveInvoice(invoiceId);
     if (to === "released") return await advanceInvoiceStatus(invoiceId, "released");
     if (to === "cleared") {
       const r = await advanceInvoiceStatus(invoiceId, "released");
       if (r.error) return { error: r.error };
       return await advanceInvoiceStatus(invoiceId, "cleared");
     }
+    if (to === "disputed") return await disputeApproved(invoiceId, !!inv.wip_ap_posted);
+    if (to === "void") return await voidFrom(invoiceId, from, !!inv.wip_ap_posted);
+  }
+
+  // released → *
+  if (from === "released") {
+    if (to === "cleared") return await advanceInvoiceStatus(invoiceId, "cleared");
+    // dispute / void / un-release are all blocked — the check has been issued.
+    if (to === "disputed") {
+      return { error: "Cannot dispute a released invoice — a check has been issued. Reverse the check first." };
+    }
     if (to === "void") {
-      const r = await voidInvoice(invoiceId);
-      return r.error ? { error: r.error } : {};
+      return { error: "Cannot void a released invoice — the check must be cancelled first. Contact your accountant to reverse the check issuance." };
     }
   }
 
-  // released → cleared
-  if (from === "released" && to === "cleared") {
-    return await advanceInvoiceStatus(invoiceId, "cleared");
+  // cleared → *  — payment has landed, nothing can change.
+  if (from === "cleared") {
+    if (to === "disputed") {
+      return { error: "Cannot dispute a cleared invoice — payment has already been made." };
+    }
+    if (to === "void") {
+      return { error: "Cannot void a cleared invoice — payment has already been made." };
+    }
   }
 
-  return { error: `Status change from "${from}" to "${to}" is not supported. Use the dedicated lifecycle actions.` };
+  // disputed → *
+  if (from === "disputed") {
+    if (to === "pending_review") {
+      if (inv.wip_ap_posted) return await unapproveInvoice(invoiceId);
+      const { error } = await supabase
+        .from("invoices")
+        .update({ status: "pending_review" })
+        .eq("id", invoiceId);
+      return error ? { error: error.message } : {};
+    }
+    if (to === "approved") {
+      // Re-approve. If WIP/AP is already posted (e.g. dispute came from
+      // pending_review which didn't reverse, or a funded-draw re-post),
+      // just flip the flag. Otherwise flip to pending_review first so
+      // approveInvoice's posting path runs with its status gate intact.
+      if (inv.wip_ap_posted) {
+        const { error } = await supabase
+          .from("invoices")
+          .update({ status: "approved" })
+          .eq("id", invoiceId);
+        return error ? { error: error.message } : {};
+      }
+      const { error: flipErr } = await supabase
+        .from("invoices")
+        .update({ status: "pending_review" })
+        .eq("id", invoiceId);
+      if (flipErr) return { error: flipErr.message };
+      return await approveInvoice(invoiceId);
+    }
+    if (to === "void") return await voidFrom(invoiceId, from, !!inv.wip_ap_posted);
+  }
+
+  // void → *  — once voided, no re-opening via this path.
+  return { error: `Status change from "${from}" to "${to}" is not supported.` };
 }
 
 // ---------------------------------------------------------------------------
@@ -968,34 +1089,34 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
   redirect("/invoices");
 }
 
+// ---------------------------------------------------------------------------
+// disputeInvoice / voidInvoice / voidAfterDraw — thin wrappers over
+// applyStatusTransition so the GL stays in sync. Rules:
+//   - pending_review → disputed: flag-only (no JE, no WIP/AP to reverse)
+//   - approved → disputed: reverse WIP/AP (DR 2000 / CR WIP)
+//   - released/cleared → disputed: blocked (can't dispute after check issued)
+//   - pending_review/approved → void: reverse WIP/AP if posted, then void
+//   - disputed → void: reverse WIP/AP if posted (subsumes the old
+//     voidAfterDraw case where a funded draw re-posted WIP/AP)
+//   - released/cleared → void: blocked
+// voidInvoice and voidAfterDraw resolve to the same transition — they were
+// originally separate actions with identical JE logic but different entry
+// gates, now unified.
+// ---------------------------------------------------------------------------
+
 export async function disputeInvoice(
   invoiceId: string
 ): Promise<{ error?: string }> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.authorized) return { error: adminCheck.error };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const t = await applyStatusTransition(invoiceId, "disputed");
+  if (t.error) return { error: t.error };
 
-  const { error } = await supabase
-    .from("invoices")
-    .update({ status: "disputed" })
-    .eq("id", invoiceId);
-  if (error) return { error: error.message };
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
   return {};
 }
-
-// ---------------------------------------------------------------------------
-// voidInvoice — general void (used by the status dropdown)
-// ---------------------------------------------------------------------------
-// Posts the correct reversing JE based on the invoice's current state:
-//   - pending_review (wip_ap_posted = false): just void, no GL work needed
-//   - approved/disputed (wip_ap_posted = true): DR AP (2000) / CR WIP/CIP (1210/1230/6900)
-//   - released/cleared: blocked — those need explicit reversal workflow
-// ---------------------------------------------------------------------------
 
 export async function voidInvoice(
   invoiceId: string
@@ -1003,132 +1124,13 @@ export async function voidInvoice(
   const adminCheck = await requireAdmin();
   if (!adminCheck.authorized) return { error: adminCheck.error };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
-
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select(`
-      status, total_amount, amount, project_id, vendor, invoice_number,
-      wip_ap_posted,
-      projects ( project_type )
-    `)
-    .eq("id", invoiceId)
-    .single();
-
-  if (!invoice) return { error: "Invoice not found" };
-
-  if (invoice.status === "released") {
-    return { error: "Cannot void a released invoice — the check must be cancelled first. Contact your accountant to reverse the check issuance." };
-  }
-  if (invoice.status === "cleared") {
-    return { error: "Cannot void a cleared invoice — payment has already been made." };
-  }
-  if (invoice.status === "void") {
-    return { error: "Invoice is already voided." };
-  }
-
-  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const today = new Date().toISOString().split("T")[0];
-  const invLabel =
-    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
-
-  // If WIP/AP was posted, reverse it: DR AP (2000) / CR WIP/CIP per line-item project
-  if (invoiceAmount > 0 && invoice.wip_ap_posted) {
-    // Load line items with per-line project info
-    const { data: voidLineItems } = await supabase
-      .from("invoice_line_items")
-      .select("amount, project_id, projects ( project_type )")
-      .eq("invoice_id", invoiceId);
-
-    // Group by project for reversal JE
-    const accountNumbers = new Set(["2000"]);
-    type VoidGroup = { projectId: string | null; wipAccountNumber: string; amount: number };
-    const voidGroups = new Map<string, VoidGroup>();
-    for (const li of voidLineItems ?? []) {
-      if (!li.amount || li.amount <= 0) continue;
-      const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
-      const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
-      accountNumbers.add(wipAcctNum);
-      const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
-      const existing = voidGroups.get(key);
-      if (existing) { existing.amount += li.amount; }
-      else { voidGroups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount }); }
-    }
-
-    const { data: glAccounts } = await supabase
-      .from("chart_of_accounts")
-      .select("id, account_number")
-      .in("account_number", [...accountNumbers]);
-
-    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
-    const acct2000 = acctMap.get("2000");
-
-    if (acct2000 && voidGroups.size > 0) {
-      const { data: je } = await supabase
-        .from("journal_entries")
-        .insert({
-          entry_date: today,
-          reference: `VOID-${invoiceId.slice(0, 8)}`,
-          description: `Invoice voided — ${invLabel}`,
-          status: "posted",
-          source_type: "manual",
-          source_id: invoiceId,
-          user_id: user.id,
-        })
-        .select("id")
-        .single();
-
-      if (je) {
-        const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: null,
-            description: `AP cleared — invoice voided — ${invLabel}`,
-            debit: invoiceAmount,
-            credit: 0,
-          },
-        ];
-        for (const g of voidGroups.values()) {
-          const wipAcctId = acctMap.get(g.wipAccountNumber);
-          if (wipAcctId) {
-            jeLines.push({
-              journal_entry_id: je.id,
-              account_id: wipAcctId,
-              project_id: g.projectId,
-              description: `WIP reversal — invoice voided — ${invLabel}`,
-              debit: 0,
-              credit: g.amount,
-            });
-          }
-        }
-        await supabase.from("journal_entry_lines").insert(jeLines);
-      }
-    }
-  }
-
-  const { error: voidError } = await supabase
-    .from("invoices")
-    .update({ status: "void", pending_draw: false })
-    .eq("id", invoiceId);
-
-  if (voidError) return { error: voidError.message };
+  const t = await applyStatusTransition(invoiceId, "void");
+  if (t.error) return { error: t.error };
 
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
   return { success: true };
 }
-
-// ---------------------------------------------------------------------------
-// voidAfterDraw
-// ---------------------------------------------------------------------------
-// Used when a disputed invoice was already drawn on (bank funded the draw),
-// but the vendor will not be paid. Cash and loan payable remain unchanged.
-// Posts: DR Accounts Payable (2000) / CR WIP/CIP (1210/1230/6900)
-// This clears the AP liability and reduces project cost.
-// ---------------------------------------------------------------------------
 
 export async function voidAfterDraw(
   invoiceId: string
@@ -1136,111 +1138,8 @@ export async function voidAfterDraw(
   const adminCheck = await requireAdmin();
   if (!adminCheck.authorized) return { error: adminCheck.error };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
-
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select(`
-      status, total_amount, amount, project_id, vendor, invoice_number,
-      wip_ap_posted,
-      projects ( project_type )
-    `)
-    .eq("id", invoiceId)
-    .single();
-
-  if (!invoice) return { error: "Invoice not found" };
-  if (invoice.status !== "disputed") {
-    return { error: "Only disputed invoices can be voided this way" };
-  }
-
-  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const today = new Date().toISOString().split("T")[0];
-  const invLabel =
-    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
-
-  // Only post the clearing JE if WIP/AP was actually posted (wip_ap_posted = true).
-  if (invoiceAmount > 0 && invoice.wip_ap_posted) {
-    // Load line items with per-line project info for per-project reversal
-    const { data: vadLineItems } = await supabase
-      .from("invoice_line_items")
-      .select("amount, project_id, projects ( project_type )")
-      .eq("invoice_id", invoiceId);
-
-    const accountNumbers = new Set(["2000"]);
-    type VadGroup = { projectId: string | null; wipAccountNumber: string; amount: number };
-    const vadGroups = new Map<string, VadGroup>();
-    for (const li of vadLineItems ?? []) {
-      if (!li.amount || li.amount <= 0) continue;
-      const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
-      const wipAcctNum = !li.project_id ? "6900" : projType === "land_development" ? "1230" : "1210";
-      accountNumbers.add(wipAcctNum);
-      const key = `${wipAcctNum}|${li.project_id ?? "null"}`;
-      const existing = vadGroups.get(key);
-      if (existing) { existing.amount += li.amount; }
-      else { vadGroups.set(key, { projectId: li.project_id ?? null, wipAccountNumber: wipAcctNum, amount: li.amount }); }
-    }
-
-    const { data: glAccounts } = await supabase
-      .from("chart_of_accounts")
-      .select("id, account_number")
-      .in("account_number", [...accountNumbers]);
-
-    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
-    const acct2000 = acctMap.get("2000");
-
-    if (acct2000 && vadGroups.size > 0) {
-      const { data: je } = await supabase
-        .from("journal_entries")
-        .insert({
-          entry_date: today,
-          reference: `VOID-DRAWN-${invoiceId.slice(0, 8)}`,
-          description: `Void after draw — vendor not paid — ${invLabel}`,
-          status: "posted",
-          source_type: "manual",
-          source_id: invoiceId,
-          user_id: user.id,
-        })
-        .select("id")
-        .single();
-
-      if (je) {
-        const jeLines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: null,
-            description: `AP cleared — vendor not paid — ${invLabel}`,
-            debit: invoiceAmount,
-            credit: 0,
-          },
-        ];
-        for (const g of vadGroups.values()) {
-          const wipAcctId = acctMap.get(g.wipAccountNumber);
-          if (wipAcctId) {
-            jeLines.push({
-              journal_entry_id: je.id,
-              account_id: wipAcctId,
-              project_id: g.projectId,
-              description: `WIP reduction — disputed invoice voided — ${invLabel}`,
-              debit: 0,
-              credit: g.amount,
-            });
-          }
-        }
-        await supabase.from("journal_entry_lines").insert(jeLines);
-      }
-    }
-  }
-
-  // Mark invoice void and remove from any pending draw queue
-  const { error: voidError } = await supabase
-    .from("invoices")
-    .update({ status: "void", pending_draw: false })
-    .eq("id", invoiceId);
-
-  if (voidError) return { error: voidError.message };
+  const t = await applyStatusTransition(invoiceId, "void");
+  if (t.error) return { error: t.error };
 
   revalidatePath(`/invoices/${invoiceId}`);
   revalidatePath("/invoices");
@@ -1263,6 +1162,30 @@ export async function advanceInvoiceStatus(
 
   const today = new Date().toISOString().split("T")[0];
   const discount = discountTaken && discountTaken > 0 ? discountTaken : 0;
+
+  // Fetch + validate BEFORE any write so we never commit a status change that
+  // won't have a matching JE. Also gates the UPDATE on the prerequisite status
+  // (approved → released, released → cleared) to close the double-click race.
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("status, amount, total_amount, project_id, vendor, invoice_number, discount_taken, projects ( project_type )")
+    .eq("id", invoiceId)
+    .single();
+
+  if (!invoice) return { error: "Invoice not found" };
+
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  if (invoiceAmount <= 0) {
+    return { error: "Invoice amount must be greater than zero" };
+  }
+
+  const requiredFromStatus = to === "released" ? "approved" : "released";
+  if (invoice.status !== requiredFromStatus) {
+    return {
+      error: `Cannot advance invoice to '${to}' from status '${invoice.status}' — must be '${requiredFromStatus}'`,
+    };
+  }
+
   const updates: Record<string, unknown> = { status: to };
   if (to === "released") {
     updates.payment_method = paymentMethod ?? null;
@@ -1273,29 +1196,26 @@ export async function advanceInvoiceStatus(
     updates.payment_method = paymentMethod ?? null;
   }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("invoices")
     .update(updates)
-    .eq("id", invoiceId);
+    .eq("id", invoiceId)
+    .eq("status", requiredFromStatus)
+    .select("id");
 
   if (error) return { error: error.message };
+  if (!updated || updated.length === 0) {
+    return {
+      error: `Invoice status changed — expected '${requiredFromStatus}'. Another process may have advanced it already.`,
+    };
+  }
 
-  const { data: invoice } = await supabase
-    .from("invoices")
-    .select("amount, total_amount, project_id, vendor, invoice_number, discount_taken, projects ( project_type )")
-    .eq("id", invoiceId)
-    .single();
-
-  if (!invoice) { revalidatePath("/invoices"); return {}; }
-
-  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
-  const savedDiscount = (invoice.discount_taken ?? 0) as number;
+  // Re-read discount_taken if we just wrote it, else use the fetched value.
+  const savedDiscount = (to === "released" && discount > 0 ? discount : (invoice.discount_taken ?? 0)) as number;
   const netAmount = invoiceAmount - savedDiscount;
   const desc = [invoice.vendor, invoice.invoice_number]
     .filter(Boolean)
     .join(" — Inv #") || "Invoice";
-
-  if (invoiceAmount <= 0) { revalidatePath("/invoices"); return {}; }
 
   // Load line items with per-line project info for multi-project JE lines
   const { data: advLineItems } = await supabase
@@ -1325,19 +1245,56 @@ export async function advanceInvoiceStatus(
       for (const g of projGroups.values()) accountNumbers.add(g.wipAccountNumber);
     }
 
-    const { data: glAccounts } = await supabase
-      .from("chart_of_accounts")
-      .select("id, account_number")
-      .in("account_number", [...accountNumbers]);
-
-    const acctMap = new Map((glAccounts ?? []).map(a => [a.account_number, a.id]));
+    const acctMap = await getAccountIdMap(supabase, accountNumbers);
     const acct2000 = acctMap.get("2000");
     const acct2050 = acctMap.get("2050");
 
     if (acct2000 && acct2050) {
-      const { data: je } = await supabase
-        .from("journal_entries")
-        .insert({
+      const lines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
+        {
+          account_id: acct2000,
+          project_id: null,
+          description: `AP — ${desc}`,
+          debit: invoiceAmount,
+          credit: 0,
+        },
+        {
+          account_id: acct2050,
+          project_id: null,
+          description: `Check issued — ${desc}`,
+          debit: 0,
+          credit: netAmount,
+        },
+      ];
+
+      // Distribute discount credit across projects pro-rata
+      if (savedDiscount > 0) {
+        let distributed = 0;
+        const groupArr = [...projGroups.values()];
+        for (let i = 0; i < groupArr.length; i++) {
+          const g = groupArr[i];
+          const share = i === groupArr.length - 1
+            ? savedDiscount - distributed
+            : Math.round((g.amount / invoiceAmount) * savedDiscount * 100) / 100;
+          distributed += share;
+          if (share > 0) {
+            const wipAcctId = acctMap.get(g.wipAccountNumber);
+            if (wipAcctId) {
+              lines.push({
+                account_id: wipAcctId,
+                project_id: g.projectId,
+                description: `Early-pay discount — ${desc}`,
+                debit: 0,
+                credit: share,
+              });
+            }
+          }
+        }
+      }
+
+      await postJournalEntry(
+        supabase,
+        {
           entry_date: today,
           reference: `CHK-ISSUED-${invoiceId.slice(0, 8)}`,
           description: savedDiscount > 0
@@ -1347,75 +1304,23 @@ export async function advanceInvoiceStatus(
           source_type: "invoice_payment",
           source_id: invoiceId,
           user_id: user.id,
-        })
-        .select("id")
-        .single();
-
-      if (je) {
-        const lines: { journal_entry_id: string; account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: null,
-            description: `AP — ${desc}`,
-            debit: invoiceAmount,
-            credit: 0,
-          },
-          {
-            journal_entry_id: je.id,
-            account_id: acct2050,
-            project_id: null,
-            description: `Check issued — ${desc}`,
-            debit: 0,
-            credit: netAmount,
-          },
-        ];
-
-        // Distribute discount credit across projects pro-rata
-        if (savedDiscount > 0) {
-          let distributed = 0;
-          const groupArr = [...projGroups.values()];
-          for (let i = 0; i < groupArr.length; i++) {
-            const g = groupArr[i];
-            const share = i === groupArr.length - 1
-              ? savedDiscount - distributed
-              : Math.round((g.amount / invoiceAmount) * savedDiscount * 100) / 100;
-            distributed += share;
-            if (share > 0) {
-              const wipAcctId = acctMap.get(g.wipAccountNumber);
-              if (wipAcctId) {
-                lines.push({
-                  journal_entry_id: je.id,
-                  account_id: wipAcctId,
-                  project_id: g.projectId,
-                  description: `Early-pay discount — ${desc}`,
-                  debit: 0,
-                  credit: share,
-                });
-              }
-            }
-          }
-        }
-
-        await supabase.from("journal_entry_lines").insert(lines);
-      }
+        },
+        lines
+      );
     }
   }
 
   if (to === "cleared") {
     const clearedDate = updates.payment_date as string;
-    const { data: glAccounts } = await supabase
-      .from("chart_of_accounts")
-      .select("id, account_number")
-      .in("account_number", ["2050", "1000"]);
-
-    const acct2050 = glAccounts?.find(a => a.account_number === "2050")?.id;
-    const acct1000 = glAccounts?.find(a => a.account_number === "1000")?.id;
+    const accounts = await getAccountIdMap(supabase, ["2050", "1000"]);
+    const acct2050 = accounts.get("2050");
+    const acct1000 = accounts.get("1000");
 
     if (acct2050 && acct1000) {
-      const { data: je } = await supabase
-        .from("journal_entries")
-        .insert({
+      // Cleared JE is Cash-side only (DR 2050 / CR 1000) — no project split needed
+      await postJournalEntry(
+        supabase,
+        {
           entry_date: clearedDate,
           reference: `CHK-CLR-${invoiceId.slice(0, 8)}`,
           description: `Check cleared — ${desc}`,
@@ -1423,15 +1328,9 @@ export async function advanceInvoiceStatus(
           source_type: "invoice_payment",
           source_id: invoiceId,
           user_id: user.id,
-        })
-        .select("id")
-        .single();
-
-      if (je) {
-        // Cleared JE is Cash-side only (DR 2050 / CR 1000) — no project split needed
-        await supabase.from("journal_entry_lines").insert([
+        },
+        [
           {
-            journal_entry_id: je.id,
             account_id: acct2050,
             project_id: null,
             description: `Outstanding check cleared — ${desc}`,
@@ -1439,18 +1338,177 @@ export async function advanceInvoiceStatus(
             credit: 0,
           },
           {
-            journal_entry_id: je.id,
             account_id: acct1000,
             project_id: null,
             description: `Cash — ${desc}`,
             debit: 0,
             credit: netAmount,
           },
-        ]);
-      }
+        ]
+      );
     }
   }
 
   revalidatePath("/invoices");
   return {};
+}
+
+// ---------------------------------------------------------------------------
+// payInvoiceAutoDraft
+// ---------------------------------------------------------------------------
+// Explicit approved → cleared transition for bank auto-drafts on invoices that
+// were originally approved via the standard AP path (so DR WIP / CR AP has
+// already been posted). Single JE: DR AP (2000) / CR Cash (1000). No Checks
+// Outstanding (2050) hop — there is no check.
+//
+// Distinct from `approveInvoice({ direct_cash_payment: true })`, which is set
+// at approval time and bypasses AP entirely (pending_review → cleared in one
+// leg, DR WIP / CR Cash). That path is for invoices the user knows up-front
+// will be auto-drafted. This path is for invoices discovered after approval
+// to have been auto-drafted by the bank.
+// ---------------------------------------------------------------------------
+
+export async function payInvoiceAutoDraft(
+  invoiceId: string,
+  paymentDate?: string
+): Promise<{ error?: string; success?: boolean }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("status, amount, total_amount, wip_ap_posted, project_id, vendor, vendor_id, invoice_number")
+    .eq("id", invoiceId)
+    .single();
+
+  if (!invoice) return { error: "Invoice not found" };
+  if (invoice.status !== "approved") {
+    return { error: `Invoice must be approved — current status is '${invoice.status}'` };
+  }
+  if (!invoice.wip_ap_posted) {
+    return {
+      error:
+        "Invoice has no AP balance to clear (wip_ap_posted=false). This is a corrupt state — reset to pending_review and re-approve, or contact support.",
+    };
+  }
+
+  const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+  if (invoiceAmount <= 0) {
+    return { error: "Invoice amount must be greater than zero" };
+  }
+
+  const today = paymentDate ?? new Date().toISOString().split("T")[0];
+  const desc =
+    [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") ||
+    "Invoice";
+
+  // Gate the UPDATE on status='approved' to close the TOCTOU race.
+  const { data: updated, error: upErr } = await supabase
+    .from("invoices")
+    .update({
+      status: "cleared",
+      payment_date: today,
+      payment_method: "ach",
+    })
+    .eq("id", invoiceId)
+    .eq("status", "approved")
+    .select("id");
+
+  if (upErr) return { error: upErr.message };
+  if (!updated || updated.length === 0) {
+    return {
+      error:
+        "Invoice status changed — expected 'approved'. Another process may have advanced it already.",
+    };
+  }
+
+  const accounts = await getAccountIdMap(supabase, ["2000", "1000"]);
+  const acct2000 = accounts.get("2000");
+  const acct1000 = accounts.get("1000");
+
+  if (!acct2000 || !acct1000) {
+    // Roll back the status change — we can't post the JE.
+    await supabase
+      .from("invoices")
+      .update({ status: "approved", payment_date: null, payment_method: null })
+      .eq("id", invoiceId);
+    return { error: "Chart of accounts missing AP (2000) or Cash (1000) — cannot post JE" };
+  }
+
+  const jeResult = await postJournalEntry(
+    supabase,
+    {
+      entry_date: today,
+      reference: `INV-AUTODR-${invoiceId.slice(0, 8)}`,
+      description: `Auto-draft payment — ${desc}`,
+      status: "posted",
+      source_type: "invoice_payment",
+      source_id: invoiceId,
+      user_id: user.id,
+    },
+    [
+      {
+        account_id: acct2000,
+        project_id: null,
+        description: `AP — ${desc}`,
+        debit: invoiceAmount,
+        credit: 0,
+      },
+      {
+        account_id: acct1000,
+        project_id: null,
+        description: `Auto-draft — ${desc}`,
+        debit: 0,
+        credit: invoiceAmount,
+      },
+    ]
+  );
+
+  if (jeResult.error) {
+    // Roll back the status change — the JE didn't post.
+    await supabase
+      .from("invoices")
+      .update({ status: "approved", payment_date: null, payment_method: null })
+      .eq("id", invoiceId);
+    return { error: jeResult.error };
+  }
+
+  // Create a Payment Register row so bank auto-drafts appear in /banking/payments,
+  // mirroring the behavior of approveInvoice's direct_cash_payment path.
+  const { data: paymentRow } = await supabase
+    .from("payments")
+    .insert({
+      payment_number: null,
+      payment_method: "auto_draft",
+      payee: invoice.vendor ?? "Bank",
+      vendor_id: invoice.vendor_id ?? null,
+      amount: invoiceAmount,
+      discount_amount: 0,
+      payment_date: today,
+      cleared_date: today,
+      status: "cleared",
+      funding_source: "dda",
+      draw_id: null,
+      vendor_payment_id: null,
+      notes: `Bank auto-draft — ${desc}`,
+      user_id: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (paymentRow) {
+    await supabase.from("payment_invoices").insert({
+      payment_id: paymentRow.id,
+      invoice_id: invoiceId,
+      amount: invoiceAmount,
+    });
+  }
+
+  revalidatePath("/invoices");
+  revalidatePath("/banking/payments");
+  return { success: true };
 }

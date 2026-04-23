@@ -1,10 +1,11 @@
-// @ts-nocheck
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { approveInvoice } from "./invoices";
+import { getAccountIdMap } from "@/lib/gl/accounts";
+import { postJournalEntry } from "@/lib/gl/postEntry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,26 +59,6 @@ export interface PaymentRow {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: look up GL accounts by number
-// ---------------------------------------------------------------------------
-
-async function getGLAccounts(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  accountNumbers: string[]
-): Promise<Record<string, string>> {
-  const { data } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", accountNumbers);
-
-  const map: Record<string, string> = {};
-  for (const row of data ?? []) {
-    map[row.account_number] = row.id;
-  }
-  return map;
-}
-
-// ---------------------------------------------------------------------------
 // createPayment
 // Creates a payment record, links invoices, posts GL entries, and advances
 // invoice statuses as appropriate.
@@ -126,8 +107,61 @@ export async function createPayment(
   const isCheck = input.payment_method === "check";
   const paymentStatus = isCheck ? "outstanding" : "cleared";
   const clearedDate = isCheck ? null : (input.cleared_date ?? input.payment_date);
+  const newInvoiceStatus = isCheck ? "released" : "cleared";
+  const invoiceIds = input.invoices.map((i) => i.invoice_id);
 
-  // Insert payment record
+  // ---------------------------------------------------------------------------
+  // Prerequisite check — MUST run before the payments row is inserted.
+  //
+  // Ensures every linked invoice has had its DR WIP/CIP / CR AP entry posted
+  // (wip_ap_posted = true). Without this, the payment JE below would post
+  // DR AP / CR Cash against an AP balance that was never opened — leaving
+  // WIP/CIP un-debited and AP with a phantom negative balance.
+  //
+  // If an invoice is still in pending_review we auto-approve it here so the
+  // approval leg is posted first. Any other status combined with
+  // wip_ap_posted = false is a corrupt state and we refuse to proceed.
+  //
+  // Ordering matters: running this BEFORE the payment insert means any
+  // failure leaves no dangling `payments` row. If an auto-approval succeeds
+  // for invoice #1 then fails for #2, invoice #1's WIP/AP entry is durable
+  // (correct — the invoice was in fact approved), but there is no orphan
+  // payment record to reconcile.
+  // ---------------------------------------------------------------------------
+  for (const invId of invoiceIds) {
+    const { data: invCheck } = await supabase
+      .from("invoices")
+      .select("status, wip_ap_posted, direct_cash_payment, invoice_number")
+      .eq("id", invId)
+      .single();
+    if (!invCheck) continue;
+    if (invCheck.wip_ap_posted) continue; // approval leg already posted — nothing to do
+
+    if (invCheck.status !== "pending_review") {
+      return {
+        error: `Invoice ${invCheck.invoice_number ?? invId} is in status '${invCheck.status}' with wip_ap_posted=false. This is a corrupt state — reset the invoice to pending_review and retry, or contact support.`,
+      };
+    }
+
+    // createPayment posts the standard two-leg path (DR AP / CR Cash). If the
+    // invoice was flagged direct_cash_payment, approveInvoice would post a
+    // one-leg DR WIP / CR Cash entry and there would be no AP balance for us
+    // to debit. Flip the flag off so approveInvoice runs the two-leg path.
+    if (invCheck.direct_cash_payment) {
+      const { error: flipErr } = await supabase
+        .from("invoices")
+        .update({ direct_cash_payment: false })
+        .eq("id", invId);
+      if (flipErr) return { error: flipErr.message };
+    }
+
+    const { error: approveErr } = await approveInvoice(invId);
+    if (approveErr) {
+      return { error: `Failed to auto-approve invoice ${invCheck.invoice_number ?? invId} before payment: ${approveErr}` };
+    }
+  }
+
+  // Insert payment record (only after all prerequisites clear)
   const { data: payment, error: payErr } = await supabase
     .from("payments")
     .insert({
@@ -163,55 +197,6 @@ export async function createPayment(
     .insert(links);
 
   if (linkErr) return { error: linkErr.message };
-
-  // Advance invoice statuses
-  // For checks: invoices go to 'released'
-  // For ACH/wire/auto_draft: invoices go to 'cleared'
-  const newInvoiceStatus = isCheck ? "released" : "cleared";
-  const invoiceIds = input.invoices.map((i) => i.invoice_id);
-
-  // ---------------------------------------------------------------------------
-  // Ensure every linked invoice has had its DR WIP/CIP / CR AP entry posted
-  // (wip_ap_posted = true). Without this, the payment JE below would post
-  // DR AP / CR Cash against an AP balance that was never opened — leaving
-  // WIP/CIP un-debited and AP with a phantom negative balance.
-  //
-  // If an invoice is still in pending_review we auto-approve it here so the
-  // approval leg is posted first. Any other status combined with
-  // wip_ap_posted = false is a corrupt state and we refuse to proceed.
-  // ---------------------------------------------------------------------------
-  for (const invId of invoiceIds) {
-    const { data: invCheck } = await supabase
-      .from("invoices")
-      .select("status, wip_ap_posted, direct_cash_payment, invoice_number")
-      .eq("id", invId)
-      .single();
-    if (!invCheck) continue;
-    if (invCheck.wip_ap_posted) continue; // approval leg already posted — nothing to do
-
-    if (invCheck.status !== "pending_review") {
-      return {
-        error: `Invoice ${invCheck.invoice_number ?? invId} is in status '${invCheck.status}' with wip_ap_posted=false. This is a corrupt state — reset the invoice to pending_review and retry, or contact support.`,
-      };
-    }
-
-    // createPayment posts the standard two-leg path (DR AP / CR Cash). If the
-    // invoice was flagged direct_cash_payment, approveInvoice would post a
-    // one-leg DR WIP / CR Cash entry and there would be no AP balance for us
-    // to debit. Flip the flag off so approveInvoice runs the two-leg path.
-    if (invCheck.direct_cash_payment) {
-      const { error: flipErr } = await supabase
-        .from("invoices")
-        .update({ direct_cash_payment: false })
-        .eq("id", invId);
-      if (flipErr) return { error: flipErr.message };
-    }
-
-    const { error: approveErr } = await approveInvoice(invId);
-    if (approveErr) {
-      return { error: `Failed to auto-approve invoice ${invCheck.invoice_number ?? invId} before payment: ${approveErr}` };
-    }
-  }
 
   const invoiceUpdates: Record<string, unknown> = {
     status: newInvoiceStatus,
@@ -377,19 +362,58 @@ export async function createPayment(
       if (!glNeeded.includes(d.accountNumber)) glNeeded.push(d.accountNumber);
     }
   }
-  const accounts = await getGLAccounts(supabase, glNeeded);
+  const accounts = await getAccountIdMap(supabase, glNeeded);
 
-  const creditAccount = isCheck ? accounts["2050"] : accounts["1000"];
-  const debitAccount = accounts["2000"];
+  const creditAccount = isCheck ? accounts.get("2050") : accounts.get("1000");
+  const debitAccount = accounts.get("2000");
 
   if (debitAccount && creditAccount) {
     const ref = input.payment_number?.trim()
       ? `${isCheck ? "CHK" : input.payment_method.toUpperCase()}-${input.payment_number.trim()}`
       : `PMT-${payment.id.slice(0, 8)}`;
 
-    const { data: je } = await supabase
-      .from("journal_entries")
-      .insert({
+    const lines: Array<{
+      account_id: string;
+      project_id: string | null;
+      description: string;
+      debit: number;
+      credit: number;
+    }> = [
+      {
+        account_id: debitAccount,
+        project_id: null,
+        description: `AP cleared — ${input.payee}`,
+        debit: input.amount,
+        credit: 0,
+      },
+      {
+        account_id: creditAccount,
+        project_id: null,
+        description: `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`,
+        debit: 0,
+        credit: netAmount,
+      },
+    ];
+
+    // Add discount credit lines to WIP/CIP per project
+    if (discount > 0) {
+      for (const d of discountsByWip) {
+        const wipAcctId = accounts.get(d.accountNumber);
+        if (wipAcctId) {
+          lines.push({
+            account_id: wipAcctId,
+            project_id: d.projectId,
+            description: `Early-pay discount — ${ref} — ${input.payee}`,
+            debit: 0,
+            credit: d.amount,
+          });
+        }
+      }
+    }
+
+    await postJournalEntry(
+      supabase,
+      {
         entry_date: input.payment_date,
         reference: ref,
         description: discount > 0
@@ -399,56 +423,9 @@ export async function createPayment(
         source_type: "invoice_payment",
         source_id: payment.id,
         user_id: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (je) {
-      const lines: Array<{
-        journal_entry_id: string;
-        account_id: string;
-        project_id: string | null;
-        description: string;
-        debit: number;
-        credit: number;
-      }> = [
-        {
-          journal_entry_id: je.id,
-          account_id: debitAccount,
-          project_id: null,
-          description: `AP cleared — ${input.payee}`,
-          debit: input.amount,
-          credit: 0,
-        },
-        {
-          journal_entry_id: je.id,
-          account_id: creditAccount,
-          project_id: null,
-          description: `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`,
-          debit: 0,
-          credit: netAmount,
-        },
-      ];
-
-      // Add discount credit lines to WIP/CIP per project
-      if (discount > 0) {
-        for (const d of discountsByWip) {
-          const wipAcctId = accounts[d.accountNumber];
-          if (wipAcctId) {
-            lines.push({
-              journal_entry_id: je.id,
-              account_id: wipAcctId,
-              project_id: d.projectId,
-              description: `Early-pay discount — ${ref} — ${input.payee}`,
-              debit: 0,
-              credit: d.amount,
-            });
-          }
-        }
-      }
-
-      await supabase.from("journal_entry_lines").insert(lines);
-    }
+      },
+      lines
+    );
   }
 
   revalidatePath("/banking/payments");
@@ -521,18 +498,18 @@ export async function clearPayment(
 
   // Post GL: DR Checks Outstanding (2050) / CR Cash (1000)
   // Uses net amount (after discount) since that's what sits in 2050
-  const accounts = await getGLAccounts(supabase, ["2050", "1000"]);
-  const acct2050 = accounts["2050"];
-  const acct1000 = accounts["1000"];
+  const accounts = await getAccountIdMap(supabase, ["2050", "1000"]);
+  const acct2050 = accounts.get("2050");
+  const acct1000 = accounts.get("1000");
 
   if (acct2050 && acct1000) {
     const ref = payment.payment_number
       ? `CHK-CLR-${payment.payment_number}`
       : `PMT-CLR-${paymentId.slice(0, 8)}`;
 
-    const { data: je } = await supabase
-      .from("journal_entries")
-      .insert({
+    await postJournalEntry(
+      supabase,
+      {
         entry_date: clearedDate,
         reference: ref,
         description: `Check cleared — ${payment.payee}`,
@@ -540,14 +517,9 @@ export async function clearPayment(
         source_type: "invoice_payment",
         source_id: paymentId,
         user_id: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (je) {
-      await supabase.from("journal_entry_lines").insert([
+      },
+      [
         {
-          journal_entry_id: je.id,
           account_id: acct2050,
           project_id: null,
           description: `Outstanding check cleared — ${ref} — ${payment.payee}`,
@@ -555,15 +527,14 @@ export async function clearPayment(
           credit: 0,
         },
         {
-          journal_entry_id: je.id,
           account_id: acct1000,
           project_id: null,
           description: `Cash — ${ref} — ${payment.payee}`,
           debit: 0,
           credit: netClearAmount,
         },
-      ]);
-    }
+      ]
+    );
   }
 
   revalidatePath("/banking/payments");
@@ -645,9 +616,9 @@ export async function voidPayment(
         ? `VOID-${payment.payment_number}`
         : `VOID-${paymentId.slice(0, 8)}`;
 
-      const { data: reverseJE } = await supabase
-        .from("journal_entries")
-        .insert({
+      await postJournalEntry(
+        supabase,
+        {
           entry_date: new Date().toISOString().split("T")[0],
           reference: ref,
           description: `VOID — ${payment.payee}`,
@@ -655,21 +626,15 @@ export async function voidPayment(
           source_type: "invoice_payment",
           source_id: paymentId,
           user_id: user.id,
-        })
-        .select("id")
-        .single();
-
-      if (reverseJE) {
-        const reversalLines = origLines.map((line) => ({
-          journal_entry_id: reverseJE.id,
+        },
+        origLines.map((line) => ({
           account_id: line.account_id,
           project_id: line.project_id,
           description: `REVERSAL — ${line.description}`,
           debit: line.credit,   // Swap debit/credit
           credit: line.debit,
-        }));
-        await supabase.from("journal_entry_lines").insert(reversalLines);
-      }
+        }))
+      );
     }
   }
 

@@ -727,7 +727,13 @@ All journal entries are posted automatically by server actions. **Never manually
 |---|---|---|
 | Invoice approved | `approveInvoice()` | DR WIP (1210/1230) / CR Cash (1000). Single entry. Status advances directly to `cleared`. Sets `wip_ap_posted = true`, `payment_method = 'ach'`, `payment_date = today`. No AP, no draw, no check issuance. |
 
-> Account selection for WIP/CIP debit (both paths): no project → 6900 (G&A Expense); land development project → 1230 (CIP — Land); home construction project → 1210 (Construction WIP). This is determined by project type, never by cost code.
+**Post-approval auto-draft path** (for invoices approved via the standard AP path that the user later discovers were auto-drafted by the bank):
+
+| Event | Action file | JE posted |
+|---|---|---|
+| Mark approved invoice as auto-drafted | `payInvoiceAutoDraft()` | DR Accounts Payable (2000) / CR Cash (1000). Single entry, no 2050 hop (no check was issued). Status advances from `approved` directly to `cleared`. Requires `wip_ap_posted = true` (the AP balance being cleared). Also creates a Payment Register row with `payment_method = 'auto_draft'`, `funding_source = 'dda'`. |
+
+> Account selection for WIP/CIP debit (standard + auto-draft paths): no project → 6900 (G&A Expense); land development project → 1230 (CIP — Land); home construction project → 1210 (Construction WIP). This is determined by project type, never by cost code.
 
 ### Draw lifecycle
 
@@ -755,7 +761,7 @@ All journal entries are posted automatically by server actions. **Never manually
 | G&A / Misc Operating Expense | 6900 | Expense |
 
 ### Source files
-- `src/app/actions/invoices.ts` — `approveInvoice`, `advanceInvoiceStatus`
+- `src/app/actions/invoices.ts` — `approveInvoice`, `advanceInvoiceStatus`, `payInvoiceAutoDraft`
 - `src/app/actions/draws.ts` — `submitDraw`, `fundDraw`, `markVendorPaymentPaid`
 
 ---
@@ -809,7 +815,7 @@ All journal entries are posted automatically by server actions. **Never manually
 - File uploads: `documents` bucket for docs; `invoices` bucket for invoice attachments
 - Keep storage lean — no auto-upload of images unless user explicitly attaches them
 - **Supabase type fix:** `@supabase/ssr` passes Schema as 3rd generic but `supabase-js 2.101+` expects SchemaName (string). In `server.ts` and `client.ts`, cast the client: `return client as unknown as SupabaseClient<Database>;`
-- **Action file architecture:** All server actions live in `src/app/actions/`. There are no route-level `actions.ts` files — those were deleted. Primary action files: `invoices.ts`, `draws.ts`, `banking.ts`, `journal-entries.ts`
+- **Action file architecture:** All server actions live in `src/app/actions/`. There are no route-level `actions.ts` files under `src/app/(app)/**`. Current files: `banking.ts`, `bank-transactions.ts`, `contacts.ts`, `contracts.ts`, `cost-codes.ts`, `create-project.ts`, `documents.ts`, `draws.ts`, `field-logs.ts`, `invoice-batch.ts`, `invoices.ts`, `journal-entries.ts`, `notifications.ts`, `payments.ts`, `project-costs.ts`, `projects.ts`, `stages.ts`, `todos.ts`, `vendors.ts`
 - **GL system:** Write all new journal entries to `journal_entries` + `journal_entry_lines`. The `gl_entries` table is legacy — do not use it for new entries
 - **`wip_ap_posted` flag:** Set to `true` on an invoice once DR WIP / CR AP has been posted. `fundDraw` checks this flag before posting WIP/AP to prevent double-entry. Always check this flag when writing any code that might post WIP/AP entries
 - **`loans.current_balance`:** Auto-incremented by `fundDraw` — do not manually update unless correcting historical data

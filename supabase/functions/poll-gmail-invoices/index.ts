@@ -198,7 +198,16 @@ async function extractInvoicesFromPdf(
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      // Cache the ~3KB system prompt — ephemeral TTL is ~5 minutes, so steady-state
+      // polling reads from cache instead of re-sending the cost-code reference on
+      // every invoice extraction.
+      system: [
+        {
+          type: "text",
+          text: SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: [
         {
           role: "user",
@@ -393,49 +402,76 @@ Deno.serve(async () => {
                   contentType: attachment.mimeType,
                 });
 
-              const fileName = `${inv.vendor} – ${inv.invoice_number}`;
+              const displayName = `${inv.vendor} – ${inv.invoice_number}`;
 
-              // Create line items
-              const lineItems = inv.line_items.map((li) => ({
-                cost_code: li.cost_code,
-                description: li.description,
-                amount: li.amount,
-              }));
-
-              // Create invoice record
-              const { error: invoiceError } = await supabase
+              // Insert the invoice row. The live `invoices` table has no
+              // `vendor_name` / `file_name_original` / `created_by` / `line_items`
+              // columns — the canonical column names are `vendor`, `file_name`,
+              // `user_id`, and line items live in the separate `invoice_line_items`
+              // table (see CLAUDE.md schema).
+              const { data: invRow, error: invoiceError } = await supabase
                 .from("invoices")
                 .insert({
                   project_id: projectId,
                   vendor_id: vendorId,
-                  vendor_name: inv.vendor,
+                  vendor: inv.vendor,
                   invoice_number: inv.invoice_number,
                   invoice_date: inv.invoice_date,
                   due_date: inv.due_date,
                   amount: inv.total_amount,
+                  total_amount: inv.total_amount,
                   ai_confidence: inv.ai_confidence,
                   ai_notes: inv.ai_notes,
                   status: "pending_review",
                   source: "email",
                   file_path: uploadData?.path,
-                  file_name_original: attachment.filename,
+                  file_name: displayName,
                   email_message_id: msg.id,
-                  created_by: BUILDFORGE_USER_ID,
-                  line_items: lineItems,
-                });
+                  user_id: BUILDFORGE_USER_ID,
+                })
+                .select("id")
+                .single();
 
-              if (invoiceError) {
+              if (invoiceError || !invRow) {
                 console.error(
                   `Failed to create invoice from message ${msg.id}:`,
                   invoiceError
                 );
                 errors++;
-              } else {
-                console.log(
-                  `Created invoice ${inv.invoice_number} from ${inv.vendor}`
-                );
-                processed++;
+                continue;
               }
+
+              // Insert line items into the dedicated table. If this fails, roll
+              // back the invoice row so we don't leave a header with no lines —
+              // downstream job-cost rollups read from invoice_line_items.
+              if (inv.line_items?.length) {
+                const lineRows = inv.line_items.map((li) => ({
+                  invoice_id: invRow.id,
+                  project_id: projectId,
+                  cost_code: li.cost_code,
+                  description: li.description,
+                  amount: li.amount,
+                }));
+
+                const { error: liErr } = await supabase
+                  .from("invoice_line_items")
+                  .insert(lineRows);
+
+                if (liErr) {
+                  console.error(
+                    `Failed to insert line items for invoice ${invRow.id}:`,
+                    liErr
+                  );
+                  await supabase.from("invoices").delete().eq("id", invRow.id);
+                  errors++;
+                  continue;
+                }
+              }
+
+              console.log(
+                `Created invoice ${inv.invoice_number} from ${inv.vendor}`
+              );
+              processed++;
             }
           } catch (attachError) {
             console.error(

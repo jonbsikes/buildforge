@@ -129,6 +129,27 @@ export async function deactivateVendor(id: string): Promise<{ error?: string }> 
 }
 
 // ---------------------------------------------------------------------------
+// deleteVendor — hard delete. Caller should be certain the vendor has no
+// dependent invoices/contracts; RLS + FKs will block unsafe deletes.
+// ---------------------------------------------------------------------------
+export async function deleteVendor(id: string): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated" };
+
+  const { error } = await supabase
+    .from("vendors")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id);
+  if (error) return { error: error.message };
+  revalidatePath("/vendors");
+  return {};
+}
+
+// ---------------------------------------------------------------------------
 // runNotifications — called on page load to refresh expiry notifications
 // ---------------------------------------------------------------------------
 export async function runNotifications(): Promise<void> {

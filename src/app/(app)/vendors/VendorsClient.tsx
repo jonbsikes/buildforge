@@ -2,8 +2,32 @@
 
 import { useState, useTransition } from "react";
 import { Plus, Trash2, AlertTriangle, AlertCircle, Truck } from "lucide-react";
-import { createVendor, updateVendor, deleteVendor } from "./actions";
+import { createVendor, updateVendor, deleteVendor } from "@/app/actions/vendors";
 import type { Database } from "@/types/database";
+
+function vendorInputFromForm(fd: FormData, existing?: Vendor) {
+  const trade = (fd.get("trade") as string) || null;
+  return {
+    name: (fd.get("name") as string) || "",
+    email: (fd.get("email") as string) || null,
+    phone: (fd.get("phone") as string) || null,
+    address: existing?.address ?? null,
+    trades: trade ? [trade] : [],
+    coi_expiry_date: (fd.get("coi_expiry_date") as string) || null,
+    license_expiry_date: (fd.get("license_expiry_date") as string) || null,
+    notes: existing?.notes ?? null,
+    primary_contact_name: existing?.primary_contact_name ?? null,
+    primary_contact_email: existing?.primary_contact_email ?? null,
+    primary_contact_phone: existing?.primary_contact_phone ?? null,
+    accounting_contact_name: existing?.accounting_contact_name ?? null,
+    accounting_contact_email: existing?.accounting_contact_email ?? null,
+    accounting_contact_phone: existing?.accounting_contact_phone ?? null,
+    ach_bank_name: existing?.ach_bank_name ?? null,
+    ach_routing_number: existing?.ach_routing_number ?? null,
+    ach_account_number: existing?.ach_account_number ?? null,
+    ach_account_type: existing?.ach_account_type ?? null,
+  };
+}
 
 type Vendor = Database["public"]["Tables"]["vendors"]["Row"];
 
@@ -58,9 +82,10 @@ function VendorForm({
       onSubmit={(e) => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
+        const input = vendorInputFromForm(fd, vendor);
         startTransition(async () => {
-          if (isEdit) await updateVendor(vendor.id, fd);
-          else await createVendor(fd);
+          if (isEdit) await updateVendor(vendor.id, input);
+          else await createVendor(input);
           onDone();
         });
       }}

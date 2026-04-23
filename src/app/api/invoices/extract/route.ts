@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import { createClient } from "@/lib/supabase/server";
-
-const client = new Anthropic();
+import { extractStructured } from "@/lib/ai/extract";
 
 const SYSTEM_PROMPT = `You are an invoice data extraction assistant for a residential construction and land development company.
 
@@ -118,44 +116,29 @@ export async function POST(req: NextRequest) {
     const buffer = await file.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
 
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "document",
-              source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: base64,
-              },
-            } as ContentBlockParam,
-            {
-              type: "text",
-              text: projects.length
-                ? `Extract all invoice data from this PDF and return the JSON as specified.\n\nActive projects (match aggressively — prefer home_construction if conflict):\n${JSON.stringify(projects, null, 2)}`
-                : "Extract all invoice data from this PDF and return the JSON as specified.",
-            },
-          ] as ContentBlockParam[],
-        },
-      ],
+    const userInstruction = projects.length
+      ? `Extract all invoice data from this PDF and return the JSON as specified.\n\nActive projects (match aggressively — prefer home_construction if conflict):\n${JSON.stringify(projects, null, 2)}`
+      : "Extract all invoice data from this PDF and return the JSON as specified.";
+
+    const content: ContentBlockParam[] = [
+      {
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: base64 },
+      },
+      { type: "text", text: userInstruction },
+    ];
+
+    const result = await extractStructured<unknown>({
+      systemPrompt: SYSTEM_PROMPT,
+      content,
+      maxTokens: 2048,
     });
 
-    const text = message.content[0].type === "text" ? message.content[0].text : "";
-
-    // Strip any markdown fences if present
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(cleaned);
-    } catch {
-      return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
+
+    const raw = result.data;
 
     // Normalise: accept both new { invoices: [...] } format and legacy single-object format
     let invoices: ExtractedInvoiceData[];

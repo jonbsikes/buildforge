@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, Upload, Trash2, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { uploadFieldLogPhoto, deleteFieldLogPhoto } from "@/app/(app)/field-logs/actions";
+import { uploadFieldLogPhoto, deleteFieldLogPhoto } from "@/app/actions/field-logs";
 
 export interface FieldLogPhoto {
   id: string;

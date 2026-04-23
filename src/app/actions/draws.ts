@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { drawDisplayName } from "@/lib/draws";
 import { requireAdmin } from "@/lib/auth";
+import { getAccountIdMap } from "@/lib/gl/accounts";
+import { postJournalEntry } from "@/lib/gl/postEntry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -455,18 +457,14 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
   const lenderName = lender?.name ?? "Unknown Lender";
   const displayName = drawDisplayName(draw.draw_date);
 
-  const { data: accounts } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", ["1120", "2060"]);
-
-  const acct1120 = accounts?.find(a => a.account_number === "1120")?.id;
-  const acct2060 = accounts?.find(a => a.account_number === "2060")?.id;
+  const accounts = await getAccountIdMap(supabase, ["1120", "2060"]);
+  const acct1120 = accounts.get("1120");
+  const acct2060 = accounts.get("2060");
 
   if (acct1120 && acct2060 && draw.total_amount > 0) {
-    const { data: je } = await supabase
-      .from("journal_entries")
-      .insert({
+    await postJournalEntry(
+      supabase,
+      {
         entry_date: new Date().toISOString().split("T")[0],
         reference: `DRAW-SUB-${drawId.slice(0, 8)}`,
         description: `Draw submitted — ${displayName} — ${lenderName}`,
@@ -474,14 +472,9 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
         source_type: "loan_draw",
         source_id: draw.id,
         user_id: user.id,
-      })
-      .select("id")
-      .single();
-
-    if (je) {
-      await supabase.from("journal_entry_lines").insert([
+      },
+      [
         {
-          journal_entry_id: je.id,
           account_id: acct1120,
           project_id: null,
           description: `Due from Lender — ${displayName} — ${lenderName}`,
@@ -489,15 +482,14 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
           credit: 0,
         },
         {
-          journal_entry_id: je.id,
           account_id: acct2060,
           project_id: null,
           description: `Draws Pending Funding — ${displayName} — ${lenderName}`,
           debit: 0,
           credit: draw.total_amount,
         },
-      ]);
-    }
+      ]
+    );
   }
 
   revalidatePath("/draws");
@@ -527,37 +519,14 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   if (!draw) return { error: "Draw not found" };
   if (draw.status !== "submitted") return { error: "Only submitted draws can be marked as funded" };
 
-  // Step 1: Atomically claim the draw via conditional update (prevents race condition).
-  // If another request already moved status away from 'submitted', this returns 0 rows.
-  const { data: updated, error: claimErr } = await supabase
-    .from("loan_draws")
-    .update({ status: "funded" })
-    .eq("id", drawId)
-    .eq("status", "submitted")
-    .select("id");
+  // Atomicity model: do all GL + side-effect work while the draw is still
+  // 'submitted', then flip status to 'funded' LAST as the commit point. If any
+  // step fails, return early — status stays 'submitted' so the user can retry
+  // without DB surgery. The final status update is conditional on status still
+  // being 'submitted' to catch concurrent funding (narrow race; at worst
+  // produces duplicate JEs rather than a status/GL mismatch).
 
-  if (claimErr) return { error: claimErr.message };
-  if (!updated || updated.length === 0) {
-    return { error: "Draw was already funded or modified by another request" };
-  }
-
-  // Step 2: Lock invoices in this draw (mark pending_draw = false to prevent re-draw)
-  const { data: drawInvoices } = await supabase
-    .from("draw_invoices")
-    .select("invoice_id")
-    .eq("draw_id", drawId);
-
-  const invoiceIds = (drawInvoices ?? []).map((di) => di.invoice_id);
-  if (invoiceIds.length > 0) {
-    const { error: lockErr } = await supabase
-      .from("invoices")
-      .update({ pending_draw: false })
-      .in("id", invoiceIds);
-
-    if (lockErr) return { error: `Failed to lock invoices: ${lockErr.message}` };
-  }
-
-  // Step 3: Post JEs for funding event:
+  // Post JEs for funding event:
   //   (a) DR Cash (1000) / CR Due from Lender (1120)  — cash arrived, receivable cleared
   //   (b) DR Draws Pending Funding (2060) / CR per-loan Loan Payable (220x) — loan balance
   //       increases NOW (not at submission)
@@ -566,18 +535,15 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const displayName = drawDisplayName(draw.draw_date);
   const today = new Date().toISOString().split("T")[0];
 
-  const { data: accounts } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", ["1000", "1120", "1210", "1230", "2000", "2060", "2100"]);
+  const accounts = await getAccountIdMap(supabase, ["1000", "1120", "1210", "1230", "2000", "2060", "2100"]);
 
-  const acct1000 = accounts?.find(a => a.account_number === "1000")?.id;
-  const acct1120 = accounts?.find(a => a.account_number === "1120")?.id;
-  const acct1210 = accounts?.find(a => a.account_number === "1210")?.id;
-  const acct1230 = accounts?.find(a => a.account_number === "1230")?.id;
-  const acct2000 = accounts?.find(a => a.account_number === "2000")?.id;
-  const acct2060 = accounts?.find(a => a.account_number === "2060")?.id;
-  const fallbackLoanPayableId = accounts?.find(a => a.account_number === "2100")?.id;
+  const acct1000 = accounts.get("1000");
+  const acct1120 = accounts.get("1120");
+  const acct1210 = accounts.get("1210");
+  const acct1230 = accounts.get("1230");
+  const acct2000 = accounts.get("2000");
+  const acct2060 = accounts.get("2060");
+  const fallbackLoanPayableId = accounts.get("2100");
 
   // Load all invoices in this draw (needed for both WIP/AP and loan balance update)
   const { data: drawInvoiceDetails } = await supabase
@@ -644,9 +610,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   }
 
   if (acct1000 && acct1120) {
-    const { data: je, error: jeErr } = await supabase
-      .from("journal_entries")
-      .insert({
+    // Cash and 1120 are company-level (not project-specific) — project_id: null
+    const cashResult = await postJournalEntry(
+      supabase,
+      {
         entry_date: today,
         reference: `DRAW-FUND-${drawId.slice(0, 8)}`,
         description: `Draw funded — ${displayName} — ${lenderName}`,
@@ -654,33 +621,26 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         source_type: "loan_draw",
         source_id: draw.id,
         user_id: user!.id,
-      })
-      .select("id")
-      .single();
-
-    if (jeErr || !je) return { error: `Draw funded but JE posting failed: ${jeErr?.message}` };
-
-    // Cash and 1120 are company-level (not project-specific) — project_id: null
-    const { error: lineErr } = await supabase.from("journal_entry_lines").insert([
-      {
-        journal_entry_id: je.id,
-        account_id: acct1000,
-        project_id: null,
-        description: `Cash received — ${displayName} — ${lenderName}`,
-        debit: draw.total_amount,
-        credit: 0,
       },
-      {
-        journal_entry_id: je.id,
-        account_id: acct1120,
-        project_id: null,
-        description: `Clear Due from Lender — ${displayName} — ${lenderName}`,
-        debit: 0,
-        credit: draw.total_amount,
-      },
-    ]);
+      [
+        {
+          account_id: acct1000,
+          project_id: null,
+          description: `Cash received — ${displayName} — ${lenderName}`,
+          debit: draw.total_amount,
+          credit: 0,
+        },
+        {
+          account_id: acct1120,
+          project_id: null,
+          description: `Clear Due from Lender — ${displayName} — ${lenderName}`,
+          debit: 0,
+          credit: draw.total_amount,
+        },
+      ]
+    );
 
-    if (lineErr) return { error: `Draw funded but JE lines failed: ${lineErr.message}` };
+    if (cashResult.error) return { error: `Cash JE posting failed: ${cashResult.error}` };
   }
 
   // Step 3b: Clear Draws Pending Funding (2060) → per-loan Loan Payable (220x)
@@ -722,9 +682,35 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     }
 
     if (coaAmounts.size > 0) {
-      const { data: loanJe } = await supabase
-        .from("journal_entries")
-        .insert({
+      const loanJeLines: {
+        account_id: string;
+        project_id: string | null;
+        description: string;
+        debit: number;
+        credit: number;
+      }[] = [
+        // Single debit: clear the Draws Pending Funding account
+        {
+          account_id: acct2060,
+          project_id: null,
+          description: `Clear Draws Pending Funding — ${displayName} — ${lenderName}`,
+          debit: draw.total_amount,
+          credit: 0,
+        },
+      ];
+      // Per-loan credits to each specific loan payable account
+      for (const [coaId, creditAmount] of coaAmounts) {
+        loanJeLines.push({
+          account_id: coaId,
+          project_id: null,
+          description: `Loan Payable — ${displayName} — ${lenderName}`,
+          debit: 0,
+          credit: creditAmount,
+        });
+      }
+      const loanResult = await postJournalEntry(
+        supabase,
+        {
           entry_date: today,
           reference: `DRAW-LOAN-${drawId.slice(0, 8)}`,
           description: `Loan balance recognized — ${displayName} — ${lenderName}`,
@@ -732,42 +718,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
           source_type: "loan_draw",
           source_id: draw.id,
           user_id: user!.id,
-        })
-        .select("id")
-        .single();
-
-      if (loanJe) {
-        const loanJeLines: {
-          journal_entry_id: string;
-          account_id: string;
-          project_id: string | null;
-          description: string;
-          debit: number;
-          credit: number;
-        }[] = [
-          // Single debit: clear the Draws Pending Funding account
-          {
-            journal_entry_id: loanJe.id,
-            account_id: acct2060,
-            project_id: null,
-            description: `Clear Draws Pending Funding — ${displayName} — ${lenderName}`,
-            debit: draw.total_amount,
-            credit: 0,
-          },
-        ];
-        // Per-loan credits to each specific loan payable account
-        for (const [coaId, creditAmount] of coaAmounts) {
-          loanJeLines.push({
-            journal_entry_id: loanJe.id,
-            account_id: coaId,
-            project_id: null,
-            description: `Loan Payable — ${displayName} — ${lenderName}`,
-            debit: 0,
-            credit: creditAmount,
-          });
-        }
-        await supabase.from("journal_entry_lines").insert(loanJeLines);
-      }
+        },
+        loanJeLines
+      );
+      if (loanResult.error) return { error: `Loan JE posting failed: ${loanResult.error}` };
     }
   }
 
@@ -786,7 +740,6 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     };
 
     const wipLines: {
-      journal_entry_id: string;
       account_id: string;
       project_id: string | null;
       description: string;
@@ -832,7 +785,6 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         // so this case shouldn't arise. Use acct1210 as fallback.
 
         wipLines.push({
-          journal_entry_id: "", // filled after JE insert
           account_id: debitAcctId,
           project_id: li.project_id ?? null,
           description: invLabel,
@@ -843,9 +795,9 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     }
 
     if (wipLines.length > 0 && totalWip > 0) {
-      const { data: wipJe } = await supabase
-        .from("journal_entries")
-        .insert({
+      const wipResult = await postJournalEntry(
+        supabase,
+        {
           entry_date: today,
           reference: `DRAW-WIP-${drawId.slice(0, 8)}`,
           description: `Construction costs — ${displayName} — ${lenderName}`,
@@ -853,29 +805,27 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
           source_type: "loan_draw",
           source_id: draw.id,
           user_id: user!.id,
-        })
-        .select("id")
-        .single();
+        },
+        [
+          ...wipLines,
+          {
+            account_id: acct2000,
+            project_id: null,
+            description: `Accounts Payable — ${displayName} — ${lenderName}`,
+            debit: 0,
+            credit: totalWip,
+          },
+        ]
+      );
 
-      if (wipJe) {
-        const lines = wipLines.map(l => ({ ...l, journal_entry_id: wipJe.id }));
-        lines.push({
-          journal_entry_id: wipJe.id,
-          account_id: acct2000,
-          project_id: null,
-          description: `Accounts Payable — ${displayName} — ${lenderName}`,
-          debit: 0,
-          credit: totalWip,
-        });
-        await supabase.from("journal_entry_lines").insert(lines);
-
-        // Mark these invoices so they won't be double-posted if touched again
-        if (newlyPostedInvoiceIds.length > 0) {
-          await supabase
-            .from("invoices")
-            .update({ wip_ap_posted: true })
-            .in("id", newlyPostedInvoiceIds);
-        }
+      if (wipResult.error) return { error: `WIP/AP JE posting failed: ${wipResult.error}` };
+      // Mark these invoices so they won't be double-posted if touched again
+      if (newlyPostedInvoiceIds.length > 0) {
+        const { error: flagErr } = await supabase
+          .from("invoices")
+          .update({ wip_ap_posted: true })
+          .in("id", newlyPostedInvoiceIds);
+        if (flagErr) return { error: `Failed to flag invoices as posted: ${flagErr.message}` };
       }
     }
   }
@@ -893,12 +843,27 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         .maybeSingle();
 
       if (loan) {
-        await supabase
+        const { error: balErr } = await supabase
           .from("loans")
           .update({ current_balance: (loan.current_balance ?? 0) + fundedAmt })
           .eq("id", loan.id);
+        if (balErr) return { error: `Failed to update loan balance: ${balErr.message}` };
       }
     }
+  }
+
+  // Step 3f: Lock invoices in this draw (mark pending_draw = false to prevent re-draw).
+  // Done after JEs post successfully so a JE failure leaves pending_draw alone and
+  // the user can retry fundDraw without manually re-flagging invoices.
+  const lockIds = (drawInvoiceDetails ?? [])
+    .map((di) => (di.invoices as { id: string } | null)?.id)
+    .filter(Boolean) as string[];
+  if (lockIds.length > 0) {
+    const { error: lockErr } = await supabase
+      .from("invoices")
+      .update({ pending_draw: false })
+      .in("id", lockIds);
+    if (lockErr) return { error: `Failed to lock invoices: ${lockErr.message}` };
   }
 
   // Step 4: Create vendor_payment records (one per vendor) so the user can
@@ -962,6 +927,23 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
           }))
         );
     }
+  }
+
+  // Final commit: flip status to 'funded'. Conditional on status still being
+  // 'submitted' to catch a concurrent funding attempt (rare) — if that happens,
+  // the other request already posted JEs too, so we flag it for review.
+  const { data: flipped, error: flipErr } = await supabase
+    .from("loan_draws")
+    .update({ status: "funded" })
+    .eq("id", drawId)
+    .eq("status", "submitted")
+    .select("id");
+
+  if (flipErr) return { error: `Funding complete but status flip failed: ${flipErr.message}` };
+  if (!flipped || flipped.length === 0) {
+    return {
+      error: "Draw was funded by a concurrent request — review GL for duplicate entries",
+    };
   }
 
   revalidatePath("/draws");
@@ -1093,6 +1075,15 @@ export async function markVendorPaymentPaid(
 
   const netAmount = vp.amount - totalDiscount;
 
+  // Guard: if a discount was requested but couldn't be allocated to any WIP
+  // account (e.g. no linked invoices were found), abort before posting any JE
+  // — otherwise AP would be under-cleared by the discount amount.
+  if (totalDiscount > 0 && discountsByWip.length === 0) {
+    return {
+      error: "Discount was specified but could not be allocated to any invoice — aborting",
+    };
+  }
+
   // Post GL entry: DR Accounts Payable (2000) / CR Checks Issued - Outstanding (2050)
   // With discount: also CR WIP/CIP for the discount portion
   const glAccountNumbers = ["2000", "2050"];
@@ -1102,38 +1093,55 @@ export async function markVendorPaymentPaid(
     }
   }
 
-  const { data: accounts } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", glAccountNumbers);
+  const accounts = await getAccountIdMap(supabase, glAccountNumbers);
 
-  const acct2000 = accounts?.find((a) => a.account_number === "2000")?.id;
-  const acct2050 = accounts?.find((a) => a.account_number === "2050")?.id;
+  const acct2000 = accounts.get("2000");
+  const acct2050 = accounts.get("2050");
 
   const checkRef = checkNumber?.trim()
     ? `Check #${checkNumber.trim()}`
     : `VPmt-${vendorPaymentId.slice(0, 8)}`;
 
   if (acct2000 && acct2050) {
-    const { data: je } = await supabase
-      .from("journal_entries")
-      .insert({
+    // Primary JE: clear AP and record outstanding check at the NET cash amount.
+    // This mirrors the CLAUDE.md spec exactly: DR AP / CR 2050 for the amount
+    // of cash that actually leaves (or will leave) the bank.
+    const primary = await postJournalEntry(
+      supabase,
+      {
         entry_date: paymentDate,
         reference: checkRef,
-        description: totalDiscount > 0
-          ? `Check issued w/ early-pay discount $${totalDiscount.toFixed(2)} — ${vp.vendor_name}`
-          : `Check issued — ${vp.vendor_name}`,
+        description: `Check issued — ${vp.vendor_name}`,
         status: "posted",
         source_type: "invoice_payment",
         source_id: vendorPaymentId,
         user_id: user.id,
-      })
-      .select("id")
-      .single();
+      },
+      [
+        {
+          account_id: acct2000,
+          project_id: null,
+          description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
+          debit: netAmount,
+          credit: 0,
+        },
+        {
+          account_id: acct2050,
+          project_id: null,
+          description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
+          debit: 0,
+          credit: netAmount,
+        },
+      ]
+    );
+    if (primary.error) return { error: `Check JE posting failed: ${primary.error}` };
 
-    if (je) {
-      const lines: Array<{
-        journal_entry_id: string;
+    // Discount JE (separate, only when a discount was taken): clear the
+    // residual AP (the discount we no longer owe) against WIP/CIP per project
+    // so the capitalized cost reflects the discount. Keeping this as its own
+    // JE with reference `DISC-VP-{id}` produces a clean audit trail.
+    if (totalDiscount > 0 && discountsByWip.length > 0) {
+      const discountLines: Array<{
         account_id: string;
         project_id: string | null;
         description: string;
@@ -1141,41 +1149,40 @@ export async function markVendorPaymentPaid(
         credit: number;
       }> = [
         {
-          journal_entry_id: je.id,
           account_id: acct2000,
           project_id: null,
-          description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
-          debit: vp.amount,
+          description: `AP reduced for early-pay discount — ${vp.vendor_name}`,
+          debit: totalDiscount,
           credit: 0,
         },
-        {
-          journal_entry_id: je.id,
-          account_id: acct2050,
-          project_id: null,
-          description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
-          debit: 0,
-          credit: netAmount,
-        },
       ];
-
-      // Add discount credit lines to WIP/CIP per project
-      if (totalDiscount > 0) {
-        for (const d of discountsByWip) {
-          const wipAcctId = accounts?.find((a) => a.account_number === d.accountNumber)?.id;
-          if (wipAcctId) {
-            lines.push({
-              journal_entry_id: je.id,
-              account_id: wipAcctId,
-              project_id: d.projectId,
-              description: `Early-pay discount — ${checkRef} — ${vp.vendor_name}`,
-              debit: 0,
-              credit: d.amount,
-            });
-          }
+      for (const d of discountsByWip) {
+        const wipAcctId = accounts.get(d.accountNumber);
+        if (wipAcctId) {
+          discountLines.push({
+            account_id: wipAcctId,
+            project_id: d.projectId,
+            description: `Early-pay discount — ${vp.vendor_name}`,
+            debit: 0,
+            credit: d.amount,
+          });
         }
       }
 
-      await supabase.from("journal_entry_lines").insert(lines);
+      const discountResult = await postJournalEntry(
+        supabase,
+        {
+          entry_date: paymentDate,
+          reference: `DISC-VP-${vendorPaymentId.slice(0, 8)}`,
+          description: `Early-pay discount $${totalDiscount.toFixed(2)} — ${vp.vendor_name}`,
+          status: "posted",
+          source_type: "invoice_payment",
+          source_id: vendorPaymentId,
+          user_id: user.id,
+        },
+        discountLines
+      );
+      if (discountResult.error) return { error: `Discount JE posting failed: ${discountResult.error}` };
     }
   }
 
@@ -1329,23 +1336,67 @@ export async function adjustVendorPaymentAmount(
   }
 
   // Fetch chart of accounts
-  const { data: accounts } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", ["1210", "1230", "2000"]);
+  const accounts = await getAccountIdMap(supabase, ["1210", "1230", "2000"]);
 
-  const acct1210 = accounts?.find(a => a.account_number === "1210")?.id;
-  const acct1230 = accounts?.find(a => a.account_number === "1230")?.id;
-  const acct2000 = accounts?.find(a => a.account_number === "2000")?.id;
+  const acct1210 = accounts.get("1210");
+  const acct1230 = accounts.get("1230");
+  const acct2000 = accounts.get("2000");
 
   if (acct1210 && acct1230 && acct2000) {
     const wipAcctId = isLandDev ? acct1230 : acct1210;
     const adjustmentAbsolute = Math.abs(adjustment);
 
-    // Create journal entry for the adjustment
-    const { data: je, error: jeErr } = await supabase
-      .from("journal_entries")
-      .insert({
+    let jeLines: {
+      account_id: string;
+      project_id: string | null;
+      description: string;
+      debit: number;
+      credit: number;
+    }[];
+
+    if (adjustment < 0) {
+      // Negative adjustment (credit) — reduces what we owe
+      // DR Accounts Payable (2000), CR WIP (1210 or 1230)
+      jeLines = [
+        {
+          account_id: acct2000,
+          project_id: projectId,
+          description: `Vendor credit — ${description}`,
+          debit: adjustmentAbsolute,
+          credit: 0,
+        },
+        {
+          account_id: wipAcctId,
+          project_id: projectId,
+          description: `Vendor credit reversal — ${description}`,
+          debit: 0,
+          credit: adjustmentAbsolute,
+        },
+      ];
+    } else {
+      // Positive adjustment (additional charge) — increases what we owe
+      // DR WIP (1210 or 1230), CR Accounts Payable (2000)
+      jeLines = [
+        {
+          account_id: wipAcctId,
+          project_id: projectId,
+          description: `Additional vendor charge — ${description}`,
+          debit: adjustmentAbsolute,
+          credit: 0,
+        },
+        {
+          account_id: acct2000,
+          project_id: projectId,
+          description: `Additional vendor liability — ${description}`,
+          debit: 0,
+          credit: adjustmentAbsolute,
+        },
+      ];
+    }
+
+    const adjResult = await postJournalEntry(
+      supabase,
+      {
         entry_date: new Date().toISOString().split("T")[0],
         reference: `ADJ-VP-${vendorPaymentId.slice(0, 8)}`,
         description: `Vendor payment adjustment — ${description}`,
@@ -1353,73 +1404,12 @@ export async function adjustVendorPaymentAmount(
         source_type: "vendor_adjustment",
         source_id: vendorPaymentId,
         user_id: user.id,
-      })
-      .select("id")
-      .single();
+      },
+      jeLines
+    );
 
-    if (je) {
-      let jeLines: {
-        journal_entry_id: string;
-        account_id: string;
-        project_id: string | null;
-        description: string;
-        debit: number;
-        credit: number;
-      }[] = [];
-
-      if (adjustment < 0) {
-        // Negative adjustment (credit) — reduces what we owe
-        // DR Accounts Payable (2000), CR WIP (1210 or 1230)
-        jeLines = [
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: projectId,
-            description: `Vendor credit — ${description}`,
-            debit: adjustmentAbsolute,
-            credit: 0,
-          },
-          {
-            journal_entry_id: je.id,
-            account_id: wipAcctId,
-            project_id: projectId,
-            description: `Vendor credit reversal — ${description}`,
-            debit: 0,
-            credit: adjustmentAbsolute,
-          },
-        ];
-      } else {
-        // Positive adjustment (additional charge) — increases what we owe
-        // DR WIP (1210 or 1230), CR Accounts Payable (2000)
-        jeLines = [
-          {
-            journal_entry_id: je.id,
-            account_id: wipAcctId,
-            project_id: projectId,
-            description: `Additional vendor charge — ${description}`,
-            debit: adjustmentAbsolute,
-            credit: 0,
-          },
-          {
-            journal_entry_id: je.id,
-            account_id: acct2000,
-            project_id: projectId,
-            description: `Additional vendor liability — ${description}`,
-            debit: 0,
-            credit: adjustmentAbsolute,
-          },
-        ];
-      }
-
-      const { error: lineErr } = await supabase
-        .from("journal_entry_lines")
-        .insert(jeLines);
-
-      if (lineErr) {
-        console.error(`Adjustment JE lines failed: ${lineErr.message}`);
-      }
-    } else if (jeErr) {
-      console.error(`Adjustment JE creation failed: ${jeErr.message}`);
+    if (adjResult.error) {
+      console.error(`Adjustment JE failed: ${adjResult.error}`);
     }
   }
 

@@ -1,9 +1,10 @@
-// @ts-nocheck
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { requireAdmin } from "@/lib/auth";
+import { mintLoanCoaAccount } from "./banking";
 
 // ---------------------------------------------------------------------------
 // updateProject
@@ -37,6 +38,9 @@ export async function updateHomeProject(
   id: string,
   input: UpdateHomeInput
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("projects")
@@ -63,6 +67,9 @@ export async function updateLandProject(
   id: string,
   input: UpdateLandInput
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("projects")
@@ -90,25 +97,40 @@ export async function ensureLoan(
   loanNumber: string,
   lenderId: string
 ): Promise<{ error?: string; created?: boolean }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
+  const loanNum = loanNumber.trim();
 
   const { data: existing } = await supabase
     .from("loans")
     .select("id")
     .eq("project_id", projectId)
-    .eq("loan_number", loanNumber.trim())
+    .eq("loan_number", loanNum)
     .maybeSingle();
 
   if (existing) return { created: false };
 
+  // Mint the per-loan COA account first so fundDraw has somewhere to post.
+  const coa = await mintLoanCoaAccount(supabase, projectId, loanNum);
+  if (coa.error || !coa.coaAccountId) {
+    return { error: coa.error ?? "Failed to create COA account for loan" };
+  }
+
   const { error } = await supabase.from("loans").insert({
     project_id: projectId,
     lender_id: lenderId,
-    loan_number: loanNumber.trim(),
+    loan_number: loanNum,
     loan_amount: 0,
+    loan_type: "term_loan",
     status: "active",
+    coa_account_id: coa.coaAccountId,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
+    return { error: error.message };
+  }
   return { created: true };
 }
 
@@ -116,6 +138,9 @@ export async function ensureLoan(
 // deleteProject
 // ---------------------------------------------------------------------------
 export async function deleteProject(id: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase.from("projects").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -131,6 +156,9 @@ export async function updatePhaseLotsSold(
   lotsSold: number,
   projectId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_phases")
@@ -152,6 +180,9 @@ export async function saveDocument(data: {
   fileSizeKb: number;
   mimeType: string;
 }): Promise<{ error?: string; id?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -184,6 +215,9 @@ export async function addProjectCostCode(
   projectId: string,
   costCodeId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase.from("project_cost_codes").insert({
     project_id: projectId,
@@ -203,6 +237,10 @@ export async function addProjectCostCodes(
   costCodeIds: string[]
 ): Promise<{ error?: string }> {
   if (!costCodeIds.length) return {};
+
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const rows = costCodeIds.map((costCodeId) => ({
     project_id: projectId,
@@ -222,6 +260,9 @@ export async function updateCostCodeBudget(
   pccId: string,
   amount: number
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_cost_codes")
@@ -238,6 +279,9 @@ export async function removeProjectCostCode(
   pccId: string,
   projectId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_cost_codes")
@@ -263,6 +307,9 @@ export async function createPhase(
     notes?: string | null;
   }
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase.from("project_phases").insert({
     project_id: projectId,
@@ -290,11 +337,14 @@ export async function updatePhase(
     name?: string;
     size_acres?: number | null;
     number_of_lots?: number | null;
-    lots_sold?: number | null;
+    lots_sold?: number;
     status?: string;
     notes?: string | null;
   }
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_phases")
@@ -303,7 +353,7 @@ export async function updatePhase(
       name: data.name?.trim(),
       size_acres: data.size_acres ?? null,
       number_of_lots: data.number_of_lots ?? null,
-      lots_sold: data.lots_sold ?? null,
+      lots_sold: data.lots_sold,
       status: data.status,
       notes: data.notes?.trim() || null,
     })
@@ -320,6 +370,9 @@ export async function deletePhase(
   phaseId: string,
   projectId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_phases")
@@ -398,6 +451,56 @@ export async function getInvoicesForCostCode(
 }
 
 // ---------------------------------------------------------------------------
+// Selections (Home Construction projects only)
+// ---------------------------------------------------------------------------
+
+export async function createSelection(projectId: string, formData: FormData) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Not authorized");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("selections").insert({
+    project_id: projectId,
+    category: formData.get("category") as string,
+    item_name: formData.get("item_name") as string,
+    status: (formData.get("status") as string) || "pending",
+    notes: (formData.get("notes") as string) || null,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+export async function updateSelectionStatus(
+  projectId: string,
+  selectionId: string,
+  status: string
+) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Not authorized");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("selections")
+    .update({ status })
+    .eq("id", selectionId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+export async function deleteSelection(projectId: string, selectionId: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Not authorized");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("selections")
+    .delete()
+    .eq("id", selectionId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+// ---------------------------------------------------------------------------
 // deleteDocument
 // ---------------------------------------------------------------------------
 export async function deleteDocument(
@@ -405,17 +508,21 @@ export async function deleteDocument(
   storagePath: string,
   projectId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
 
-  // Delete from storage
+  // DB record FIRST — if DB fails, an orphaned storage file is recoverable;
+  // a dangling DB pointer to a deleted file shows as a broken document in the UI.
+  const { error } = await supabase.from("documents").delete().eq("id", docId);
+  if (error) return { error: error.message };
+
+  // Storage second. A failure here leaks the file but the UI is consistent.
   const { error: storageErr } = await supabase.storage
     .from("documents")
     .remove([storagePath]);
   if (storageErr) return { error: storageErr.message };
-
-  // Delete DB record
-  const { error } = await supabase.from("documents").delete().eq("id", docId);
-  if (error) return { error: error.message };
 
   revalidatePath(`/projects/${projectId}`);
   return {};

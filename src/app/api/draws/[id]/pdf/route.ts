@@ -16,6 +16,11 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return new NextResponse("Unauthorized", { status: 401 });
+
   const { data: draw } = await supabase
     .from("loan_draws")
     .select(`id, draw_number, draw_date, total_amount, status, notes, contacts ( id, name )`)

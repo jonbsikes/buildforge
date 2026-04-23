@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
-import { createCostCode, toggleCostCode, deleteCostCode } from "./actions";
+import { createCostCode, toggleCostCode, deleteCostCode } from "@/app/actions/cost-codes";
 import type { Database } from "@/types/database";
 
 type CostCode = Database["public"]["Tables"]["cost_codes"]["Row"];

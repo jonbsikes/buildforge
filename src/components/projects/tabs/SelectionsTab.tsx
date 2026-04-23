@@ -7,7 +7,7 @@ import {
   createSelection,
   updateSelectionStatus,
   deleteSelection,
-} from "@/app/(app)/projects/[id]/actions";
+} from "@/app/actions/projects";
 
 interface Selection {
   id: string;

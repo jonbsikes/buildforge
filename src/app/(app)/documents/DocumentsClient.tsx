@@ -15,7 +15,7 @@ import {
   ArrowLeft,
   Search,
 } from "lucide-react";
-import { uploadDocument, deleteDocument } from "./actions";
+import { uploadDocument, deleteDocument } from "@/app/actions/documents";
 import type { Database } from "@/types/database";
 
 type Document = Database["public"]["Tables"]["documents"]["Row"];
@@ -259,7 +259,7 @@ function DocTable({
               <td className="px-4 py-3 text-gray-500 text-xs">{resolveContext(doc)}</td>
               <td className="px-4 py-3 text-gray-400 text-xs">{fmtSize(doc.file_size_kb)}</td>
               <td className="px-4 py-3 text-gray-400 text-xs">
-                {new Date(doc.created_at).toLocaleDateString("en-AU", {
+                {new Date(doc.created_at).toLocaleDateString("en-US", {
                   day: "numeric",
                   month: "short",
                   year: "numeric",

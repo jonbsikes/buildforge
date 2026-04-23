@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth";
 import {
   calculateHomeConstructionDates,
   calculateLandDevDates,
@@ -23,6 +24,9 @@ export async function updateStage(
   input: UpdateStageInput,
   projectId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
 
   // Fetch the current stage for planned_end_date and stage_number
@@ -106,6 +110,9 @@ export async function updateStage(
 export async function resetSchedule(
   projectId: string
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
+
   const supabase = await createClient();
 
   // Fetch project type and start date

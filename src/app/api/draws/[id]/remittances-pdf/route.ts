@@ -37,6 +37,11 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return new NextResponse("Unauthorized", { status: 401 });
+
   // ── Fetch draw ────────────────────────────────────────────────────────────
 
   const { data: draw } = await supabase

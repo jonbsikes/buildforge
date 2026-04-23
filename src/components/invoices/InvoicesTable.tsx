@@ -10,12 +10,12 @@ import {
   voidInvoice,
   setPendingDraw,
   approveInvoice,
+  payInvoiceAutoDraft,
 } from "@/app/actions/invoices";
 import {
   approveInvoicesBatch,
   setPendingDrawBatch,
-  payInvoiceAutoDraft,
-} from "@/app/actions/invoice-actions-extra";
+} from "@/app/actions/invoice-batch";
 import StatusDot from "@/components/ui/StatusDot";
 
 const STATUS_COLORS: Record<string, string> = {

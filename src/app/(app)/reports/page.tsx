@@ -7,13 +7,20 @@ export const dynamic = "force-dynamic";
 export default async function ReportsPage() {
   const supabase = await createClient();
 
-  const [{ data: projects }, { data: costItems }, { data: stages }, { data: sales }] =
-    await Promise.all([
-      supabase.from("projects").select("*").order("name"),
-      supabase.from("cost_items").select("*"),
-      supabase.from("stages").select("*"),
-      supabase.from("sales").select("*"),
-    ]);
+  const [
+    { data: projects },
+    { data: projectCostCodes },
+    { data: lineItems },
+  ] = await Promise.all([
+    supabase.from("projects").select("id, name, status").order("name"),
+    supabase
+      .from("project_cost_codes")
+      .select("id, project_id, budgeted_amount, cost_codes ( id, code, name, category )"),
+    supabase
+      .from("invoice_line_items")
+      .select("project_id, cost_code, amount, invoices!inner ( status )")
+      .in("invoices.status", ["approved", "scheduled", "released", "cleared"]),
+  ]);
 
   return (
     <>
@@ -21,9 +28,8 @@ export default async function ReportsPage() {
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <ReportsClient
           projects={projects ?? []}
-          costItems={costItems ?? []}
-          stages={stages ?? []}
-          sales={sales ?? []}
+          projectCostCodes={(projectCostCodes ?? []) as never}
+          lineItems={(lineItems ?? []) as never}
         />
       </main>
     </>

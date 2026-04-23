@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import { createClient } from "@/lib/supabase/server";
-
-const client = new Anthropic();
+import { extractStructured } from "@/lib/ai/extract";
 
 const SYSTEM_PROMPT = `You are a vendor data extraction assistant for a residential construction company.
 
@@ -89,36 +87,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Only PDF or image files are supported" }, { status: 400 });
     }
 
-    const contentBlock: ContentBlockParam = isPdf
-      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } } as ContentBlockParam
+    const documentBlock: ContentBlockParam = isPdf
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
       : { type: "image", source: { type: "base64", media_type: file.type as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: base64 } };
 
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: [
-            contentBlock,
-            { type: "text", text: "Extract all vendor information from this document and return the JSON as specified." },
-          ],
-        },
-      ],
+    const content: ContentBlockParam[] = [
+      documentBlock,
+      { type: "text", text: "Extract all vendor information from this document and return the JSON as specified." },
+    ];
+
+    const result = await extractStructured<ExtractedVendorData>({
+      systemPrompt: SYSTEM_PROMPT,
+      content,
+      maxTokens: 1024,
     });
 
-    const text = message.content[0].type === "text" ? message.content[0].text : "";
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-
-    let parsed: ExtractedVendorData;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
-    return NextResponse.json(parsed);
+    return NextResponse.json(result.data);
   } catch (err) {
     console.error("Vendor extraction error:", err);
     return NextResponse.json({ error: "Extraction failed" }, { status: 500 });

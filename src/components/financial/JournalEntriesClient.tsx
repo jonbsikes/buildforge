@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, HardHat, Home, DollarSign, Landmark, Percent, Tag, RotateCcw } from "lucide-react";
 import { createJournalEntry, voidJournalEntry, reverseJournalEntry, type JournalLineInput } from "@/app/actions/journal-entries";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 type Account  = { id: string; account_number: string; name: string; type: string; subtype: string | null };
 type CostCode = { id: string; code: number; description: string; category: string };
@@ -78,6 +79,7 @@ export default function JournalEntriesClient() {
   const [expandedId, setExpandedId]   = useState<string | null>(null);
   const [saving, setSaving]           = useState(false);
   const [formError, setFormError]     = useState("");
+  const [toastError, setToastError]   = useState<string | null>(null);
 
   // Form state
   const [selectedLoanId, setSelectedLoanId]     = useState<string | null>(null);
@@ -303,7 +305,6 @@ export default function JournalEntriesClient() {
   }
 
   async function handleVoid(id: string) {
-    if (!confirm("Void this journal entry? This cannot be undone.")) return;
     await voidJournalEntry(id);
     load();
   }
@@ -317,7 +318,7 @@ export default function JournalEntriesClient() {
       await reverseJournalEntry(id, date);
       load();
     } catch (err: any) {
-      alert("Reversal failed: " + (err?.message ?? "Unknown error"));
+      setToastError("Reversal failed: " + (err?.message ?? "Unknown error"));
     }
   }
 
@@ -425,6 +426,19 @@ export default function JournalEntriesClient() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
+      {toastError && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span>{toastError}</span>
+          <button
+            type="button"
+            onClick={() => setToastError(null)}
+            className="text-red-400 hover:text-red-600"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-gray-500 text-sm">
@@ -791,13 +805,17 @@ export default function JournalEntriesClient() {
                           </button>
                         )}
                         {entry.status !== "voided" && entry.source_type === "manual" && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleVoid(entry.id); }}
-                            className="text-gray-300 hover:text-red-500 p-1 transition-colors"
-                            title="Void entry"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <span onClick={(e) => e.stopPropagation()} className="inline-block">
+                            <ConfirmButton
+                              trigger={<Trash2 size={13} />}
+                              ariaLabel="Void entry"
+                              triggerClassName="text-gray-300 hover:text-red-500 p-1 transition-colors"
+                              title="Void journal entry?"
+                              body="This cannot be undone."
+                              confirmLabel="Void"
+                              onConfirm={() => handleVoid(entry.id)}
+                            />
+                          </span>
                         )}
                       </td>
                     </tr>

@@ -8,28 +8,36 @@ export interface ContactInput {
   type: string;
   email: string | null;
   phone: string | null;
+  company?: string | null;
+  notes?: string | null;
 }
 
 export async function createContact(
   data: ContactInput
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; id?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
-  const { error } = await supabase.from("contacts").insert({
-    user_id: user.id,
-    name: data.name.trim(),
-    type: data.type,
-    email: data.email || null,
-    phone: data.phone || null,
-  });
+  const { data: row, error } = await supabase
+    .from("contacts")
+    .insert({
+      user_id: user.id,
+      name: data.name.trim(),
+      type: data.type,
+      email: data.email || null,
+      phone: data.phone || null,
+      company: data.company ?? null,
+      notes: data.notes ?? null,
+    })
+    .select("id")
+    .single();
 
   if (error) return { error: error.message };
   revalidatePath("/contacts");
-  return {};
+  return { id: row.id };
 }
 
 export async function updateContact(
@@ -42,14 +50,18 @@ export async function updateContact(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  const update: Record<string, string | null> = {
+    name: data.name.trim(),
+    type: data.type,
+    email: data.email || null,
+    phone: data.phone || null,
+  };
+  if (data.company !== undefined) update.company = data.company;
+  if (data.notes !== undefined) update.notes = data.notes;
+
   const { error } = await supabase
     .from("contacts")
-    .update({
-      name: data.name.trim(),
-      type: data.type,
-      email: data.email || null,
-      phone: data.phone || null,
-    })
+    .update(update)
     .eq("id", id)
     .eq("user_id", user.id);
 

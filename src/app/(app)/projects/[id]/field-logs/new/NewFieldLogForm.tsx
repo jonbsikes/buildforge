@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Plus, Trash2, Camera, Upload, X } from "lucide-react";
-import { uploadFieldLogPhoto } from "@/app/(app)/field-logs/actions";
+import { uploadFieldLogPhoto } from "@/app/actions/field-logs";
 
 interface Todo {
   description: string;

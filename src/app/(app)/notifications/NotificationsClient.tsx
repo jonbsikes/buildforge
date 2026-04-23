@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { Bell, CheckCheck, AlertCircle, Clock, Shield } from "lucide-react";
-import { markRead, markAllRead } from "./actions";
+import { markRead, markAllRead } from "@/app/actions/notifications";
 import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["notifications"]["Row"];
@@ -26,7 +26,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 function fmtDate(str: string) {
-  return new Date(str).toLocaleDateString("en-AU", {
+  return new Date(str).toLocaleDateString("en-US", {
     month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }

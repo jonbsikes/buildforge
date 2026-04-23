@@ -1,15 +1,31 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import type { Database } from "@/types/database";
 
-type Project = Database["public"]["Tables"]["projects"]["Row"];
-type CostItem = Database["public"]["Tables"]["cost_items"]["Row"];
-type Stage = Database["public"]["Tables"]["stages"]["Row"];
-type Sale = Database["public"]["Tables"]["sales"]["Row"];
+type Project = { id: string; name: string; status: string };
+
+type CostCodeJoin = {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+};
+
+type ProjectCostCode = {
+  id: string;
+  project_id: string;
+  budgeted_amount: number;
+  cost_codes: CostCodeJoin | null;
+};
+
+type InvoiceLineItem = {
+  project_id: string | null;
+  cost_code: string | null;
+  amount: number | null;
+};
 
 function fmt(n: number) {
-  return new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
 function pct(a: number, b: number) {
@@ -19,6 +35,7 @@ function pct(a: number, b: number) {
 
 const STATUS_COLORS: Record<string, string> = {
   planning: "bg-gray-100 text-gray-600",
+  pre_construction: "bg-gray-100 text-gray-600",
   active: "bg-green-100 text-green-700",
   on_hold: "bg-amber-100 text-amber-700",
   completed: "bg-blue-100 text-blue-700",
@@ -27,55 +44,76 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function ReportsClient({
   projects,
-  costItems,
-  stages,
-  sales,
+  projectCostCodes,
+  lineItems,
 }: {
   projects: Project[];
-  costItems: CostItem[];
-  stages: Stage[];
-  sales: Sale[];
+  projectCostCodes: ProjectCostCode[];
+  lineItems: InvoiceLineItem[];
 }) {
   const [selectedProject, setSelectedProject] = useState<string>("all");
 
   const filtered = useMemo(() => ({
     projects: selectedProject === "all" ? projects : projects.filter((p) => p.id === selectedProject),
-    costItems: selectedProject === "all" ? costItems : costItems.filter((c) => c.project_id === selectedProject),
-    stages: selectedProject === "all" ? stages : stages.filter((s) => s.project_id === selectedProject),
-    sales: selectedProject === "all" ? sales : sales.filter((s) => s.project_id === selectedProject),
-  }), [selectedProject, projects, costItems, stages, sales]);
+    pccs: selectedProject === "all" ? projectCostCodes : projectCostCodes.filter((c) => c.project_id === selectedProject),
+    lineItems: selectedProject === "all" ? lineItems : lineItems.filter((li) => li.project_id === selectedProject),
+  }), [selectedProject, projects, projectCostCodes, lineItems]);
+
+  // actual spend keyed by `${project_id}:${cost_code_number}`
+  const actualByProjectCode = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const li of filtered.lineItems) {
+      if (!li.project_id || !li.cost_code) continue;
+      const key = `${li.project_id}:${li.cost_code}`;
+      map.set(key, (map.get(key) ?? 0) + (li.amount ?? 0));
+    }
+    return map;
+  }, [filtered.lineItems]);
+
+  // Per-row budget+actual+category for downstream rollups
+  const rows = useMemo(() => {
+    return filtered.pccs
+      .map((pcc) => {
+        const cc = pcc.cost_codes;
+        if (!cc) return null;
+        const budgeted = pcc.budgeted_amount ?? 0;
+        const actual = actualByProjectCode.get(`${pcc.project_id}:${cc.code}`) ?? 0;
+        return {
+          projectId: pcc.project_id,
+          category: cc.category,
+          budgeted,
+          actual,
+        };
+      })
+      .filter((r): r is { projectId: string; category: string; budgeted: number; actual: number } => r !== null);
+  }, [filtered.pccs, actualByProjectCode]);
 
   // Totals
-  const totalBudget = filtered.projects.reduce((s, p) => s + p.total_budget, 0);
-  const totalBudgeted = filtered.costItems.reduce((s, c) => s + c.budgeted_amount, 0);
-  const totalActual = filtered.costItems.reduce((s, c) => s + c.actual_amount, 0);
-  const totalRevenue = filtered.sales.filter((s) => s.is_settled).reduce((sum, s) => sum + (s.settled_amount ?? 0), 0);
-  const grossProfit = totalRevenue - totalActual;
+  const totalBudgeted = rows.reduce((s, r) => s + r.budgeted, 0);
+  const totalActual = rows.reduce((s, r) => s + r.actual, 0);
 
   // Category breakdown
   const byCategory = useMemo(() => {
     const map: Record<string, { budgeted: number; actual: number }> = {};
-    for (const item of filtered.costItems) {
-      if (!map[item.category]) map[item.category] = { budgeted: 0, actual: 0 };
-      map[item.category].budgeted += item.budgeted_amount;
-      map[item.category].actual += item.actual_amount;
+    for (const r of rows) {
+      if (!map[r.category]) map[r.category] = { budgeted: 0, actual: 0 };
+      map[r.category].budgeted += r.budgeted;
+      map[r.category].actual += r.actual;
     }
     return Object.entries(map)
       .map(([cat, vals]) => ({ cat, ...vals }))
       .sort((a, b) => b.actual - a.actual);
-  }, [filtered.costItems]);
+  }, [rows]);
 
   // Per-project summary
   const perProject = useMemo(() => {
     return filtered.projects.map((p) => {
-      const items = filtered.costItems.filter((c) => c.project_id === p.id);
-      const budgeted = items.reduce((s, c) => s + c.budgeted_amount, 0);
-      const actual = items.reduce((s, c) => s + c.actual_amount, 0);
-      const projectSales = filtered.sales.filter((s) => s.project_id === p.id && s.is_settled);
-      const revenue = projectSales.reduce((s, sale) => s + (sale.settled_amount ?? 0), 0);
-      return { project: p, budgeted, actual, revenue, profit: revenue - actual };
+      const projectRows = rows.filter((r) => r.projectId === p.id);
+      const budgeted = projectRows.reduce((s, r) => s + r.budgeted, 0);
+      const actual = projectRows.reduce((s, r) => s + r.actual, 0);
+      return { project: p, budgeted, actual };
     });
-  }, [filtered]);
+  }, [filtered.projects, rows]);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -95,26 +133,21 @@ export default function ReportsClient({
       </div>
 
       {/* Key metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 mb-1">Total Project Budget</p>
-          <p className="text-xl font-bold text-gray-900">{fmt(totalBudget)}</p>
+          <p className="text-xs text-gray-500 mb-1">Total Budgeted</p>
+          <p className="text-xl font-bold text-gray-900">{fmt(totalBudgeted)}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-xs text-gray-500 mb-1">Actual Spend</p>
           <p className="text-xl font-bold text-gray-900">{fmt(totalActual)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{pct(totalActual, totalBudget)} of budget</p>
+          <p className="text-xs text-gray-400 mt-0.5">{pct(totalActual, totalBudgeted)} of budget</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 mb-1">Settled Revenue</p>
-          <p className="text-xl font-bold text-gray-900">{fmt(totalRevenue)}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 mb-1">Gross Profit</p>
-          <p className={`text-xl font-bold ${grossProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-            {fmt(grossProfit)}
+          <p className="text-xs text-gray-500 mb-1">Variance</p>
+          <p className={`text-xl font-bold ${(totalBudgeted - totalActual) >= 0 ? "text-green-600" : "text-red-600"}`}>
+            {(totalBudgeted - totalActual) >= 0 ? "+" : ""}{fmt(totalBudgeted - totalActual)}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">{pct(grossProfit, totalRevenue)} margin</p>
         </div>
       </div>
 
@@ -129,16 +162,14 @@ export default function ReportsClient({
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Project</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Budget</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Budgeted</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Actual</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Variance</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Revenue</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Profit</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">% Used</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {perProject.map(({ project, budgeted, actual, revenue, profit }) => {
+                {perProject.map(({ project, budgeted, actual }) => {
                   const variance = budgeted - actual;
                   return (
                     <tr key={project.id} className="hover:bg-gray-50 transition-colors">
@@ -149,19 +180,15 @@ export default function ReportsClient({
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status] ?? "bg-gray-100 text-gray-600"}`}>
-                          {project.status.replace("_", " ")}
+                          {project.status.replace(/_/g, " ")}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-700">{fmt(project.total_budget)}</td>
                       <td className="px-4 py-3 text-right text-gray-700">{fmt(budgeted)}</td>
                       <td className="px-4 py-3 text-right text-gray-700">{fmt(actual)}</td>
                       <td className={`px-4 py-3 text-right font-medium ${variance >= 0 ? "text-green-600" : "text-red-600"}`}>
                         {variance >= 0 ? "+" : ""}{fmt(variance)}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-700">{fmt(revenue)}</td>
-                      <td className={`px-4 py-3 text-right font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {fmt(profit)}
-                      </td>
+                      <td className="px-4 py-3 text-right text-gray-500">{pct(actual, budgeted)}</td>
                     </tr>
                   );
                 })}
@@ -223,7 +250,7 @@ export default function ReportsClient({
 
       {filtered.projects.length === 0 && (
         <div className="bg-white rounded-xl border border-gray-200 px-6 py-16 text-center text-sm text-gray-400">
-          No data to report. Create a project and add cost items.
+          No data to report. Create a project and add cost codes.
         </div>
       )}
     </div>

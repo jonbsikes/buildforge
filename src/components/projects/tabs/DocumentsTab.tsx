@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { saveDocument, deleteDocument } from "@/app/actions/projects";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 import type { Document } from "@/components/projects/ProjectTabs";
 
 const FOLDERS = [
@@ -110,14 +111,16 @@ function FolderDropZone({
     const { data, error } = await supabase.storage
       .from("documents")
       .createSignedUrl(doc.storage_path, 3600);
-    if (error || !data) { alert("Could not generate preview link."); return; }
+    if (error || !data) { setWarning("Could not generate preview link."); return; }
     window.open(data.signedUrl, "_blank");
   }
 
   async function handleDelete(doc: Document) {
-    if (!confirm(`Delete "${doc.file_name}"?`)) return;
     const result = await deleteDocument(doc.id, doc.storage_path, projectId);
-    if (result.error) { alert(result.error); return; }
+    if (result.error) {
+      setWarning(result.error);
+      return { error: result.error };
+    }
     onDeleted(doc.id);
   }
 
@@ -202,13 +205,15 @@ function FolderDropZone({
                   >
                     <ExternalLink size={13} />
                   </button>
-                  <button
-                    onClick={() => handleDelete(doc)}
-                    className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <ConfirmButton
+                    trigger={<Trash2 size={13} />}
+                    ariaLabel={`Delete ${doc.file_name}`}
+                    triggerClassName="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                    title="Delete document?"
+                    body={<p>Permanently delete &ldquo;{doc.file_name}&rdquo;? This cannot be undone.</p>}
+                    confirmLabel="Delete"
+                    onConfirm={() => handleDelete(doc)}
+                  />
                 </div>
               </div>
             ))}

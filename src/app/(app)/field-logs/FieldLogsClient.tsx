@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { Plus, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle, Trash2, ClipboardList, Camera, Upload, X } from "lucide-react";
-import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto } from "./actions";
+import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto } from "@/app/actions/field-logs";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 import type { Database } from "@/types/database";
 
 type FieldLog = Database["public"]["Tables"]["field_logs"]["Row"];
@@ -298,12 +299,15 @@ function LogCard({
                     {todo.due_date && (
                       <span className="text-xs text-gray-400">{todo.due_date}</span>
                     )}
-                    <button
-                      onClick={() => startTransition(async () => { if (confirm("Delete to-do?")) await deleteTodo(todo.id); })}
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    <ConfirmButton
+                      trigger={<Trash2 size={13} />}
+                      ariaLabel="Delete to-do"
+                      triggerClassName="text-gray-300 hover:text-red-500 transition-colors"
+                      title="Delete To-Do?"
+                      body={<p>Remove &ldquo;{todo.description}&rdquo;? This cannot be undone.</p>}
+                      confirmLabel="Delete"
+                      onConfirm={() => deleteTodo(todo.id)}
+                    />
                   </div>
                 ))}
               </div>

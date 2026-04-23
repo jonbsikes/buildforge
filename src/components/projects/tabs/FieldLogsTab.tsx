@@ -10,8 +10,8 @@ import {
   createProjectFieldLog,
   createProjectFieldTodo,
   updateProjectTodoStatus,
-} from "@/app/(app)/projects/[id]/actions";
-import { uploadFieldLogPhoto } from "@/app/(app)/field-logs/actions";
+  uploadFieldLogPhoto,
+} from "@/app/actions/field-logs";
 
 interface Todo {
   id: string;

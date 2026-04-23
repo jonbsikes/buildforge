@@ -6,6 +6,7 @@ import {
   calculateHomeConstructionDates,
   calculateLandDevDates,
 } from "@/lib/stage-schedules";
+import { mintLoanCoaAccount } from "./banking";
 
 export interface SubdivisionMatch {
   matched: boolean;
@@ -144,17 +145,29 @@ export async function createHomeConstructionProject(
 
   // Create loan record if loan number and lender are provided
   if (input.loan_number?.trim() && input.lender_id) {
+    const loanNum = input.loan_number.trim();
+
+    // Mint the per-loan COA liability account BEFORE inserting the loans row.
+    // fundDraw requires loans.coa_account_id to post the Loan Payable JE, so
+    // a loan without it is unusable downstream.
+    const coa = await mintLoanCoaAccount(supabase, project.id, loanNum);
+    if (coa.error || !coa.coaAccountId) {
+      return { projectId: project.id, error: `Project created, but loan COA account failed: ${coa.error}` };
+    }
+
     const { error: loanError } = await supabase.from("loans").insert({
       project_id: project.id,
       lender_id: input.lender_id,
-      loan_number: input.loan_number.trim(),
+      loan_number: loanNum,
       loan_amount: 0,
       loan_type: "term_loan",
       status: "active",
+      coa_account_id: coa.coaAccountId,
     });
     // Loan failure is non-fatal — project and stages are already created.
-    // Return success with a warning so user can add the loan manually.
+    // Roll back the orphaned COA account, then surface the error.
     if (loanError) {
+      await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
       return { projectId: project.id, error: `Project created, but loan record failed: ${loanError.message}` };
     }
   }
@@ -247,15 +260,24 @@ export async function createLandDevProject(
 
   // Create loan record if loan number and lender are provided
   if (input.loan_number?.trim() && input.lender_id) {
+    const loanNum = input.loan_number.trim();
+
+    const coa = await mintLoanCoaAccount(supabase, project.id, loanNum);
+    if (coa.error || !coa.coaAccountId) {
+      return { projectId: project.id, error: `Project created, but loan COA account failed: ${coa.error}` };
+    }
+
     const { error: loanError } = await supabase.from("loans").insert({
       project_id: project.id,
       lender_id: input.lender_id,
-      loan_number: input.loan_number.trim(),
+      loan_number: loanNum,
       loan_amount: 0,
       loan_type: "term_loan",
       status: "active",
+      coa_account_id: coa.coaAccountId,
     });
     if (loanError) {
+      await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
       return { projectId: project.id, error: `Project created, but loan record failed: ${loanError.message}` };
     }
   }

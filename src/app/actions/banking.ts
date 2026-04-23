@@ -3,6 +3,68 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { getAccountIdMap } from "@/lib/gl/accounts";
+import { postJournalEntry } from "@/lib/gl/postEntry";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
+
+type Supa = SupabaseClient<Database>;
+
+// ---------------------------------------------------------------------------
+// mintLoanCoaAccount
+// Creates a new chart_of_accounts row in the loan liability range (2201+)
+// for a project loan, and returns the id. Shared between createLoan (the
+// public admin-gated path) and the project-creation/ensureLoan paths so every
+// loans row has a valid coa_account_id — required by fundDraw.
+// ---------------------------------------------------------------------------
+export async function mintLoanCoaAccount(
+  supabase: Supa,
+  projectId: string,
+  loanNumber: string
+): Promise<{ error?: string; coaAccountId?: string }> {
+  const { data: project } = await supabase
+    .from("projects")
+    .select("project_type")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  const isLandDev = project?.project_type === "land_development";
+  const coaName = isLandDev
+    ? `Dev Loan Payable — #${loanNumber}`
+    : `Constr Loan — #${loanNumber}`;
+
+  const { data: maxAcctRow } = await supabase
+    .from("chart_of_accounts")
+    .select("account_number")
+    .eq("type", "liability")
+    .eq("subtype", "loan")
+    .gte("account_number", "2201")
+    .order("account_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const nextAcctNum = maxAcctRow
+    ? String(parseInt(maxAcctRow.account_number) + 1)
+    : "2201";
+
+  const { data: coaAcct, error: coaErr } = await supabase
+    .from("chart_of_accounts")
+    .insert({
+      account_number: nextAcctNum,
+      name: coaName,
+      type: "liability",
+      subtype: "loan",
+      is_system: false,
+      is_active: true,
+    })
+    .select("id")
+    .single();
+
+  if (coaErr || !coaAcct) {
+    return { error: coaErr?.message ?? "Failed to create COA account for loan" };
+  }
+  return { coaAccountId: coaAcct.id };
+}
 
 // ---------------------------------------------------------------------------
 // Bank Accounts
@@ -123,49 +185,12 @@ export async function createLoan(
   const currentBalance = input.loan_type === "line_of_credit" && input.current_balance ? parseFloat(input.current_balance) : 0;
   if (isNaN(currentBalance)) return { error: "Current balance must be a valid number" };
 
-  // Determine project type so we can name the COA account appropriately
-  const { data: project } = await supabase
-    .from("projects")
-    .select("project_type, name")
-    .eq("id", input.project_id)
-    .maybeSingle();
-
   const loanNum = input.loan_number.trim();
-  const isLandDev = project?.project_type === "land_development";
-  const coaName = isLandDev
-    ? `Dev Loan Payable — #${loanNum}`
-    : `Constr Loan — #${loanNum}`;
 
-  // Find the next available account number in the loan liability range (2201+)
-  const { data: maxAcctRow } = await supabase
-    .from("chart_of_accounts")
-    .select("account_number")
-    .eq("type", "liability")
-    .eq("subtype", "loan")
-    .gte("account_number", "2201")
-    .order("account_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const nextAcctNum = maxAcctRow
-    ? String(parseInt(maxAcctRow.account_number) + 1)
-    : "2201";
-
-  // Create the COA liability account for this loan
-  const { data: coaAcct, error: coaErr } = await supabase
-    .from("chart_of_accounts")
-    .insert({
-      account_number: nextAcctNum,
-      name: coaName,
-      type: "liability",
-      subtype: "loan",
-      is_system: false,
-      is_active: true,
-    })
-    .select("id")
-    .single();
-
-  if (coaErr || !coaAcct) return { error: coaErr?.message ?? "Failed to create COA account for loan" };
+  const coa = await mintLoanCoaAccount(supabase, input.project_id, loanNum);
+  if (coa.error || !coa.coaAccountId) {
+    return { error: coa.error ?? "Failed to create COA account for loan" };
+  }
 
   const { data, error } = await supabase
     .from("loans")
@@ -182,11 +207,15 @@ export async function createLoan(
       maturity_date: input.maturity_date || null,
       status: input.status,
       notes: input.notes.trim() || null,
-      coa_account_id: coaAcct.id,
+      coa_account_id: coa.coaAccountId,
     })
     .select("id")
     .single();
-  if (error) return { error: error.message };
+  if (error) {
+    // Rollback the orphaned COA account so we don't leak unused account numbers
+    await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
+    return { error: error.message };
+  }
   revalidatePath("/banking/loans");
   return { id: data.id };
 }
@@ -289,13 +318,9 @@ export async function accrueConstructionInterest(
 
   const debitAccountNumber = input.capitalize ? "1220" : "6710";
 
-  const { data: glAccounts } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", [debitAccountNumber, "2110"]);
-
-  const debitAcctId = glAccounts?.find(a => a.account_number === debitAccountNumber)?.id;
-  const acct2110 = glAccounts?.find(a => a.account_number === "2110")?.id;
+  const accounts = await getAccountIdMap(supabase, [debitAccountNumber, "2110"]);
+  const debitAcctId = accounts.get(debitAccountNumber);
+  const acct2110 = accounts.get("2110");
 
   if (!debitAcctId || !acct2110) {
     return { error: "Required GL accounts not found. Ensure accounts 1220/6710 and 2110 exist in Chart of Accounts." };
@@ -304,9 +329,9 @@ export async function accrueConstructionInterest(
   const desc = input.description?.trim() ||
     (input.capitalize ? "Capitalized interest — construction loan" : "Interest expense — construction loan");
 
-  const { data: je, error: jeErr } = await supabase
-    .from("journal_entries")
-    .insert({
+  const result = await postJournalEntry(
+    supabase,
+    {
       entry_date: input.accrual_date,
       reference: `INT-${input.loan_id.slice(0, 8)}-${input.accrual_date.slice(0, 7)}`,
       description: desc,
@@ -314,38 +339,32 @@ export async function accrueConstructionInterest(
       source_type: "manual",
       loan_id: input.loan_id,
       user_id: user.id,
-    })
-    .select("id")
-    .single();
-
-  if (jeErr || !je) return { error: jeErr?.message ?? "Failed to create journal entry" };
-
-  const { error: lineErr } = await supabase.from("journal_entry_lines").insert([
-    {
-      journal_entry_id: je.id,
-      account_id: debitAcctId,
-      project_id: input.project_id ?? null,
-      loan_id: input.loan_id,
-      description: desc,
-      debit: input.amount,
-      credit: 0,
     },
-    {
-      journal_entry_id: je.id,
-      account_id: acct2110,
-      project_id: input.project_id ?? null,
-      loan_id: input.loan_id,
-      description: `Accrued interest payable — ${input.accrual_date.slice(0, 7)}`,
-      debit: 0,
-      credit: input.amount,
-    },
-  ]);
+    [
+      {
+        account_id: debitAcctId,
+        project_id: input.project_id ?? null,
+        loan_id: input.loan_id,
+        description: desc,
+        debit: input.amount,
+        credit: 0,
+      },
+      {
+        account_id: acct2110,
+        project_id: input.project_id ?? null,
+        loan_id: input.loan_id,
+        description: `Accrued interest payable — ${input.accrual_date.slice(0, 7)}`,
+        debit: 0,
+        credit: input.amount,
+      },
+    ]
+  );
 
-  if (lineErr) return { error: lineErr.message };
+  if (result.error || !result.id) return { error: result.error ?? "Failed to post journal entry" };
 
   revalidatePath("/banking/loans");
   if (input.project_id) revalidatePath(`/projects/${input.project_id}/loans`);
-  return { journalEntryId: je.id };
+  return { journalEntryId: result.id };
 }
 
 // ---------------------------------------------------------------------------
@@ -437,20 +456,9 @@ export async function recordLotCost(
     accountsToFetch.push(creditAccountNumber);
   }
 
-  const { data: glAccounts, error: acctErr } = await supabase
-    .from("chart_of_accounts")
-    .select("id, account_number")
-    .in("account_number", accountsToFetch);
+  const glAccounts = await getAccountIdMap(supabase, accountsToFetch);
 
-  if (acctErr || !glAccounts) {
-    return {
-      error: acctErr?.message ?? "Failed to fetch GL accounts",
-    };
-  }
-
-  const debitAcctId = glAccounts.find(
-    (a) => a.account_number === debitAccountNumber
-  )?.id;
+  const debitAcctId = glAccounts.get(debitAccountNumber);
   if (!debitAcctId) {
     return {
       error: `Required GL account ${debitAccountNumber} not found in Chart of Accounts`,
@@ -458,9 +466,7 @@ export async function recordLotCost(
   }
 
   if (!creditAccountId) {
-    creditAccountId = glAccounts.find(
-      (a) => a.account_number === creditAccountNumber
-    )?.id;
+    creditAccountId = glAccounts.get(creditAccountNumber);
     if (!creditAccountId) {
       return {
         error: `Required GL account ${creditAccountNumber} not found in Chart of Accounts`,
@@ -473,10 +479,10 @@ export async function recordLotCost(
     input.description?.trim() ||
     `Lot cost — ${project.name} (purchase: $${purchasePrice.toFixed(2)}, closing: $${closingCosts.toFixed(2)})`;
 
-  // Create journal entry header
-  const { data: je, error: jeErr } = await supabase
-    .from("journal_entries")
-    .insert({
+  // Post JE (debit WIP/CIP, credit loan/cash)
+  const result = await postJournalEntry(
+    supabase,
+    {
       entry_date: input.entry_date,
       reference: `LOT-${input.project_id.slice(0, 8)}-${input.entry_date.slice(0, 7)}`,
       description: desc,
@@ -484,20 +490,9 @@ export async function recordLotCost(
       source_type: "lot_cost",
       source_id: input.project_id,
       user_id: user.id,
-    })
-    .select("id")
-    .single();
-
-  if (jeErr || !je) {
-    return { error: jeErr?.message ?? "Failed to create journal entry" };
-  }
-
-  // Create journal entry lines (debit WIP/CIP, credit loan/cash)
-  const { error: lineErr } = await supabase
-    .from("journal_entry_lines")
-    .insert([
+    },
+    [
       {
-        journal_entry_id: je.id,
         account_id: debitAcctId,
         project_id: input.project_id,
         description: `Lot cost debit — purchase $${purchasePrice.toFixed(2)} + closing $${closingCosts.toFixed(2)}`,
@@ -505,22 +500,22 @@ export async function recordLotCost(
         credit: 0,
       },
       {
-        journal_entry_id: je.id,
         account_id: creditAccountId,
         project_id: input.project_id,
         description: `Lot cost credit — ${project.name}`,
         debit: 0,
         credit: totalAmount,
       },
-    ]);
+    ]
+  );
 
-  if (lineErr) {
-    return { error: lineErr.message };
+  if (result.error || !result.id) {
+    return { error: result.error ?? "Failed to post journal entry" };
   }
 
   // Revalidate paths
   revalidatePath("/banking/loans");
   revalidatePath(`/projects/${input.project_id}`);
 
-  return { journalEntryId: je.id };
+  return { journalEntryId: result.id };
 }
