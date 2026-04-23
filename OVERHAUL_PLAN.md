@@ -637,16 +637,16 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 18 — Drop orphan enums + delete merged branch
+### Step 18 — Drop orphan enums + delete merged branch ✅ DONE
 
-**Goal:** Close the remaining tail of Step 14's migration 023.
+**Status:** Completed 2026-04-23 on branch `overhaul/step-18-orphan-enums`.
 
-**What to do:**
-- Write `supabase/migrations/025_drop_orphan_enums.sql`: `DROP TYPE IF EXISTS sale_type; DROP TYPE IF EXISTS stage_status;`. Both enums were orphaned when migration 023 dropped their parent tables (`sales`, `stages`).
-- Apply migration 025 to live DB via Supabase MCP.
-- `git branch -d overhaul/step-16-hardening` (FF-merged — safe delete).
+**What shipped:**
+- Migration 025 (`DROP TYPE IF EXISTS sale_type; DROP TYPE IF EXISTS stage_status`) written and applied to live DB via Supabase MCP. Pre-flight confirmed zero columns referencing either type.
+- Verified post-apply: `SELECT typname FROM pg_type WHERE typname IN ('sale_type','stage_status')` returns empty.
+- Local branch `overhaul/step-16-hardening` deleted (FF-merged in Step 17).
 
-**Verify:** live-DB query `SELECT typname FROM pg_type WHERE typname IN ('sale_type','stage_status')` returns empty. `git branch` no longer shows the overhaul branch.
+**References:** closes the Step 14 orphan-enum deferral.
 
 ---
 
