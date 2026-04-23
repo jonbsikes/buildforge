@@ -380,82 +380,6 @@ export type Database = {
           },
         ]
       }
-      cost_items: {
-        Row: {
-          actual_amount: number
-          budgeted_amount: number
-          category: Database["public"]["Enums"]["cost_category"]
-          cost_code_id: string | null
-          created_at: string
-          description: string
-          id: string
-          invoice_date: string | null
-          invoice_file_path: string | null
-          invoice_number: string | null
-          notes: string | null
-          project_id: string
-          stage_id: string | null
-          updated_at: string
-          vendor: string | null
-        }
-        Insert: {
-          actual_amount?: number
-          budgeted_amount?: number
-          category?: Database["public"]["Enums"]["cost_category"]
-          cost_code_id?: string | null
-          created_at?: string
-          description: string
-          id?: string
-          invoice_date?: string | null
-          invoice_file_path?: string | null
-          invoice_number?: string | null
-          notes?: string | null
-          project_id: string
-          stage_id?: string | null
-          updated_at?: string
-          vendor?: string | null
-        }
-        Update: {
-          actual_amount?: number
-          budgeted_amount?: number
-          category?: Database["public"]["Enums"]["cost_category"]
-          cost_code_id?: string | null
-          created_at?: string
-          description?: string
-          id?: string
-          invoice_date?: string | null
-          invoice_file_path?: string | null
-          invoice_number?: string | null
-          notes?: string | null
-          project_id?: string
-          stage_id?: string | null
-          updated_at?: string
-          vendor?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "cost_items_cost_code_id_fkey"
-            columns: ["cost_code_id"]
-            isOneToOne: false
-            referencedRelation: "cost_codes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "cost_items_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "cost_items_stage_id_fkey"
-            columns: ["stage_id"]
-            isOneToOne: false
-            referencedRelation: "stages"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       documents: {
         Row: {
           created_at: string
@@ -937,13 +861,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "invoices_cost_item_id_fkey"
-            columns: ["cost_item_id"]
-            isOneToOne: false
-            referencedRelation: "cost_items"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "invoices_owner_equity_account_id_fkey"
             columns: ["owner_equity_account_id"]
             isOneToOne: false
@@ -1231,60 +1148,6 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      milestones: {
-        Row: {
-          completed_date: string | null
-          created_at: string
-          due_date: string | null
-          id: string
-          is_completed: boolean
-          name: string
-          notes: string | null
-          project_id: string
-          stage_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          completed_date?: string | null
-          created_at?: string
-          due_date?: string | null
-          id?: string
-          is_completed?: boolean
-          name: string
-          notes?: string | null
-          project_id: string
-          stage_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          completed_date?: string | null
-          created_at?: string
-          due_date?: string | null
-          id?: string
-          is_completed?: boolean
-          name?: string
-          notes?: string | null
-          project_id?: string
-          stage_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "milestones_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "milestones_stage_id_fkey"
-            columns: ["stage_id"]
-            isOneToOne: false
-            referencedRelation: "stages"
             referencedColumns: ["id"]
           },
         ]
@@ -1621,68 +1484,6 @@ export type Database = {
           },
         ]
       }
-      sales: {
-        Row: {
-          buyer_name: string | null
-          contract_price: number | null
-          created_at: string
-          deposit_amount: number | null
-          deposit_received_date: string | null
-          description: string
-          id: string
-          is_settled: boolean
-          notes: string | null
-          project_id: string
-          sale_type: Database["public"]["Enums"]["sale_type"]
-          settled_amount: number | null
-          settled_date: string | null
-          settlement_date: string | null
-          updated_at: string
-        }
-        Insert: {
-          buyer_name?: string | null
-          contract_price?: number | null
-          created_at?: string
-          deposit_amount?: number | null
-          deposit_received_date?: string | null
-          description: string
-          id?: string
-          is_settled?: boolean
-          notes?: string | null
-          project_id: string
-          sale_type?: Database["public"]["Enums"]["sale_type"]
-          settled_amount?: number | null
-          settled_date?: string | null
-          settlement_date?: string | null
-          updated_at?: string
-        }
-        Update: {
-          buyer_name?: string | null
-          contract_price?: number | null
-          created_at?: string
-          deposit_amount?: number | null
-          deposit_received_date?: string | null
-          description?: string
-          id?: string
-          is_settled?: boolean
-          notes?: string | null
-          project_id?: string
-          sale_type?: Database["public"]["Enums"]["sale_type"]
-          settled_amount?: number | null
-          settled_date?: string | null
-          settlement_date?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "sales_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       selections: {
         Row: {
           category: string
@@ -1727,56 +1528,6 @@ export type Database = {
           },
           {
             foreignKeyName: "selections_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      stages: {
-        Row: {
-          budget: number
-          created_at: string
-          description: string | null
-          end_date: string | null
-          id: string
-          name: string
-          order_index: number
-          project_id: string
-          start_date: string | null
-          status: Database["public"]["Enums"]["stage_status"]
-          updated_at: string
-        }
-        Insert: {
-          budget?: number
-          created_at?: string
-          description?: string | null
-          end_date?: string | null
-          id?: string
-          name: string
-          order_index?: number
-          project_id: string
-          start_date?: string | null
-          status?: Database["public"]["Enums"]["stage_status"]
-          updated_at?: string
-        }
-        Update: {
-          budget?: number
-          created_at?: string
-          description?: string | null
-          end_date?: string | null
-          id?: string
-          name?: string
-          order_index?: number
-          project_id?: string
-          start_date?: string | null
-          status?: Database["public"]["Enums"]["stage_status"]
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "stages_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -2007,6 +1758,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      current_user_owns_any_project: { Args: never; Returns: boolean }
       generate_notifications: { Args: never; Returns: Json }
       get_my_role: { Args: never; Returns: Json }
       get_user_role: { Args: never; Returns: string }
