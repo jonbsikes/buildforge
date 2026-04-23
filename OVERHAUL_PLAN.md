@@ -602,6 +602,30 @@ All 22 named findings closed (I14, I15, I17–I22, I24–I28, M8–M16) plus a b
 
 ---
 
+### Step 17 — Ship Step 16 ✅ DONE
+
+**Status:** Completed 2026-04-23. `main` is at `379d538` locally and on `origin`.
+
+**What shipped:**
+
+- **Migration 024 applied** to live DB via Supabase MCP. `ALTER TABLE chart_of_accounts ADD CONSTRAINT chart_of_accounts_account_number_key UNIQUE (account_number)`. Verified: `pg_constraint` shows the new unique constraint alongside the PK. Pre-flight had confirmed zero duplicate `account_number` rows, so the constraint applied cleanly without backfill.
+- **Fast-forward merge** of `overhaul/step-16-hardening` into local `main` (`25b52fe..379d538`) and **pushed to `origin/main`**. No conflicts; the branch had been opened at the tip of `main` so the merge was a clean FF.
+- **`src/types/database.ts` regeneration NOT performed** — adding a unique constraint doesn't change column shape or types, so the generated definitions are still in sync. Confirmed by re-reading the existing `chart_of_accounts` Row / Insert / Update types after the constraint apply.
+
+**Invariants after this step:**
+
+- `git log --oneline origin/main` includes `379d538`.
+- Live DB has the unique constraint on `chart_of_accounts.account_number`. A future `mintLoanCoaAccount` race that produces a duplicate insert will surface PostgREST error code `23505`, which the rewritten function in [banking.ts:46-77](src/app/actions/banking.ts:46-77) catches and resolves by retrying with the next number.
+- All 22 Step 11 deferred findings (I14, I15, I17–I22, I24–I28, M8–M16) are closed in code, in git history, and (where DDL was involved) in the live database.
+
+**Deferred:**
+
+- Branch cleanup: `git branch -d overhaul/step-16-hardening` is safe now that the FF merge is live. Leaving it for the next session in case there's any reason to revisit the diff in isolation.
+
+**References:** Closes the Step 16 deferred-migration TODO. The OVERHAUL_PLAN backlog is now empty.
+
+---
+
 ## What To Leave Alone
 
 - **`proxy.ts` naming** — Next.js 15.3+ convention, not a typo.
