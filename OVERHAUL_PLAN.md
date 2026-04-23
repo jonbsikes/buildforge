@@ -786,16 +786,18 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 25 — Remove `@ts-nocheck` from remaining stragglers
+### Step 25 — Remove `@ts-nocheck` from remaining stragglers ✅ DONE
 
-**Goal:** Whatever's left after 22–24.
+**Status:** Completed 2026-04-23 on branch `overhaul/step-25-stragglers`.
 
-**Known candidates (pending Step 20 / 21):**
-- `(app)/invoices/upload/page.tsx`
-- `(app)/settings/cost-codes/CostCodesClient.tsx`
-- `(app)/purchase-orders/*` (if kept by Step 21)
+**Only one file left after Step 21 (purchase-orders deleted) and Step 24 (settings/cost-codes deleted):**
+- `src/app/(app)/invoices/upload/page.tsx` — directive removed. Zero type errors surfaced. File reads a simple project list and renders `InvoiceUploadForm`; the types were already sound.
 
-**Verify:** `grep -rn "ts-nocheck" src --include="*.ts" --include="*.tsx"` returns empty.
+**Invariants after this step:**
+- `grep -rn "ts-nocheck" src --include="*.ts" --include="*.tsx"` → **empty across the entire `src` tree.**
+- `npx tsc --noEmit` → EXIT=0.
+
+**References:** The codebase is now fully type-checked. Every file honors the TypeScript compiler.
 
 ---
 
