@@ -4,76 +4,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { Home, Building2, DollarSign, Layers } from "lucide-react";
+import { navSections, type NavSection } from "./navMap";
 
-type SubNav = { label: string; href: string };
-
-type RailSection = {
-  key: string;
-  label: string;
-  icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
-  href: string;
-  matchPaths: string[];
-  subNav: SubNav[];
-};
-
-const sections: RailSection[] = [
-  {
-    key: "home",
-    label: "Home",
-    icon: Home,
-    href: "/dashboard",
-    matchPaths: ["/dashboard"],
-    subNav: [
-      { label: "Overview", href: "/dashboard" },
-      { label: "Notifications", href: "/notifications" },
-      { label: "To-dos", href: "/todos" },
-    ],
-  },
-  {
-    key: "projects",
-    label: "Projects",
-    icon: Building2,
-    href: "/projects",
-    matchPaths: ["/projects", "/reports", "/todos", "/field-logs"],
-    subNav: [
-      { label: "All projects", href: "/projects" },
-      { label: "Projects hub", href: "/projects/hub" },
-      { label: "Reports", href: "/reports" },
-      { label: "Field logs", href: "/field-logs" },
-      { label: "To-dos", href: "/todos" },
-    ],
-  },
-  {
-    key: "financial",
-    label: "Financial",
-    icon: DollarSign,
-    href: "/financial",
-    matchPaths: ["/financial", "/invoices", "/banking", "/draws", "/loans"],
-    subNav: [
-      { label: "Summary", href: "/financial" },
-      { label: "Accounts payable", href: "/invoices" },
-      { label: "Banking", href: "/banking/accounts" },
-      { label: "Loans", href: "/banking/loans" },
-      { label: "Draws", href: "/draws" },
-    ],
-  },
-  {
-    key: "manage",
-    label: "Manage",
-    icon: Layers,
-    href: "/manage",
-    matchPaths: ["/manage", "/vendors", "/contacts", "/documents", "/settings"],
-    subNav: [
-      { label: "Vendors", href: "/vendors" },
-      { label: "Contacts", href: "/contacts" },
-      { label: "Documents", href: "/documents" },
-      { label: "Settings", href: "/settings" },
-    ],
-  },
-];
-
-function isActive(pathname: string, section: RailSection): boolean {
+function isActive(pathname: string, section: NavSection): boolean {
   if (section.key === "home") return pathname === "/dashboard";
   return section.matchPaths.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
@@ -154,7 +87,7 @@ export default function DesktopNavRail() {
   }, [pinnedKey]);
 
   const openKey = pinnedKey ?? hoverKey;
-  const openSection = openKey ? sections.find((s) => s.key === openKey) : null;
+  const openSection = openKey ? navSections.find((s) => s.key === openKey) : null;
 
   function handleEnter(key: string) {
     if (closeTimer.current) {
@@ -199,7 +132,7 @@ export default function DesktopNavRail() {
           />
         </Link>
 
-        {sections.map((section) => {
+        {navSections.map((section) => {
           const active = isActive(pathname, section);
           const isHover = openKey === section.key;
           const Icon = section.icon;

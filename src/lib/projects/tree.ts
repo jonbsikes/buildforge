@@ -89,9 +89,6 @@ interface ActualRow {
   status: string | null;
 }
 
-/**
- * Per-project health computed from stages + invoices + budget.
- */
 interface ProjectHealth {
   progressPct: number;
   budget: number;
@@ -170,7 +167,6 @@ function rollupChildren(children: TreeNode[]): TreeRollup {
   const atRiskCount = children.reduce((s, c) => s + c.rollup.atRiskCount, 0);
   const budgetDelta = children.reduce((s, c) => s + c.rollup.budgetDelta, 0);
 
-  // Weighted progress: weight by child's active count (proxy when we lack per-lot $)
   const totalWeight = children.reduce((s, c) => s + Math.max(c.rollup.activeCount, 1), 0);
   const progressPct = Math.round(
     children.reduce(
@@ -235,7 +231,6 @@ export async function getProjectsTree(): Promise<{
   const budgets = (budgetsRes.data ?? []) as BudgetRow[];
   const actuals = (actualsRes.data ?? []) as ActualRow[];
 
-  // Index lookups
   const stagesByProject = new Map<string, StageRow[]>();
   for (const s of stages) {
     const arr = stagesByProject.get(s.project_id) ?? [];
@@ -278,189 +273,16 @@ export async function getProjectsTree(): Promise<{
     healthByProject.set(p.id, computeProjectHealth(p, s, b, a));
   }
 
-  // Group projects by subdivision (null = "Unassigned")
-  const SUB_UNASSIGNED = "__no_subdivision__";
-  const bySub = new Map<string, ProjectRow[]>();
-  for (const p of projects) {
-    const key = p.subdivision?.trim() || SUB_UNASSIGNED;
-    const arr = bySub.get(key) ?? [];
-    arr.push(p);
-    bySub.set(key, arr);
-  }
-
-  const subdivisionNodes: TreeNode[] = [];
-  const unassignedProjects: ProjectRow[] = [];
-
-  for (const [subKey, subProjects] of bySub) {
-    if (subKey === SUB_UNASSIGNED) {
-      unassignedProjects.push(...subProjects);
-      continue;
-    }
-
-    const landDevProjects = subProjects.filter((p) => p.project_type === "land_development");
-    const homeProjects = subProjects.filter((p) => p.project_type === "home_construction");
-
-    const branches: TreeNode[] = [];
-
-    // ── Land Development branch ──
-    if (landDevProjects.length > 0) {
-      const ldProjectNodes: TreeNode[] = landDevProjects.map((p) => {
-        const h = healthByProject.get(p.id)!;
-        const projPhases = phasesByProject.get(p.id) ?? [];
-
-        const phaseNodes: TreeNode[] = projPhases.map((ph) => {
-          const phaseStatusDot: StatusKind =
-            ph.status === "complete" ? "complete" : ph.status === "in_progress" ? "active" : "planned";
-          const lotsTotal = ph.number_of_lots ?? 0;
-          const lotsSold = ph.lots_sold ?? 0;
-
-          return {
-            id: `phase:${p.id}:${ph.phase_number}`,
-            depth: 3,
-            kind: "phase",
-            name: ph.name ?? `Phase ${ph.phase_number ?? "?"}`,
-            subtitle: `${lotsTotal} lots · ${lotsSold} sold · ${lotsTotal - lotsSold} remaining`,
-            hasChildren: false,
-            children: [],
-            rollup: {
-              activeCount: ph.status === "in_progress" ? 1 : 0,
-              atRiskCount: 0,
-              progressPct: ph.status === "complete" ? 100 : ph.status === "in_progress" ? 50 : 0,
-              budgetDelta: 0,
-              worstState: worstStateFromDot(phaseStatusDot),
-            },
-            landDev: { lotsTotal, lotsSold, recognizedRevenue: 0 },
-          };
-        });
-
-        const landDevProjectRollup: TreeRollup = {
-          activeCount: isActiveStatus(p.status) ? 1 : 0,
-          atRiskCount: h.isOverBudget || h.hasDelayedStage ? 1 : 0,
-          progressPct: h.progressPct,
-          budgetDelta: h.budgetDelta,
-          worstState: worstStateFromDot(h.statusDot),
-        };
-
-        const totalLots = projPhases.reduce((s, ph) => s + (ph.number_of_lots ?? 0), 0);
-        const totalSold = projPhases.reduce((s, ph) => s + (ph.lots_sold ?? 0), 0);
-
-        return {
-          id: `landdev:${p.id}`,
-          depth: 2 as const,
-          kind: "land-dev-project" as const,
-          name: p.name,
-          subtitle: `${totalLots} lots · ${totalSold} sold`,
-          href: `/projects/${p.id}`,
-          children: phaseNodes,
-          rollup: landDevProjectRollup,
-          landDev: { lotsTotal: totalLots, lotsSold: totalSold, recognizedRevenue: 0 },
-        };
-      });
-
-      const ldRollup = rollupChildren(ldProjectNodes);
-      branches.push({
-        id: `landdev-branch:${subKey}`,
-        depth: 2,
-        kind: "land-dev-branch",
-        name: "Land Development",
-        subtitle:
-          ldProjectNodes.length === 1
-            ? undefined
-            : `${ldProjectNodes.length} projects`,
-        children: ldProjectNodes,
-        rollup: ldRollup,
-      });
-    }
-
-    // ── Home Construction branch ──
-    if (homeProjects.length > 0) {
-      const lotNodes: TreeNode[] = homeProjects.map((p) => {
-        const h = healthByProject.get(p.id)!;
-        return {
-          id: `home:${p.id}`,
-          depth: 4 as const,
-          kind: "lot-home" as const,
-          name: lotLabel(p),
-          subtitle: [p.plan, p.home_size_sf ? `${p.home_size_sf.toLocaleString()} SF` : null]
-            .filter(Boolean)
-            .join(" · "),
-          href: `/projects/${p.id}`,
-          children: [],
-          rollup: {
-            activeCount: isActiveStatus(p.status) ? 1 : 0,
-            atRiskCount: h.isOverBudget || h.hasDelayedStage ? 1 : 0,
-            progressPct: h.progressPct,
-            budgetDelta: h.budgetDelta,
-            worstState: worstStateFromDot(h.statusDot),
-          },
-          lot: {
-            statusDot: h.statusDot,
-            currentStage: h.currentStage ?? undefined,
-          },
-        };
-      });
-
-      // Single synthetic phase node so hierarchy is 5-deep like the spec.
-      // If phases.subdivision_id existed, we'd bucket lots by phase here.
-      const phaseNode: TreeNode = {
-        id: `home-phase:${subKey}`,
-        depth: 3,
-        kind: "phase",
-        name: "Phase 1 lots",
-        subtitle: `${lotNodes.length} lot${lotNodes.length !== 1 ? "s" : ""}`,
-        children: lotNodes,
-        rollup: rollupChildren(lotNodes),
-      };
-
-      branches.push({
-        id: `home-branch:${subKey}`,
-        depth: 2,
-        kind: "home-construction-branch",
-        name: "Home Construction",
-        subtitle: `${lotNodes.length} home${lotNodes.length !== 1 ? "s" : ""} · ${lotNodes.filter((n) => n.rollup.activeCount > 0).length} active`,
-        children: [phaseNode],
-        rollup: rollupChildren([phaseNode]),
-      });
-    }
-
-    const subRollup = rollupChildren(branches);
-
-    // Dot-scan strip: one dot per lot/home across all branches
-    const dotScan: { id: string; statusDot: StatusKind; label: string }[] = [];
-    function collectDots(node: TreeNode) {
-      if (node.kind === "lot-home" && node.lot) {
-        dotScan.push({ id: node.id, statusDot: node.lot.statusDot, label: node.name });
-      }
-      for (const c of node.children) collectDots(c);
-    }
-    for (const b of branches) collectDots(b);
-
-    subdivisionNodes.push({
-      id: `sub:${subKey}`,
-      depth: 1,
-      kind: "subdivision",
-      name: subKey,
-      subtitle: `${subProjects.length} project${subProjects.length !== 1 ? "s" : ""}`,
-      children: branches,
-      rollup: subRollup,
-      dotScan,
-    });
-  }
-
-  // Unassigned projects → render as their own top-level nodes (kind of "orphan" home/land-dev)
-  const orphanNodes: TreeNode[] = unassignedProjects.map((p) => {
+  function buildLotNode(p: ProjectRow): TreeNode {
     const h = healthByProject.get(p.id)!;
-    const isHome = p.project_type === "home_construction";
     return {
-      id: `orphan:${p.id}`,
-      depth: 1,
-      kind: isHome ? "lot-home" : "land-dev-project",
-      name: p.name,
-      subtitle: isHome
-        ? [p.plan, p.home_size_sf ? `${p.home_size_sf.toLocaleString()} SF` : null, p.address]
-            .filter(Boolean)
-            .join(" · ")
-        : p.address ?? undefined,
+      id: `home:${p.id}`,
+      depth: 2,
+      kind: "lot-home",
+      name: lotLabel(p),
+      subtitle: [p.plan, p.home_size_sf ? `${p.home_size_sf.toLocaleString()} SF` : null, p.address]
+        .filter(Boolean)
+        .join(" · ") || undefined,
       href: `/projects/${p.id}`,
       children: [],
       rollup: {
@@ -470,13 +292,137 @@ export async function getProjectsTree(): Promise<{
         budgetDelta: h.budgetDelta,
         worstState: worstStateFromDot(h.statusDot),
       },
-      lot: isHome
-        ? { statusDot: h.statusDot, currentStage: h.currentStage ?? undefined }
-        : undefined,
+      lot: {
+        statusDot: h.statusDot,
+        currentStage: h.currentStage ?? undefined,
+      },
     };
-  });
+  }
 
-  const root = [...subdivisionNodes, ...orphanNodes];
+  function buildLandDevProjectNode(p: ProjectRow): TreeNode {
+    const h = healthByProject.get(p.id)!;
+    const projPhases = phasesByProject.get(p.id) ?? [];
+
+    const phaseNodes: TreeNode[] = projPhases.map((ph) => {
+      const phaseStatusDot: StatusKind =
+        ph.status === "complete" ? "complete" : ph.status === "in_progress" ? "active" : "planned";
+      const lotsTotal = ph.number_of_lots ?? 0;
+      const lotsSold = ph.lots_sold ?? 0;
+      return {
+        id: `phase:${p.id}:${ph.phase_number}`,
+        depth: 2,
+        kind: "phase",
+        name: ph.name ?? `Phase ${ph.phase_number ?? "?"}`,
+        subtitle: `${lotsTotal} lots · ${lotsSold} sold · ${lotsTotal - lotsSold} remaining`,
+        children: [],
+        rollup: {
+          activeCount: ph.status === "in_progress" ? 1 : 0,
+          atRiskCount: 0,
+          progressPct: ph.status === "complete" ? 100 : ph.status === "in_progress" ? 50 : 0,
+          budgetDelta: 0,
+          worstState: worstStateFromDot(phaseStatusDot),
+        },
+        landDev: { lotsTotal, lotsSold, recognizedRevenue: 0 },
+      };
+    });
+
+    const totalLots = projPhases.reduce((s, ph) => s + (ph.number_of_lots ?? 0), 0);
+    const totalSold = projPhases.reduce((s, ph) => s + (ph.lots_sold ?? 0), 0);
+    const subtitleBits: string[] = [];
+    if (p.subdivision) subtitleBits.push(p.subdivision);
+    if (totalLots > 0) subtitleBits.push(`${totalLots} lots · ${totalSold} sold`);
+
+    return {
+      id: `landdev:${p.id}`,
+      depth: 1,
+      kind: "land-dev-project",
+      name: p.name,
+      subtitle: subtitleBits.join(" · ") || p.address || undefined,
+      href: `/projects/${p.id}`,
+      children: phaseNodes,
+      rollup: {
+        activeCount: isActiveStatus(p.status) ? 1 : 0,
+        atRiskCount: h.isOverBudget || h.hasDelayedStage ? 1 : 0,
+        progressPct: h.progressPct,
+        budgetDelta: h.budgetDelta,
+        worstState: worstStateFromDot(h.statusDot),
+      },
+      landDev: { lotsTotal: totalLots, lotsSold: totalSold, recognizedRevenue: 0 },
+    };
+  }
+
+  // ─── Home Construction section ───
+  const homeProjects = projects.filter((p) => p.project_type === "home_construction");
+  const homeSection: TreeNode | null = (() => {
+    if (homeProjects.length === 0) return null;
+
+    const bySub = new Map<string, ProjectRow[]>();
+    const orphans: ProjectRow[] = [];
+    for (const p of homeProjects) {
+      const sub = p.subdivision?.trim();
+      if (!sub) {
+        orphans.push(p);
+        continue;
+      }
+      const arr = bySub.get(sub) ?? [];
+      arr.push(p);
+      bySub.set(sub, arr);
+    }
+
+    const subNodes: TreeNode[] = [];
+    for (const [subName, subProjects] of bySub) {
+      const lotNodes = subProjects.map(buildLotNode);
+      const dotScan: { id: string; statusDot: StatusKind; label: string }[] = lotNodes
+        .filter((n) => n.lot)
+        .map((n) => ({ id: n.id, statusDot: n.lot!.statusDot, label: n.name }));
+
+      subNodes.push({
+        id: `sub:home:${subName}`,
+        depth: 1,
+        kind: "subdivision",
+        name: subName,
+        subtitle: `${lotNodes.length} home${lotNodes.length !== 1 ? "s" : ""} · ${lotNodes.filter((n) => n.rollup.activeCount > 0).length} active`,
+        children: lotNodes,
+        rollup: rollupChildren(lotNodes),
+        dotScan,
+      });
+    }
+
+    // Promote orphan homes to depth 1 directly under Home Construction
+    const orphanLots = orphans.map((p) => {
+      const base = buildLotNode(p);
+      return { ...base, depth: 1 as const };
+    });
+
+    const allChildren = [...subNodes, ...orphanLots];
+    return {
+      id: "section:home",
+      depth: 0,
+      kind: "home-construction-branch",
+      name: "Home Construction",
+      subtitle: `${homeProjects.length} home${homeProjects.length !== 1 ? "s" : ""}`,
+      children: allChildren,
+      rollup: rollupChildren(allChildren),
+    };
+  })();
+
+  // ─── Land Development section ───
+  const landDevProjects = projects.filter((p) => p.project_type === "land_development");
+  const landSection: TreeNode | null = (() => {
+    if (landDevProjects.length === 0) return null;
+    const projectNodes = landDevProjects.map(buildLandDevProjectNode);
+    return {
+      id: "section:land",
+      depth: 0,
+      kind: "land-dev-branch",
+      name: "Land Development",
+      subtitle: `${landDevProjects.length} project${landDevProjects.length !== 1 ? "s" : ""}`,
+      children: projectNodes,
+      rollup: rollupChildren(projectNodes),
+    };
+  })();
+
+  const root = [homeSection, landSection].filter((n): n is TreeNode => n !== null);
   const orgRollup = rollupChildren(root);
 
   return { root, orgRollup };

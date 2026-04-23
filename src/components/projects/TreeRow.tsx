@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, ArrowRight } from "lucide-react";
 import type { TreeNode, WorstState } from "@/lib/projects/tree";
 import type { StatusKind } from "@/components/ui/StatusBadge";
@@ -49,11 +50,14 @@ export interface TreeRowProps {
 }
 
 export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
+  const router = useRouter();
   const isOrg = node.kind === "org";
+  const isSectionHeader =
+    node.depth === 0 && (node.kind === "home-construction-branch" || node.kind === "land-dev-branch");
   const isLot = node.kind === "lot-home" || node.kind === "lot-forsale";
   const hasChildren = node.children.length > 0;
 
-  const rowHeight = isLot ? 44 : 52;
+  const rowHeight = isSectionHeader ? 44 : isLot ? 44 : 52;
   const indent = node.depth * 20 + 14;
 
   const accent = ACCENT_VAR[node.rollup.worstState];
@@ -61,18 +65,42 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
 
   const baseStyle: React.CSSProperties = isOrg
     ? { backgroundColor: "#0F172A", color: "white", minHeight: rowHeight, paddingLeft: indent }
-    : {
-        minHeight: rowHeight,
-        paddingLeft: indent,
-        backgroundColor: tint,
-        borderLeft: accent ? `3px solid ${accent}` : "3px solid transparent",
-      };
+    : isSectionHeader
+      ? {
+          minHeight: rowHeight,
+          paddingLeft: indent,
+          backgroundColor: "#F8FAFC",
+          borderLeft: "3px solid transparent",
+        }
+      : {
+          minHeight: rowHeight,
+          paddingLeft: indent,
+          backgroundColor: tint,
+          borderLeft: accent ? `3px solid ${accent}` : "3px solid transparent",
+        };
 
-  const nameSize = isLot ? "text-[12px]" : node.kind === "phase" ? "text-[13px]" : "text-[14px]";
+  const nameSize = isSectionHeader
+    ? "text-[11px] uppercase tracking-wider"
+    : isLot
+      ? "text-[12px]"
+      : node.kind === "phase"
+        ? "text-[13px]"
+        : "text-[14px]";
   const subColor = isOrg ? "text-slate-400" : "text-gray-400";
 
-  // Click body to toggle (unless it's a leaf with an href and no children).
-  const bodyClickable = hasChildren;
+  /**
+   * Primary click semantics:
+   * - If node has href → click anywhere on the row navigates to it (caret still toggles).
+   * - Else if node has children → click toggles expand.
+   * - Else → click is inert.
+   * This matches standard tree-with-detail-pages UX and fixes rows that previously
+   * required hovering to reveal the "Open →" link.
+   */
+  const handleRowClick = () => {
+    if (node.href) router.push(node.href);
+    else if (hasChildren) onToggle();
+  };
+  const rowInteractive = !!node.href || hasChildren;
 
   const deltaColor =
     node.rollup.budgetDelta > 0
@@ -85,9 +113,11 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
 
   return (
     <div
-      className={`group flex items-center gap-2 pr-3 border-b border-[color:var(--border-hair)] transition-colors ${bodyClickable ? "cursor-pointer hover:bg-gray-50/60" : ""}`}
+      className={`group flex items-center gap-2 pr-3 border-b border-[color:var(--border-hair)] transition-colors ${
+        rowInteractive ? "cursor-pointer hover:bg-gray-50/60" : ""
+      }`}
       style={baseStyle}
-      onClick={bodyClickable ? onToggle : undefined}
+      onClick={rowInteractive ? handleRowClick : undefined}
     >
       {/* Caret */}
       <div className="w-[22px] flex-shrink-0 flex items-center justify-center">
@@ -99,7 +129,7 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
               e.stopPropagation();
               onToggle();
             }}
-            className="text-gray-500 hover:text-gray-700"
+            className={isSectionHeader ? "text-gray-600 hover:text-gray-900" : "text-gray-500 hover:text-gray-700"}
           >
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
@@ -116,7 +146,11 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
       {/* Name + subtitle */}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 min-w-0">
-          <span className={`${nameSize} font-semibold truncate`}>{node.name}</span>
+          <span
+            className={`${nameSize} ${isSectionHeader ? "font-bold text-gray-500" : "font-semibold"} truncate`}
+          >
+            {node.name}
+          </span>
           {node.subtitle && (
             <span className={`text-[11px] ${subColor} truncate`}>{node.subtitle}</span>
           )}
@@ -140,8 +174,8 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
         )}
       </div>
 
-      {/* Rollup columns — hidden on mobile, visible md+ */}
-      {!isLot && (
+      {/* Rollup columns (parent rows) */}
+      {!isLot && !isSectionHeader && (
         <div className="hidden md:flex items-center">
           <div
             className={`w-[90px] text-right text-xs tabular-nums ${isOrg ? "text-white" : "text-gray-700"}`}
@@ -179,7 +213,33 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
         </div>
       )}
 
-      {/* Lot row: show current stage + progress inline */}
+      {/* Section header: show count + progress on the right */}
+      {isSectionHeader && (
+        <div className="hidden md:flex items-center">
+          <div className="w-[90px] text-right text-xs tabular-nums text-gray-600">
+            {node.rollup.activeCount > 0 ? `${node.rollup.activeCount} active` : "—"}
+          </div>
+          <div
+            className="w-[90px] text-right text-xs tabular-nums font-medium"
+            style={{
+              color: node.rollup.atRiskCount > 0 ? "var(--status-over)" : "#94A3B8",
+            }}
+          >
+            {node.rollup.atRiskCount > 0 ? `${node.rollup.atRiskCount} at risk` : "—"}
+          </div>
+          <div className="w-[80px] text-right text-xs tabular-nums text-gray-600">
+            {node.rollup.progressPct > 0 ? `${node.rollup.progressPct}%` : "—"}
+          </div>
+          <div
+            className="w-[90px] text-right text-xs tabular-nums font-medium"
+            style={{ color: deltaColor }}
+          >
+            {formatDelta(node.rollup.budgetDelta)}
+          </div>
+        </div>
+      )}
+
+      {/* Lot row rollup */}
       {isLot && (
         <div className="hidden md:flex items-center">
           <div className="w-[90px] text-right text-xs tabular-nums text-gray-700">
@@ -194,7 +254,8 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
         </div>
       )}
 
-      {/* Action link */}
+      {/* Action link — redundant when the row itself navigates, but kept as a
+         visible affordance on hover. */}
       <div className="w-[60px] flex-shrink-0 text-right">
         {node.href ? (
           <Link

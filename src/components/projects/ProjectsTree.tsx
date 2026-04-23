@@ -104,17 +104,9 @@ export default function ProjectsTree({ root, orgRollup }: ProjectsTreeProps) {
     [root, openIds, search],
   );
 
-  const orgNode: TreeNode = {
-    id: "org",
-    depth: 0,
-    kind: "org",
-    name: "All projects",
-    subtitle: `${root.length} subdivision${root.length !== 1 ? "s" : ""}`,
-    children: [],
-    rollup: orgRollup,
-  };
-
-  const showOrgRow = root.length > 1;
+  // Section headers (Home Construction / Land Development) serve as the
+  // tree's top level now. No synthetic "All projects" row needed.
+  void orgRollup;
 
   // Keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -225,10 +217,6 @@ export default function ProjectsTree({ root, orgRollup }: ProjectsTreeProps) {
           <div className="w-[90px] text-right">Δ Budget</div>
           <div className="w-[60px]" />
         </div>
-
-        {showOrgRow && (
-          <TreeRow node={orgNode} expanded={false} onToggle={() => {}} />
-        )}
 
         {visible.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-gray-400">

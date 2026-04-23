@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import ProjectCard from "@/components/dashboard/ProjectCard";
-import AttentionCard from "@/components/dashboard/AttentionCard";
 import type { StageStripStage } from "@/components/ui/StageStrip";
 import Link from "next/link";
 import {
@@ -171,79 +170,16 @@ export default async function DashboardPage() {
   const expiringVendors = (vendors ?? []).filter((v) => { const c = daysUntil(v.coi_expiry_date); const l = daysUntil(v.license_expiry_date); return (c !== null && c <= 30) || (l !== null && l <= 30); });
   const overBudgetProjects = allProjects.filter((p) => { const a = actualByProject[p.id] ?? 0; const b = budgetByProject[p.id] ?? 0; return a > b && b > 0; });
 
-  // ─── Build the Needs Attention list — sorted by priority ───
-  type AttentionItem = {
-    kind: "over" | "delayed" | "warning";
-    priority: number; // higher = surface first
-    title: string;
-    subtitle: string;
-    href: string;
+  // Counter only — detail list lives on /notifications
+  const delayedProjectCount = allProjects.filter((p) => getDelayedStageDays(p.id) !== null).length;
+  const attention = {
+    length:
+      overBudgetProjects.length +
+      delayedProjectCount +
+      pendingInvoices.length +
+      pastDueInvoices.length +
+      expiringVendors.length,
   };
-  const attention: AttentionItem[] = [];
-
-  for (const p of overBudgetProjects) {
-    const actual = actualByProject[p.id] ?? 0;
-    const budget = budgetByProject[p.id] ?? 0;
-    const over = actual - budget;
-    attention.push({
-      kind: "over",
-      priority: 3,
-      title: `${p.name} · over budget`,
-      subtitle: `${fmt(over)} over · ${getCurrentStage(p.id)?.stage_name ?? "current stage"}`,
-      href: `/projects/${p.id}`,
-    });
-  }
-
-  for (const p of allProjects) {
-    const d = getDelayedStageDays(p.id);
-    if (d) {
-      attention.push({
-        kind: "delayed",
-        priority: 2,
-        title: `${p.name} · ${d.stage} delayed`,
-        subtitle: `${d.days} day${d.days !== 1 ? "s" : ""} past schedule`,
-        href: `/projects/${p.id}`,
-      });
-    }
-  }
-
-  for (const inv of pendingInvoices) {
-    attention.push({
-      kind: "warning",
-      priority: 1,
-      title: `Invoice ${inv.invoice_number ?? "#—"} · ${inv.vendor ?? "Unknown vendor"}`,
-      subtitle: `Pending approval · ${fmt(inv.total_amount ?? inv.amount ?? 0)}`,
-      href: `/invoices/${inv.id}`,
-    });
-  }
-
-  for (const inv of pastDueInvoices) {
-    attention.push({
-      kind: "over",
-      priority: 3,
-      title: `Invoice ${inv.invoice_number ?? "#—"} · past due`,
-      subtitle: `${inv.vendor ?? "Unknown vendor"} · ${fmt(inv.total_amount ?? inv.amount ?? 0)}`,
-      href: `/invoices/${inv.id}`,
-    });
-  }
-
-  for (const v of expiringVendors) {
-    const c = daysUntil(v.coi_expiry_date);
-    const l = daysUntil(v.license_expiry_date);
-    const which: string =
-      c !== null && c <= 30 && (l === null || c < l) ? "COI" : "License";
-    const days = which === "COI" ? c ?? 0 : l ?? 0;
-    attention.push({
-      kind: "warning",
-      priority: 1,
-      title: `${v.name} · ${which} ${days < 0 ? "expired" : "expiring"}`,
-      subtitle: days < 0 ? `Expired ${-days}d ago` : `Expires in ${days}d`,
-      href: `/vendors/${v.id}`,
-    });
-  }
-
-  attention.sort((a, b) => b.priority - a.priority);
-  const visibleAttention = attention.slice(0, 8);
 
   // ─── Risk score for project grid ───
   function riskScore(pid: string): number {
@@ -294,8 +230,8 @@ export default async function DashboardPage() {
               <Plus size={13} /> New Project
             </Link>
             {attention.length > 0 && (
-              <a
-                href="#needs-attention"
+              <Link
+                href="/notifications"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
                 style={{
                   backgroundColor: "rgb(239 68 68 / 0.1)",
@@ -307,7 +243,7 @@ export default async function DashboardPage() {
                   style={{ backgroundColor: "var(--status-over)" }}
                 />
                 {attention.length} need attention
-              </a>
+              </Link>
             )}
           </div>
         </div>
@@ -328,37 +264,6 @@ export default async function DashboardPage() {
             </>
           )}
         </div>
-
-        {/* ── Needs Attention (hero) ── */}
-        {attention.length > 0 && (
-          <section id="needs-attention" className="mb-8 scroll-mt-4">
-            <div className="flex items-baseline justify-between mb-3">
-              <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                Needs Attention
-              </h3>
-              {attention.length > 8 && (
-                <Link
-                  href="/projects"
-                  className="text-xs font-medium"
-                  style={{ color: "var(--brand-blue)" }}
-                >
-                  Show all {attention.length} →
-                </Link>
-              )}
-            </div>
-            <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] overflow-hidden">
-              {visibleAttention.map((a, i) => (
-                <AttentionCard
-                  key={`${a.href}:${i}`}
-                  kind={a.kind}
-                  title={a.title}
-                  subtitle={a.subtitle}
-                  href={a.href}
-                />
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* ── Main Grid ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

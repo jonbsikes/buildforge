@@ -50,6 +50,7 @@ export const navSections: NavSection[] = [
     subNav: [
       { label: "Summary", href: "/financial" },
       { label: "Accounts payable", href: "/invoices" },
+      { label: "Payment register", href: "/banking/payments" },
       { label: "Banking", href: "/banking/accounts" },
       { label: "Loans", href: "/banking/loans" },
       { label: "Draws", href: "/draws" },
