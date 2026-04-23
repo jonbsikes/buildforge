@@ -4,14 +4,15 @@ import { useState, useTransition } from "react";
 import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import type { Phase } from "@/components/projects/ProjectTabs";
 import { createPhase, updatePhase, deletePhase } from "@/app/actions/projects";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 const STATUSES = ["planning", "in_progress", "complete", "on_hold"] as const;
 
-const STATUS_COLORS: Record<string, string> = {
-  complete:    "bg-green-100 text-green-700",
-  in_progress: "bg-blue-100 text-blue-700",
-  on_hold:     "bg-amber-100 text-amber-700",
-  planning:    "bg-gray-100 text-gray-600",
+const STATUS_KINDS: Record<string, StatusKind> = {
+  complete:    "complete",
+  in_progress: "active",
+  on_hold:     "warning",
+  planning:    "planned",
 };
 
 interface PhaseForm {
@@ -303,9 +304,9 @@ export default function PhasesTab({ projectId, initialPhases }: { projectId: str
                     <td className="px-3 py-3 text-xs text-gray-600">{phase.number_of_lots ?? "—"}</td>
                     <td className="px-3 py-3 text-xs text-gray-600">{phase.lots_sold ?? 0}</td>
                     <td className="px-3 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[phase.status] ?? "bg-gray-100 text-gray-600"}`}>
+                      <StatusBadge status={STATUS_KINDS[phase.status] ?? "neutral"} size="sm">
                         {phase.status.replace(/_/g, " ")}
-                      </span>
+                      </StatusBadge>
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

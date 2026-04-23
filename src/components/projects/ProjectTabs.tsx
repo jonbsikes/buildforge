@@ -2,12 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  DollarSign, BarChart3, ClipboardList, Palette, FileText, FolderOpen, LayoutGrid,
+  DollarSign, BarChart3, ClipboardList, Palette, FileText, FolderOpen, LayoutGrid, Layers,
 } from "lucide-react";
 import GanttTab from "@/components/projects/tabs/GanttTab";
 import StageReportTab from "@/components/projects/tabs/StageReportTab";
 import CostItemsTab from "@/components/projects/tabs/CostItemsTab";
-import BudgetTab from "@/components/projects/tabs/BudgetTab";
 import PhasesTab from "@/components/projects/tabs/PhasesTab";
 import SelectionsTab from "@/components/projects/tabs/SelectionsTab";
 import FieldLogsTab from "@/components/projects/tabs/FieldLogsTab";
@@ -85,6 +84,7 @@ const TAB_ICONS: Record<string, React.ElementType> = {
   "gantt":        BarChart3,
   "stage-report": ClipboardList,
   "budget":       LayoutGrid,
+  "phases":       Layers,
   "selections":   Palette,
   "field-logs":   FileText,
   "documents":    FolderOpen,
@@ -100,6 +100,7 @@ const HOME_TABS = [
 ] as const;
 
 const LAND_TABS = [
+  { id: "phases",       label: "Phases" },
   { id: "stage-report", label: "Stages" },
   { id: "cost-items",   label: "Job Costs" },
   { id: "gantt",        label: "Gantt" },
@@ -115,8 +116,9 @@ export default function ProjectTabs({
   projectId, isHome, startDate, buildStages, costCodes, availableCostCodes, phases, documents,
   committedByCostCodeId, actualByCostCodeId,
 }: Props) {
+  void committedByCostCodeId;
   const tabs = isHome ? HOME_TABS : LAND_TABS;
-  const [activeTab, setActiveTab] = useState<TabId>("stage-report");
+  const [activeTab, setActiveTab] = useState<TabId>(isHome ? "stage-report" : "phases");
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
 
@@ -197,6 +199,9 @@ export default function ProjectTabs({
         )}
         {activeTab === "cost-items" && (
           <CostItemsTab projectId={projectId} isHome={isHome} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} actualByCostCodeId={actualByCostCodeId} />
+        )}
+        {activeTab === "phases" && !isHome && (
+          <PhasesTab projectId={projectId} initialPhases={phases} />
         )}
         {activeTab === "selections" && isHome && <SelectionsTab projectId={projectId} />}
         {activeTab === "field-logs" && <FieldLogsTab projectId={projectId} />}
