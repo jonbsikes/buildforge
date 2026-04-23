@@ -701,16 +701,21 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 22 — Remove `@ts-nocheck` from `draws.ts` (god-module)
+### Step 22 — Remove `@ts-nocheck` from `draws.ts` (god-module) ✅ DONE
 
-**Goal:** Kill the directive on the last large action-file god-module. Same playbook as Step 13 (`payments.ts` / `projects.ts`).
+**Status:** Completed 2026-04-23 on branch `overhaul/step-22-draws-ts`.
 
-**What to do:**
-- Remove the directive, run `npx tsc --noEmit`, fix real errors one by one.
-- Expected fallout patterns (from Step 13 experience): PostgREST joined-result narrowing, optional-field dereferences, enum-string casts.
-- NO `as any`. Each error is either a real bug (fix it) or a missing narrow (write it).
+**Surprise:** removing the directive produced **zero type errors**. The Step 2 GL helpers (`postJournalEntry`, `getAccountIdMap`) + Step 3's `fundDraw` / `markVendorPaymentPaid` rewrites + Step 16's hardening pass had, as a by-product, already made the file type-clean. The `@ts-nocheck` was stale — a leftover from the original "Fix all TypeScript build errors for Vercel deployment" commit that predated the overhaul.
 
-**Verify:** `grep "ts-nocheck" src/app/actions/draws.ts` empty. `npx tsc --noEmit` clean.
+**What shipped:**
+- Deleted the `// @ts-nocheck` directive from line 1 of [draws.ts](src/app/actions/draws.ts).
+- Replaced the one existing `as any` cast at line 1330 with a properly typed `JoinedInvoice` narrowing for the PostgREST nested-join result (`vendor_payment_invoices → invoices → projects`).
+
+**Invariants after this step:**
+- `grep "ts-nocheck\|as any" src/app/actions/draws.ts` → empty.
+- `npx tsc --noEmit` → EXIT=0.
+
+**References:** Closes the last `@ts-nocheck` in `src/app/actions/`. Every server-actions file is now type-checked.
 
 ---
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
@@ -1324,11 +1323,20 @@ export async function adjustVendorPaymentAmount(
     `)
     .eq("vendor_payment_id", vendorPaymentId);
 
-  // Determine project_id from first linked invoice
+  // Determine project_id from first linked invoice. The nested shape from
+  // PostgREST for this join isn't fully inferred by the generic client types,
+  // so narrow manually with an explicit type cast.
+  type JoinedInvoice = {
+    id: string;
+    project_id: string | null;
+    projects: { project_type: string | null } | null;
+  } | null;
+
   let projectId: string | null = null;
   let isLandDev = false;
-  if ((links ?? []).length > 0) {
-    const firstInvoice = (links![0] as any)?.invoices;
+  const firstLink = (links ?? [])[0];
+  if (firstLink) {
+    const firstInvoice = (firstLink as { invoices: JoinedInvoice }).invoices;
     if (firstInvoice) {
       projectId = firstInvoice.project_id ?? null;
       isLandDev = firstInvoice.projects?.project_type === "land_development";
