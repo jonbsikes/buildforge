@@ -80,7 +80,7 @@ interface PhaseRow {
 
 interface BudgetRow {
   project_id: string;
-  budget_amount: number | null;
+  budgeted_amount: number | null;
 }
 
 interface ActualRow {
@@ -129,7 +129,10 @@ function computeProjectHealth(
       s.planned_end_date < today,
   );
 
-  const budgetDelta = actual - budget;
+  // When no budget is set, skip "over budget" signaling — we don't have
+  // anything meaningful to compare actuals against. Delta stays at 0 so
+  // the tree doesn't show a misleading "+$XXXk over" against a zero budget.
+  const budgetDelta = budget > 0 ? actual - budget : 0;
   const isOverBudget = budget > 0 && actual > budget;
 
   let statusDot: StatusKind = "planned";
@@ -222,7 +225,7 @@ export async function getProjectsTree(): Promise<{
       .from("project_phases")
       .select("project_id, phase_number, name, status, number_of_lots, lots_sold")
       .order("phase_number", { ascending: true }),
-    supabase.from("project_cost_codes").select("project_id, budget_amount"),
+    supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
     supabase.from("invoices").select("project_id, amount, status"),
   ]);
 
@@ -252,7 +255,7 @@ export async function getProjectsTree(): Promise<{
     if (!b.project_id) continue;
     budgetByProject.set(
       b.project_id,
-      (budgetByProject.get(b.project_id) ?? 0) + (b.budget_amount ?? 0),
+      (budgetByProject.get(b.project_id) ?? 0) + (b.budgeted_amount ?? 0),
     );
   }
 
