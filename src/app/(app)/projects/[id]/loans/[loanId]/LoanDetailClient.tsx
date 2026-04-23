@@ -216,7 +216,7 @@ export default function LoanDetailClient({ projectId, loan, draws: initialDraws,
               <p className="text-xs text-gray-500 mb-1">Notes</p>
               <input value={drawNotes} onChange={(e) => setDrawNotes(e.target.value)}
                 placeholder="Optional notes for this draw"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             {selectedInvoices.size > 0 && (
               <p className="text-sm font-medium text-gray-800 mb-3">
@@ -312,7 +312,7 @@ export default function LoanDetailClient({ projectId, loan, draws: initialDraws,
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Type</label>
                 <select value={paymentType} onChange={(e) => setPaymentType(e.target.value as PaymentType)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="interest">Interest</option>
                   <option value="principal">Principal</option>
                   <option value="interest_reserve">Interest Reserve</option>
@@ -321,17 +321,17 @@ export default function LoanDetailClient({ projectId, loan, draws: initialDraws,
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Amount ($)</label>
                 <input type="number" min="0" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Date</label>
                 <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Notes</label>
                 <input value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
             </div>
             <div className="flex gap-2">

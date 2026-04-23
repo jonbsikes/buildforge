@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Plus, Trash2, AlertTriangle, AlertCircle, Truck } from "lucide-react";
 import { createVendor, updateVendor, deleteVendor } from "@/app/actions/vendors";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 import type { Database } from "@/types/database";
 
 function vendorInputFromForm(fd: FormData, existing?: Vendor) {
@@ -168,7 +169,6 @@ export default function VendorsClient({ vendors }: { vendors: Vendor[] }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterTrade, setFilterTrade] = useState("");
-  const [, startTransition] = useTransition();
 
   const filtered = vendors.filter((v) => {
     const matchSearch =
@@ -283,16 +283,18 @@ export default function VendorsClient({ vendors }: { vendors: Vendor[] }) {
                     >
                       Edit
                     </button>
-                    <button
-                      onClick={() =>
-                        startTransition(async () => {
-                          if (confirm(`Delete ${vendor.name}?`)) await deleteVendor(vendor.id);
-                        })
-                      }
-                      className="text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    <ConfirmButton
+                      trigger={<Trash2 size={15} />}
+                      title={`Delete ${vendor.name}?`}
+                      body="This permanently removes the vendor."
+                      confirmLabel="Delete"
+                      tone="danger"
+                      onConfirm={async () => {
+                        await deleteVendor(vendor.id);
+                      }}
+                      triggerClassName="text-gray-300 hover:text-red-500 transition-colors"
+                      ariaLabel={`Delete ${vendor.name}`}
+                    />
                   </div>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Camera, Upload, Trash2, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFieldLogPhoto, deleteFieldLogPhoto } from "@/app/actions/field-logs";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 export interface FieldLogPhoto {
   id: string;
@@ -108,7 +109,6 @@ export default function FieldLogPhotos({
   }
 
   async function handleDelete(photo: FieldLogPhoto) {
-    if (!confirm(`Delete ${photo.file_name}?`)) return;
     const prev = photos;
     setPhotos((p) => p.filter((x) => x.id !== photo.id));
     try {
@@ -144,14 +144,18 @@ export default function FieldLogPhotos({
                 />
               </a>
               {!readOnly && (
-                <button
-                  type="button"
-                  onClick={() => handleDelete(photo)}
-                  className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-white/90 text-gray-600 hover:text-red-600 opacity-0 group-hover:opacity-100 transition shadow"
-                  aria-label="Delete photo"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <ConfirmButton
+                  trigger={<Trash2 size={14} />}
+                  title={`Delete ${photo.file_name}?`}
+                  body="This will permanently remove the photo."
+                  confirmLabel="Delete"
+                  tone="danger"
+                  onConfirm={async () => {
+                    await handleDelete(photo);
+                  }}
+                  triggerClassName="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-white/90 text-gray-600 hover:text-red-600 opacity-0 group-hover:opacity-100 transition shadow"
+                  ariaLabel="Delete photo"
+                />
               )}
             </div>
           ))}

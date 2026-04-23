@@ -16,6 +16,7 @@ import {
   Search,
 } from "lucide-react";
 import { uploadDocument, deleteDocument } from "@/app/actions/documents";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 import type { Database } from "@/types/database";
 
 type Document = Database["public"]["Tables"]["documents"]["Row"];
@@ -213,7 +214,7 @@ function DocTable({
 }: {
   docs: Document[];
   resolveContext: (d: Document) => string;
-  onDelete: (id: string, path: string | null, name: string) => void;
+  onDelete: (id: string, path: string | null) => Promise<void> | void;
   showFolder?: boolean;
 }) {
   if (docs.length === 0) {
@@ -277,12 +278,18 @@ function DocTable({
                       <ExternalLink size={14} />
                     </a>
                   )}
-                  <button
-                    onClick={() => onDelete(doc.id, doc.storage_path, doc.file_name)}
-                    className="text-gray-300 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <ConfirmButton
+                    trigger={<Trash2 size={14} />}
+                    title={`Delete "${doc.file_name}"?`}
+                    body="This will permanently remove the document."
+                    confirmLabel="Delete"
+                    tone="danger"
+                    onConfirm={async () => {
+                      await onDelete(doc.id, doc.storage_path);
+                    }}
+                    triggerClassName="text-gray-300 hover:text-red-500 transition-colors"
+                    ariaLabel={`Delete ${doc.file_name}`}
+                  />
                 </div>
               </td>
             </tr>
@@ -306,7 +313,6 @@ export default function DocumentsClient({
   const [showUpload, setShowUpload] = useState(false);
   const [folderFilter, setFolderFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [, startTransition] = useTransition();
 
   // Counts per category
   const projectDocCount = useMemo(
@@ -336,10 +342,8 @@ export default function DocumentsClient({
 
   const totalSizeMb = documents.reduce((s, d) => s + (d.file_size_kb ?? 0), 0) / 1024;
 
-  const handleDelete = (id: string, path: string | null, name: string) => {
-    startTransition(async () => {
-      if (confirm(`Delete "${name}"?`)) await deleteDocument(id, path);
-    });
+  const handleDelete = async (id: string, path: string | null) => {
+    await deleteDocument(id, path);
   };
 
   const resolveContext = (d: Document) => {

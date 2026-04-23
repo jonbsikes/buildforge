@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Upload, FileText, Trash2, ExternalLink, Loader2 } from "lucide-react";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 const FOLDER_OPTIONS = ["W9", "COI", "License", "Contract", "Other"] as const;
 type Folder = typeof FOLDER_OPTIONS[number];
@@ -106,7 +107,6 @@ export default function VendorDocuments({ vendorId, initialDocs }: Props) {
   }
 
   async function handleDelete(doc: VendorDocument) {
-    if (!confirm(`Delete "${doc.file_name}"?`)) return;
     setDeletingId(doc.id);
     try {
       await supabase.storage.from("documents").remove([doc.storage_path]);
@@ -180,15 +180,18 @@ export default function VendorDocuments({ vendorId, initialDocs }: Props) {
               >
                 {openingId === doc.id ? <Loader2 size={15} className="animate-spin" /> : <ExternalLink size={15} />}
               </button>
-              <button
-                type="button"
-                onClick={() => handleDelete(doc)}
-                disabled={deletingId === doc.id}
-                className="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
-                title="Delete"
-              >
-                {deletingId === doc.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-              </button>
+              <ConfirmButton
+                trigger={deletingId === doc.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                title={`Delete "${doc.file_name}"?`}
+                body="This permanently removes the document."
+                confirmLabel="Delete"
+                tone="danger"
+                onConfirm={async () => {
+                  await handleDelete(doc);
+                }}
+                triggerClassName="text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                ariaLabel={`Delete ${doc.file_name}`}
+              />
             </div>
           ))}
         </div>

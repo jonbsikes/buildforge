@@ -57,7 +57,7 @@ export default function NewLoanForm({ projectId, contacts }: Props) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Loan Type</label>
                 <select value={form.loan_type} onChange={(e) => set("loan_type", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="construction">Construction</option>
                   <option value="land">Land</option>
                   <option value="lot">Lot</option>
@@ -67,12 +67,12 @@ export default function NewLoanForm({ projectId, contacts }: Props) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Loan Number</label>
                 <input value={form.loan_number} onChange={(e) => set("loan_number", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Lender</label>
                 <select value={form.lender_id} onChange={(e) => set("lender_id", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="">— No lender —</option>
                   {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -81,18 +81,18 @@ export default function NewLoanForm({ projectId, contacts }: Props) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Total Commitment ($) <span className="text-red-500">*</span></label>
                 <input required type="number" min="0" step="1000" value={form.total_amount} onChange={(e) => set("total_amount", e.target.value)}
                   placeholder="0"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Interest Rate (% annual)</label>
                 <input type="number" min="0" max="100" step="0.01" value={form.interest_rate} onChange={(e) => set("interest_rate", e.target.value)}
                   placeholder="e.g. 7.25"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Rate Type</label>
                 <select value={form.rate_type} onChange={(e) => set("rate_type", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="fixed">Fixed</option>
                   <option value="variable">Variable</option>
                 </select>
@@ -100,12 +100,12 @@ export default function NewLoanForm({ projectId, contacts }: Props) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Origination Date</label>
                 <input type="date" value={form.origination_date} onChange={(e) => set("origination_date", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Maturity Date</label>
                 <input type="date" value={form.maturity_date} onChange={(e) => set("maturity_date", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
             </div>
             {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}

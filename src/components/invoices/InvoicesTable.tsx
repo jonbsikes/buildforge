@@ -17,6 +17,7 @@ import {
   setPendingDrawBatch,
 } from "@/app/actions/invoice-batch";
 import StatusDot from "@/components/ui/StatusDot";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 const STATUS_COLORS: Record<string, string> = {
   pending_review: "bg-amber-100 text-amber-700",
@@ -225,13 +226,10 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
     setSelected(new Set());
   }
 
-  function handleDeleteSelected() {
-    if (!confirm(`Delete ${selected.size} invoice${selected.size > 1 ? "s" : ""}? This cannot be undone.`)) return;
+  async function handleDeleteSelected() {
     const ids = [...selected];
-    startTransition(async () => {
-      await Promise.all(ids.map((id) => deleteInvoice(id)));
-      exitSelectMode();
-    });
+    await Promise.all(ids.map((id) => deleteInvoice(id)));
+    exitSelectMode();
   }
 
   function SortIcon({ field }: { field: SortField }) {
@@ -673,29 +671,33 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                               </div>
                             </button>
                             {inv.vendors?.auto_draft && (
-                              <button
-                                onClick={() => {
+                              <ConfirmButton
+                                trigger={
+                                  <>
+                                    <Zap size={14} className="text-amber-600" />
+                                    <div>
+                                      <div className="font-medium text-gray-900">Mark as auto-drafted</div>
+                                      <div className="text-[11px] text-gray-500">Bank already pulled funds</div>
+                                    </div>
+                                  </>
+                                }
+                                title="Mark as auto-drafted?"
+                                body="This will clear it immediately and post DR AP / CR Cash."
+                                confirmLabel="Mark as auto-drafted"
+                                tone="neutral"
+                                onConfirm={async () => {
                                   setPayMenuFor(null);
-                                  if (!confirm("Mark this invoice as auto-drafted? This will clear it immediately and post DR AP / CR Cash.")) return;
                                   setStatusOverrides((prev) => ({ ...prev, [inv.id]: "cleared" }));
-                                  startTransition(async () => {
-                                    const r = await payInvoiceAutoDraft(inv.id);
-                                    if (r.error) {
-                                      setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
-                                      setBanner({ type: "error", msg: r.error });
-                                    } else {
-                                      setBanner({ type: "success", msg: "Invoice marked as auto-drafted" });
-                                    }
-                                  });
+                                  const r = await payInvoiceAutoDraft(inv.id);
+                                  if (r.error) {
+                                    setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
+                                    setBanner({ type: "error", msg: r.error });
+                                    return { error: r.error };
+                                  }
+                                  setBanner({ type: "success", msg: "Invoice marked as auto-drafted" });
                                 }}
-                                className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100"
-                              >
-                                <Zap size={14} className="text-amber-600" />
-                                <div>
-                                  <div className="font-medium text-gray-900">Mark as auto-drafted</div>
-                                  <div className="text-[11px] text-gray-500">Bank already pulled funds</div>
-                                </div>
-                              </button>
+                                triggerClassName="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100"
+                              />
                             )}
                           </div>
                         )}
@@ -715,50 +717,52 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                         {moreMenuFor === inv.id && (
                           <div ref={popRef} className="absolute right-0 top-full mt-1 z-20 w-44 bg-white rounded-lg shadow-lg border border-gray-200 py-1 text-xs">
                             {effectiveStatus === "approved" && (
-                              <button
-                                onClick={() => {
+                              <ConfirmButton
+                                trigger={<>Un-approve</>}
+                                title="Revert to pending review?"
+                                body="This moves the invoice back to pending review."
+                                confirmLabel="Revert"
+                                tone="neutral"
+                                onConfirm={async () => {
                                   setMoreMenuFor(null);
-                                  if (!confirm("Revert this invoice back to pending review?")) return;
                                   setStatusOverrides((prev) => ({ ...prev, [inv.id]: "pending_review" }));
-                                  startTransition(async () => {
-                                    const r = await setInvoiceStatus(inv.id, "pending_review");
-                                    if (r.error) {
-                                      setStatusOverrides((prev) => {
-                                        const n = { ...prev };
-                                        delete n[inv.id];
-                                        return n;
-                                      });
-                                      setBanner({ type: "error", msg: r.error });
-                                    }
-                                  });
+                                  const r = await setInvoiceStatus(inv.id, "pending_review");
+                                  if (r.error) {
+                                    setStatusOverrides((prev) => {
+                                      const n = { ...prev };
+                                      delete n[inv.id];
+                                      return n;
+                                    });
+                                    setBanner({ type: "error", msg: r.error });
+                                    return { error: r.error };
+                                  }
                                 }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-700"
-                              >
-                                Un-approve
-                              </button>
+                                triggerClassName="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+                              />
                             )}
                             {(effectiveStatus === "pending_review" || effectiveStatus === "approved") && (
-                              <button
-                                onClick={() => {
+                              <ConfirmButton
+                                trigger={<>Mark disputed</>}
+                                title="Mark this invoice as disputed?"
+                                body="Disputed invoices are held for further review."
+                                confirmLabel="Mark disputed"
+                                tone="danger"
+                                onConfirm={async () => {
                                   setMoreMenuFor(null);
-                                  if (!confirm("Mark this invoice as disputed?")) return;
                                   setStatusOverrides((prev) => ({ ...prev, [inv.id]: "disputed" }));
-                                  startTransition(async () => {
-                                    const r = await setInvoiceStatus(inv.id, "disputed");
-                                    if (r.error) {
-                                      setStatusOverrides((prev) => {
-                                        const n = { ...prev };
-                                        delete n[inv.id];
-                                        return n;
-                                      });
-                                      setBanner({ type: "error", msg: r.error });
-                                    }
-                                  });
+                                  const r = await setInvoiceStatus(inv.id, "disputed");
+                                  if (r.error) {
+                                    setStatusOverrides((prev) => {
+                                      const n = { ...prev };
+                                      delete n[inv.id];
+                                      return n;
+                                    });
+                                    setBanner({ type: "error", msg: r.error });
+                                    return { error: r.error };
+                                  }
                                 }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-amber-700"
-                              >
-                                Mark disputed
-                              </button>
+                                triggerClassName="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-amber-700"
+                              />
                             )}
                             {effectiveStatus === "disputed" && (
                               <button
@@ -783,19 +787,22 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                               </button>
                             )}
                             {effectiveStatus !== "void" && effectiveStatus !== "cleared" && effectiveStatus !== "released" && (
-                              <button
-                                onClick={() => {
+                              <ConfirmButton
+                                trigger={<>Void</>}
+                                title="Void this invoice?"
+                                body="This cannot be easily reversed."
+                                confirmLabel="Void"
+                                tone="danger"
+                                onConfirm={async () => {
                                   setMoreMenuFor(null);
-                                  if (!confirm("Void this invoice? This cannot be easily reversed.")) return;
-                                  startTransition(async () => {
-                                    const r = await voidInvoice(inv.id);
-                                    if (r.error) setBanner({ type: "error", msg: r.error });
-                                  });
+                                  const r = await voidInvoice(inv.id);
+                                  if (r.error) {
+                                    setBanner({ type: "error", msg: r.error });
+                                    return { error: r.error };
+                                  }
                                 }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-red-600 border-t border-gray-100"
-                              >
-                                Void
-                              </button>
+                                triggerClassName="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-red-600 border-t border-gray-100"
+                              />
                             )}
                             {(effectiveStatus === "released" || effectiveStatus === "cleared") && (
                               <Link
@@ -829,19 +836,18 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       />
                     </td>
                     <td className="px-4 py-2 w-8 text-center" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!confirm("Delete this invoice?")) return;
-                          startTransition(async () => {
-                            await deleteInvoice(inv.id);
-                          });
+                      <ConfirmButton
+                        trigger={<Trash2 size={14} />}
+                        title="Delete this invoice?"
+                        body="This permanently removes the invoice."
+                        confirmLabel="Delete"
+                        tone="danger"
+                        onConfirm={async () => {
+                          await deleteInvoice(inv.id);
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 rounded transition-all"
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                        triggerClassName="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 rounded transition-all"
+                        ariaLabel="Delete invoice"
+                      />
                     </td>
                   </tr>
                   {/* Expanded row */}
@@ -911,14 +917,15 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
           >
             Remove from draw
           </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
-          >
-            <Trash2 size={13} />
-            Delete
-          </button>
+          <ConfirmButton
+            trigger={<><Trash2 size={13} />Delete</>}
+            title={`Delete ${selected.size} invoice${selected.size > 1 ? "s" : ""}?`}
+            body="This cannot be undone."
+            confirmLabel="Delete"
+            tone="danger"
+            onConfirm={handleDeleteSelected}
+            triggerClassName="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+          />
           <button
             onClick={exitSelectMode}
             className="text-sm text-gray-400 hover:text-white transition-colors"

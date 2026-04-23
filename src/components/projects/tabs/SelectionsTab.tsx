@@ -8,6 +8,7 @@ import {
   updateSelectionStatus,
   deleteSelection,
 } from "@/app/actions/projects";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 interface Selection {
   id: string;
@@ -76,22 +77,20 @@ function StatusStepper({ selectionId, status, projectId, onChange }: {
 function DeleteButton({ selectionId, projectId, onDeleted }: {
   selectionId: string; projectId: string; onDeleted: () => void;
 }) {
-  const [isPending, startTransition] = useTransition();
   return (
-    <button
-      onClick={() => {
-        if (!confirm("Remove this selection?")) return;
-        startTransition(async () => {
-          await deleteSelection(projectId, selectionId);
-          onDeleted();
-        });
+    <ConfirmButton
+      trigger={<Trash2 size={14} />}
+      title="Remove this selection?"
+      body="This permanently removes the selection."
+      confirmLabel="Remove"
+      tone="danger"
+      onConfirm={async () => {
+        await deleteSelection(projectId, selectionId);
       }}
-      disabled={isPending}
-      className="text-gray-300 hover:text-red-400 active:text-red-500 transition-colors disabled:opacity-40 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
-      aria-label="Remove selection"
-    >
-      <Trash2 size={14} />
-    </button>
+      onSuccess={onDeleted}
+      triggerClassName="text-gray-300 hover:text-red-400 active:text-red-500 transition-colors disabled:opacity-40 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
+      ariaLabel="Remove selection"
+    />
   );
 }
 

@@ -130,12 +130,12 @@ export default function NewPOForm({ projects, vendors, costCodes, nextPONumber }
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">PO Number</label>
                 <input value={form.po_number} onChange={(e) => set("po_number", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select value={form.status} onChange={(e) => set("status", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="draft">Draft</option>
                   <option value="sent">Sent</option>
                   <option value="acknowledged">Acknowledged</option>
@@ -144,14 +144,14 @@ export default function NewPOForm({ projects, vendors, costCodes, nextPONumber }
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Project <span className="text-red-500">*</span></label>
                 <select required value={form.project_id} onChange={(e) => set("project_id", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Vendor</label>
                 <select value={form.vendor_id} onChange={(e) => set("vendor_id", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="">— No vendor —</option>
                   {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
@@ -159,7 +159,7 @@ export default function NewPOForm({ projects, vendors, costCodes, nextPONumber }
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cost Code</label>
                 <select value={form.cost_code} onChange={(e) => set("cost_code", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                   <option value="">— Select cost code —</option>
                   <optgroup label="Land Development (1–33)">
                     {landCodes.map((c) => <option key={c.code} value={c.code}>{c.code} — {c.description}</option>)}
@@ -173,18 +173,18 @@ export default function NewPOForm({ projects, vendors, costCodes, nextPONumber }
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description <span className="text-red-500">*</span></label>
                 <input required value={form.description} onChange={(e) => set("description", e.target.value)}
                   placeholder="What is this PO for?"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount ($)</label>
                 <input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => set("amount", e.target.value)}
                   placeholder="0.00"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Issued Date</label>
                 <input type="date" value={form.issued_date} onChange={(e) => set("issued_date", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
               </div>
             </div>
 

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Plus, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
 import { createCostCode, toggleCostCode, deleteCostCode } from "@/app/actions/cost-codes";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 import type { Database } from "@/types/database";
 
 type CostCode = Database["public"]["Tables"]["cost_codes"]["Row"];
@@ -145,14 +146,18 @@ export default function SettingsClient({ costCodes }: { costCodes: CostCode[] })
                       </button>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => startTransition(async () => {
-                          if (confirm(`Delete cost code "${cc.code}"?`)) await deleteCostCode(cc.id);
-                        })}
-                        className="text-gray-300 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <ConfirmButton
+                        trigger={<Trash2 size={15} />}
+                        title={`Delete cost code "${cc.code}"?`}
+                        body="This permanently removes the cost code."
+                        confirmLabel="Delete"
+                        tone="danger"
+                        onConfirm={async () => {
+                          await deleteCostCode(cc.id);
+                        }}
+                        triggerClassName="text-gray-300 hover:text-red-500 transition-colors"
+                        ariaLabel={`Delete cost code ${cc.code}`}
+                      />
                     </td>
                   </tr>
                 ))}

@@ -169,7 +169,7 @@ export default function BudgetClient({ projectId, contractPrice, budgetRows: ini
             <div className="flex-1 min-w-[200px]">
               <label className="block text-xs font-medium text-amber-800 mb-1">Cost Code</label>
               <select value={newCode} onChange={(e) => setNewCode(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
                 <option value="">Select code…</option>
                 <optgroup label="Land Development (1–33)">
                   {costCodes.filter((c) => c.category === "Land Development" && !usedCodes.has(c.code)).map((c) => (
@@ -187,7 +187,7 @@ export default function BudgetClient({ projectId, contractPrice, budgetRows: ini
               <label className="block text-xs font-medium text-amber-800 mb-1">Budgeted Amount ($)</label>
               <input type="number" min="0" step="100" value={newBudget} onChange={(e) => setNewBudget(e.target.value)}
                 placeholder="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
             </div>
             <div className="flex gap-2">
               <button onClick={handleAddRow} disabled={saving || !newCode}

@@ -25,6 +25,7 @@ import {
   Tag,
   History,
 } from "lucide-react";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -202,15 +203,14 @@ export default function PaymentRegisterClient({
     });
   }
 
-  function handleVoid(paymentId: string) {
-    if (!confirm("Void this payment? This will reverse all GL entries and revert linked invoices to Approved."))
-      return;
+  async function handleVoid(paymentId: string) {
     setError(null);
-    startTransition(async () => {
-      const result = await voidPayment(paymentId);
-      if (result.error) setError(result.error);
-      else router.refresh();
-    });
+    const result = await voidPayment(paymentId);
+    if (result.error) {
+      setError(result.error);
+      return { error: result.error };
+    }
+    router.refresh();
   }
 
   return (
@@ -393,7 +393,7 @@ export default function PaymentRegisterClient({
                       expanded={expanded}
                       onToggle={() => toggleRow(p.id)}
                       onClear={() => setClearingPaymentId(p.id)}
-                      onVoid={() => handleVoid(p.id)}
+                      onVoid={async () => await handleVoid(p.id)}
                       MethodIcon={MethodIcon}
                     />
                   );
@@ -488,7 +488,7 @@ function PaymentTableRow({
   expanded: boolean;
   onToggle: () => void;
   onClear: () => void;
-  onVoid: () => void;
+  onVoid: () => Promise<unknown> | unknown;
   MethodIcon: typeof Banknote;
 }) {
   const discountAmt = p.discount_amount ?? 0;
@@ -584,13 +584,16 @@ function PaymentTableRow({
               </button>
             )}
             {p.status !== "void" && (
-              <button
-                onClick={onVoid}
-                title="Void Payment"
-                className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
-              >
-                <X size={14} />
-              </button>
+              <ConfirmButton
+                trigger={<X size={14} />}
+                title="Void this payment?"
+                body="This will reverse all GL entries and revert linked invoices to Approved."
+                confirmLabel="Void"
+                tone="danger"
+                onConfirm={onVoid}
+                triggerClassName="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                ariaLabel="Void Payment"
+              />
             )}
           </div>
         </td>

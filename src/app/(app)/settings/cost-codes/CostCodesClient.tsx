@@ -57,7 +57,7 @@ export default function CostCodesClient({ costCodes }: { costCodes: CostCode[] }
                 placeholder="Search codes…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
               />
             </div>
           </div>

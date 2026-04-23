@@ -315,7 +315,7 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                         <input type="date"
                           value={edits[key as keyof ProjectStage] as string ?? ps[key as keyof ProjectStage] as string ?? ""}
                           onChange={(e) => setEdit(master.stage_number, key, e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                          className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]" />
                       </div>
                     ))}
                   </div>
@@ -327,7 +327,7 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                       value={edits.notes as string ?? ps.notes ?? ""}
                       onChange={(e) => setEdit(master.stage_number, "notes", e.target.value)}
                       rows={2}
-                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none" />
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF] resize-none" />
                   </div>
 
                   {Object.keys(edits).length > 0 && (
@@ -370,7 +370,7 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                         placeholder="Caption (optional)"
                         value={photoCaptions[stageId] ?? ""}
                         onChange={(e) => setPhotoCaptions((p) => ({ ...p, [stageId]: e.target.value }))}
-                        className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
                       />
                       <label className={`inline-flex items-center gap-1.5 text-xs border border-amber-400 text-amber-600 px-2.5 py-1.5 rounded-lg hover:bg-amber-50 cursor-pointer transition-colors ${uploadingPhoto === stageId ? "opacity-50 pointer-events-none" : ""}`}>
                         <Upload size={12} />
@@ -422,12 +422,12 @@ export default function StageTrackerClient({ projectId, masterStages, projectSta
                         placeholder="Document name"
                         value={docNames[stageId] ?? ""}
                         onChange={(e) => setDocNames((p) => ({ ...p, [stageId]: e.target.value }))}
-                        className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
                       />
                       <select
                         value={docTypes[stageId] ?? "other"}
                         onChange={(e) => setDocTypes((p) => ({ ...p, [stageId]: e.target.value }))}
-                        className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
                       >
                         <option value="inspection_report">Inspection Report</option>
                         <option value="permit">Permit</option>
