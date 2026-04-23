@@ -98,7 +98,7 @@ export function Pdf({ data, params, logo }: { data: SelectionsData; params: Repo
                       style={[
                         styles.tr,
                         i % 2 === 1 ? styles.trZebra : {},
-                      ] as any}
+                      ]}
                       wrap={false}
                     >
                       <View style={{ width: "55%" }}>

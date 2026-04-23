@@ -50,21 +50,32 @@ export async function getData(p: ReportParams): Promise<BudgetVarianceData> {
     .eq("project_id", projectId)
     .eq("enabled", true);
 
-  // Fetch invoices (actual) — sum from line items per cost code
+  // Fetch invoices (actual) — sum from line items per cost code.
+  // Aliased/nested joins aren't inferred by PostgREST types.
+  type InvoiceLineRow = {
+    cost_code: string | null;
+    amount: number | null;
+    invoice: { project_id: string | null; status: string } | null;
+  };
   const { data: invoiceLineData } = await supabase
     .from("invoice_line_items")
     .select("cost_code, amount, invoice:invoices(project_id, status)");
 
   const actualMap: Record<string, number> = {};
-  for (const il of invoiceLineData ?? []) {
-    const inv = il.invoice as any;
-    if (inv?.project_id === projectId && inv?.status && ["approved", "released", "cleared"].includes(inv.status) && il.cost_code) {
+  const allowedInvoiceStatuses = new Set(["approved", "released", "cleared"]);
+  for (const il of ((invoiceLineData ?? []) as unknown as InvoiceLineRow[])) {
+    const inv = il.invoice;
+    if (inv?.project_id === projectId && inv?.status && allowedInvoiceStatuses.has(inv.status) && il.cost_code) {
       actualMap[il.cost_code] = (actualMap[il.cost_code] ?? 0) + (il.amount ?? 0);
     }
   }
 
-  const rows: VarianceRow[] = (pccData ?? [])
-    .map((pcc: any) => {
+  type PccRow = {
+    budgeted_amount: number | null;
+    cost_codes: { code: string; name: string } | null;
+  };
+  const rows: VarianceRow[] = ((pccData ?? []) as unknown as PccRow[])
+    .map((pcc) => {
       const cc = pcc.cost_codes;
       if (!cc) return null;
       const budget = pcc.budgeted_amount ?? 0;

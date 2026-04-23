@@ -91,25 +91,31 @@ export async function getData(p: ReportParams): Promise<SubdivisionOverviewData>
   }
 
   // Fetch stages to calculate % complete
+  type StageRow = { project_id: string; status: string };
   const { data: stagesData } = await supabase
     .from("build_stages")
     .select("project_id, status");
 
-  const stagesByProject: Record<string, any[]> = {};
-  for (const s of stagesData ?? []) {
+  const stagesByProject: Record<string, StageRow[]> = {};
+  for (const s of (stagesData ?? []) as StageRow[]) {
     if (!stagesByProject[s.project_id]) stagesByProject[s.project_id] = [];
     stagesByProject[s.project_id]!.push(s);
   }
 
-  // Fetch invoices for actual spend
+  // Fetch invoices for actual spend. Aliased joins aren't inferred.
+  type InvoiceLineRow = {
+    amount: number | null;
+    invoice: { project_id: string | null; status: string } | null;
+  };
   const { data: invoiceLineData } = await supabase
     .from("invoice_line_items")
     .select("amount, invoice:invoices(project_id, status)");
 
   const spendByProject: Record<string, number> = {};
-  for (const il of invoiceLineData ?? []) {
-    const inv = il.invoice as any;
-    if (inv?.project_id && inv?.status && ["approved", "released", "cleared"].includes(inv.status)) {
+  const allowedInvoiceStatuses = new Set(["approved", "released", "cleared"]);
+  for (const il of ((invoiceLineData ?? []) as unknown as InvoiceLineRow[])) {
+    const inv = il.invoice;
+    if (inv?.project_id && inv?.status && allowedInvoiceStatuses.has(inv.status)) {
       spendByProject[inv.project_id] = (spendByProject[inv.project_id] ?? 0) + (il.amount ?? 0);
     }
   }
@@ -120,7 +126,7 @@ export async function getData(p: ReportParams): Promise<SubdivisionOverviewData>
   let totalContractValue = 0;
   let totalSpend = 0;
 
-  const homes: HomeRow[] = (projectsData ?? []).map((proj: any) => {
+  const homes: HomeRow[] = (projectsData ?? []).map((proj) => {
     const stages = stagesByProject[proj.id] ?? [];
     const doneCount = stages.filter((s) => s.status === "complete").length;
     const pct = stages.length > 0 ? (doneCount / stages.length) * 100 : 0;

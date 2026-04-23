@@ -864,6 +864,44 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
+### Step 27 — Post-ship cleanup: `as any` sweep + dead `"scheduled"` filter + branch cleanup ✅ DONE
+
+**Status:** Completed 2026-04-23. Shipped as a post-hoc tidy after the user asked about the three remaining threads.
+
+**What shipped:**
+
+**1. `as any` sweep on 7 sibling PDF report files** (`src/lib/reports/reports/`). These weren't `@ts-nocheck` but had pre-existing casts that slipped through the Step 23 financial-reports cleanup. All replaced with proper typed narrowings following the Step 23 playbook.
+- `budgetVariance.tsx` — typed `InvoiceLineRow` + `PccRow` for PostgREST nested joins; 2 casts replaced.
+- `fieldLogs.tsx` — typed `FieldLogRow`; react-pdf `Style[]` cast dropped (inference works fine); 3 casts replaced.
+- `gantt.tsx` — already clean, no casts to remove.
+- `incomeStatement.tsx` — typed `LedgerRow`; 4 react-pdf style-array casts dropped; added `!acc.type` guard for the account-type `.includes` call (type-clean, same runtime).
+- `jobCost.tsx` — typed `InvoiceLineRow` + `JeLineRow`; replaced the awkward `.in("invoice.status" as any, [...])` PostgREST filter-on-join string with an in-JS post-filter using a `Set` (same behaviour thanks to `!inner`); `p.status` / `p.subdivision` now use proper `ProjectStatus` / `ProjectType` enum casts; 5 casts replaced.
+- `selections.tsx` — 1 react-pdf style-array cast dropped.
+- `subdivisionOverview.tsx` — typed `StageRow` + `InvoiceLineRow`; `(proj: any)` dropped in favor of the inferred `projectsData` element type; 3 casts replaced.
+
+**2. Removed dead `"scheduled"` invoice-status filter literal** from 4 remaining call sites (2 original targets landed in files deleted by Step 24). Per CLAUDE.md the valid invoice statuses are `pending_review | approved | released | cleared | disputed | void` — `"scheduled"` was never a real status; the `.in()` filter literal matched zero rows at runtime. If the product ever adds a scheduled-for-payment state it should go in through a migration + state machine update, not a speculative filter.
+- `src/components/financial/TaxExportClient.tsx:136`
+- `src/components/financial/APAgingClient.tsx:88`
+- `src/app/(app)/reports/page.tsx:22`
+- `src/app/(app)/projects/[id]/page.tsx:104`
+
+**3. Branch cleanup.** Pre-cleanup audit confirmed:
+- Local `master`: 0 commits ahead of `main` — deleted.
+- Remote `origin/Financial-Dump`: 0 commits ahead — deleted.
+- Remote `origin/claude/magical-margulis`: 0 commits ahead — deleted.
+- Remote `origin/master`: 5 commits ahead but all 5 were pre-overhaul `fix:` commits (truncation repair, legacy `AppShell`/`Sidebar` removal, UI-redesign restore) that have been superseded by the overhaul — deleted. Commits are preserved in the reflog if ever needed.
+
+**Invariants after this step:**
+- `grep -rn "as any" src/lib/reports/reports` → empty.
+- `grep -rn '"scheduled"' src` → empty.
+- `git branch -a` shows only `main` + `origin/main` (+ `origin/HEAD -> origin/main`).
+- `npx tsc --noEmit` → EXIT=0.
+
+**What's left (same list as Step 26; noted here for completeness):**
+- Nothing in-scope. The overhaul is done.
+
+---
+
 ## What To Leave Alone
 
 - **`proxy.ts` naming** — Next.js 15.3+ convention, not a typo.

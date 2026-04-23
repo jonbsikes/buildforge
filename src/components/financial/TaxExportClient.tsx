@@ -133,7 +133,7 @@ export default function TaxExportClient() {
         const { data: invoicesData } = await supabase
           .from("invoices")
           .select("invoice_date, invoice_number, vendor, amount, total_amount, status, payment_date, payment_method, projects(name), cost_codes(code, name)")
-          .in("status", ["approved", "scheduled", "released", "cleared", "pending_review"])
+          .in("status", ["approved", "released", "cleared", "pending_review"])
           .gte("invoice_date", fromDate)
           .lte("invoice_date", toDate)
           .order("invoice_date");

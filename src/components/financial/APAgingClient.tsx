@@ -85,7 +85,7 @@ export default function APAgingClient() {
       const { data: invoices } = await supabase
         .from("invoices")
         .select("id, vendor, invoice_number, invoice_date, due_date, amount, status, project_id, projects(id, name)")
-        .in("status", ["pending_review", "approved", "scheduled"])
+        .in("status", ["pending_review", "approved"])
         .order("due_date");
 
       const list = invoices ?? [];

@@ -8,6 +8,10 @@ import {
   Empty,
 } from "../pdf/components";
 import type { ReportParams } from "../types";
+import type { Database } from "@/types/database";
+
+type ProjectStatus = Database["public"]["Enums"]["project_status"];
+type ProjectType = Database["public"]["Enums"]["project_type"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,14 +45,14 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
   let projQuery = supabase
     .from("projects")
     .select("id, name, project_type, subdivision, status")
-    .eq("project_type", projectType as "land_development" | "home_construction" | "general_admin")
+    .eq("project_type", projectType as ProjectType)
     .order("name");
 
   if (p.status && p.status !== "all") {
-    projQuery = projQuery.eq("status", p.status as any);
+    projQuery = projQuery.eq("status", p.status as ProjectStatus);
   }
   if (p.subdivision && p.subdivision !== "all") {
-    projQuery = projQuery.eq("subdivision", p.subdivision as any);
+    projQuery = projQuery.eq("subdivision", p.subdivision);
   }
 
   const { data: projects } = await projQuery;
@@ -62,7 +66,7 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
   const { data: ccData } = await supabase
     .from("cost_codes")
     .select("id, code, name, project_type")
-    .eq("project_type", projectType as "land_development" | "home_construction" | "general_admin")
+    .eq("project_type", projectType as ProjectType)
     .eq("is_active", true)
     .order("sort_order");
 
@@ -72,29 +76,43 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
 
   const actualsMap: Record<string, Record<string, number>> = {};
   if (projectIds.length > 0) {
-    // Invoice line items
+    // Invoice line items. Aliased joins aren't inferred by PostgREST types.
+    type InvoiceLineRow = {
+      cost_code: string | null;
+      amount: number | null;
+      project_id: string | null;
+      invoice: { status: string } | null;
+    };
     const { data: lineData } = await supabase
       .from("invoice_line_items")
       .select("cost_code, amount, project_id, invoice:invoices!inner(status)")
-      .in("project_id", projectIds)
-      .in("invoice.status" as any, ["approved", "released", "cleared"]);
+      .in("project_id", projectIds);
 
-    for (const row of lineData ?? []) {
+    const allowedInvoiceStatuses = new Set(["approved", "released", "cleared"]);
+    for (const row of ((lineData ?? []) as unknown as InvoiceLineRow[])) {
       if (!row.cost_code || !row.project_id) continue;
+      if (!row.invoice || !allowedInvoiceStatuses.has(row.invoice.status)) continue;
       if (!actualsMap[row.cost_code]) actualsMap[row.cost_code] = {};
       actualsMap[row.cost_code][row.project_id] =
         (actualsMap[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
     }
 
     // Journal entry lines (manual JEs, lot costs, etc. — skip invoice-related to avoid double-counting)
+    type JeLineRow = {
+      cost_code_id: string | null;
+      project_id: string | null;
+      debit: number | null;
+      credit: number | null;
+      journal_entry: { status: string; source_type: string | null } | null;
+    };
     const { data: jeLineData } = await supabase
       .from("journal_entry_lines")
       .select("cost_code_id, project_id, debit, credit, journal_entry:journal_entries!inner(status, source_type)")
       .in("project_id", projectIds)
       .not("cost_code_id", "is", null);
 
-    for (const row of jeLineData ?? []) {
-      const je = (row as any).journal_entry;
+    for (const row of ((jeLineData ?? []) as unknown as JeLineRow[])) {
+      const je = row.journal_entry;
       if (!je || je.status !== "posted") continue;
       if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
       if (!row.cost_code_id || !row.project_id) continue;

@@ -19,7 +19,7 @@ export default async function ReportsPage() {
     supabase
       .from("invoice_line_items")
       .select("project_id, cost_code, amount, invoices!inner ( status )")
-      .in("invoices.status", ["approved", "scheduled", "released", "cleared"]),
+      .in("invoices.status", ["approved", "released", "cleared"]),
   ]);
 
   return (

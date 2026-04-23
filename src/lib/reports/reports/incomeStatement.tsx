@@ -36,6 +36,16 @@ export async function getData(p: ReportParams): Promise<IncomeStatementData> {
   const start = p.start!;
   const end = p.end!;
 
+  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+  type LedgerRow = {
+    id: string;
+    debit: number | null;
+    credit: number | null;
+    description: string | null;
+    account: { account_number: string; name: string; type: string | null } | null;
+    journal_entry: { entry_date: string; status: string } | null;
+  };
+
   const { data: ledgerLines } = await supabase
     .from("journal_entry_lines")
     .select(`
@@ -44,16 +54,16 @@ export async function getData(p: ReportParams): Promise<IncomeStatementData> {
       journal_entry:journal_entries(entry_date, status)
     `);
 
-  const posted = (ledgerLines ?? []).filter((l: any) =>
+  const posted = ((ledgerLines ?? []) as unknown as LedgerRow[]).filter((l) =>
     l.journal_entry?.status === "posted" &&
-    l.journal_entry?.entry_date >= start &&
-    l.journal_entry?.entry_date <= end
+    (l.journal_entry?.entry_date ?? "") >= start &&
+    (l.journal_entry?.entry_date ?? "") <= end
   );
 
   const byAccount: Record<string, { account_number: string; name: string; type: string; debit: number; credit: number }> = {};
   for (const line of posted) {
-    const acc = line.account as any;
-    if (!acc || !["revenue", "cogs", "expense"].includes(acc.type)) continue;
+    const acc = line.account;
+    if (!acc || !acc.type || !["revenue", "cogs", "expense"].includes(acc.type)) continue;
     const key = acc.account_number;
     if (!byAccount[key]) {
       byAccount[key] = { account_number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0 };
@@ -97,7 +107,7 @@ function AccountRows({ lines }: { lines: AccountLine[] }) {
       {lines.map((l, i) => (
         <View
           key={l.account_number}
-          style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}] as any}
+          style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}]}
           wrap={false}
         >
           <View style={{ width: "70%" }}>
@@ -123,7 +133,7 @@ function Subtotal({ label, value, tone }: { label: string; value: number; tone?:
         <Text style={[styles.tdStrong]}>{label}</Text>
       </View>
       <View style={{ width: "30%" }}>
-        <Text style={[styles.tdNumStrong, toneStyle] as any}>{fmtMoney(value)}</Text>
+        <Text style={[styles.tdNumStrong, toneStyle]}>{fmtMoney(value)}</Text>
       </View>
     </View>
   );
@@ -153,7 +163,7 @@ export function Pdf({ data, params, logo }: { data: IncomeStatementData; params:
             style={[
               styles.tdNumStrong,
               { fontSize: 10, color: data.grossProfit >= 0 ? colors.green : colors.red },
-            ] as any}
+            ]}
           >
             {fmtMoney(data.grossProfit)}
           </Text>
@@ -164,7 +174,7 @@ export function Pdf({ data, params, logo }: { data: IncomeStatementData; params:
       <AccountRows lines={data.expenses} />
       <Subtotal label="Total Operating Expenses" value={data.totalExpenses} tone="red" />
 
-      <View style={[styles.totalRow] as any} wrap={false}>
+      <View style={[styles.totalRow]} wrap={false}>
         <View style={{ width: "70%" }}>
           <Text style={[styles.tdStrong, { fontSize: 11 }]}>Net Income</Text>
         </View>
@@ -173,7 +183,7 @@ export function Pdf({ data, params, logo }: { data: IncomeStatementData; params:
             style={[
               styles.tdNumStrong,
               { fontSize: 11, color: data.netIncome >= 0 ? colors.green : colors.red },
-            ] as any}
+            ]}
           >
             {fmtMoney(data.netIncome)}
           </Text>

@@ -40,7 +40,13 @@ export async function getData(p: ReportParams): Promise<FieldLogsData> {
   const start = p.start || "2000-01-01";
   const end = p.end || "2099-12-31";
 
-  // Fetch logs
+  // Fetch logs. Aliased joins aren't inferred by PostgREST types.
+  type FieldLogRow = {
+    id: string;
+    log_date: string;
+    notes: string;
+    project: { id: string; name: string } | null;
+  };
   const { data: logsData } = await supabase
     .from("field_logs")
     .select(
@@ -52,9 +58,9 @@ export async function getData(p: ReportParams): Promise<FieldLogsData> {
     .order("log_date", { ascending: false });
 
   // Filter by projectId if provided
-  let filteredLogs = logsData ?? [];
+  let filteredLogs = ((logsData ?? []) as unknown as FieldLogRow[]);
   if (p.projectId) {
-    filteredLogs = filteredLogs.filter((l: any) => l.project?.id === p.projectId);
+    filteredLogs = filteredLogs.filter((l) => l.project?.id === p.projectId);
   }
 
   // Fetch todos
@@ -69,7 +75,7 @@ export async function getData(p: ReportParams): Promise<FieldLogsData> {
     todosByLog[t.field_log_id]!.push(t);
   }
 
-  const logs: FieldLog[] = filteredLogs.map((l: any) => ({
+  const logs: FieldLog[] = filteredLogs.map((l) => ({
     log_date: l.log_date,
     notes: l.notes,
     project_name: l.project?.name ?? "—",
@@ -111,7 +117,7 @@ export function Pdf({ data, params, logo }: { data: FieldLogsData; params: Repor
             <View key={i} style={{ marginBottom: 12 }} wrap={false}>
               <SubHeading>{fmtDate(log.log_date)} • {log.project_name}</SubHeading>
               <View style={{ marginLeft: 12, marginBottom: 8 }}>
-                <Text style={[styles.td, { marginBottom: 6 }] as any}>
+                <Text style={[styles.td, { marginBottom: 6 }]}>
                   {log.notes}
                 </Text>
               </View>

@@ -101,7 +101,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       .from("invoice_line_items")
       .select("cost_code, amount, invoices!inner ( status )")
       .eq("project_id", id)
-      .in("invoices.status", ["approved", "scheduled", "released", "cleared"]),
+      .in("invoices.status", ["approved", "released", "cleared"]),
 
     supabase
       .from("journal_entry_lines")
