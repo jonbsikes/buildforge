@@ -49,6 +49,7 @@ export const navSections: NavSection[] = [
     matchPaths: ["/financial", "/invoices", "/banking", "/draws", "/loans"],
     subNav: [
       { label: "Summary", href: "/financial" },
+      { label: "Balance sheet", href: "/financial/balance-sheet" },
       { label: "Accounts payable", href: "/invoices" },
       { label: "Payment register", href: "/banking/payments" },
       { label: "Banking", href: "/banking/accounts" },

@@ -30,13 +30,6 @@ function fmtDate(d: string) {
   });
 }
 
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Morning";
-  if (h < 17) return "Afternoon";
-  return "Evening";
-}
-
 export default async function DashboardPage() {
   const supabase = await createClient();
   const today = new Date().toISOString().split("T")[0]!;
@@ -45,7 +38,6 @@ export default async function DashboardPage() {
   const weekStr = weekFromNow.toISOString().split("T")[0]!;
 
   const [
-    { data: user },
     { data: projects },
     { data: pccRows },
     { data: invoices },
@@ -54,7 +46,6 @@ export default async function DashboardPage() {
     { data: buildStages },
     { data: draws },
   ] = await Promise.all([
-    supabase.auth.getUser(),
     supabase.from("projects").select("id, name, status, project_type, subdivision, address, start_date, block, lot, plan, home_size_sf, size_acres, number_of_lots").in("status", ["active", "pre_construction"]).order("created_at", { ascending: false }),
     supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
     supabase.from("invoices").select("id, status, amount, total_amount, due_date, project_id, vendor, invoice_number, invoice_line_items ( project_id, amount )"),
@@ -66,11 +57,6 @@ export default async function DashboardPage() {
 
   const allProjects = projects ?? [];
   const activeCount = allProjects.filter((p) => p.status === "active").length;
-
-  const firstName =
-    (user?.user?.user_metadata?.full_name as string | undefined)?.split(" ")[0] ||
-    user?.user?.email?.split("@")[0] ||
-    "there";
 
   const budgetByProject: Record<string, number> = {};
   for (const pcc of pccRows ?? []) if (pcc.project_id) budgetByProject[pcc.project_id] = (budgetByProject[pcc.project_id] ?? 0) + (pcc.budgeted_amount ?? 0);
@@ -217,11 +203,23 @@ export default async function DashboardPage() {
       <Header title="Dashboard" />
       <main className="flex-1 p-4 lg:p-8 overflow-auto">
 
-        {/* ── Greeting + at-risk counter ── */}
-        <div className="flex items-start justify-between mb-3">
-          <h2 className="text-2xl font-semibold text-gray-900">
-            {greeting()}, {firstName}
-          </h2>
+        {/* ── Slim metrics row + actions ── */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
+            <span><span className="font-semibold text-gray-900">{activeCount}</span> active</span>
+            <span className="text-gray-300">·</span>
+            <span><span className="font-semibold text-gray-900">{fmt(inFlightTotal)}</span> in flight</span>
+            <span className="text-gray-300">·</span>
+            <span><span className="font-semibold text-gray-900">{fmt(apThisWeek)}</span> AP this week</span>
+            <span className="text-gray-300">·</span>
+            <span><span className="font-semibold text-gray-900">{fmt(outstandingAP)}</span> AP outstanding</span>
+            {pendingDraws > 0 && (
+              <>
+                <span className="text-gray-300">·</span>
+                <span><span className="font-semibold text-gray-900">{pendingDraws}</span> draw{pendingDraws !== 1 ? "s" : ""} pending</span>
+              </>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Link
               href="/projects/new"
@@ -246,23 +244,6 @@ export default async function DashboardPage() {
               </Link>
             )}
           </div>
-        </div>
-
-        {/* ── Slim metrics row ── */}
-        <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1 mb-6 tabular-nums">
-          <span><span className="font-semibold text-gray-900">{activeCount}</span> active</span>
-          <span className="text-gray-300">·</span>
-          <span><span className="font-semibold text-gray-900">{fmt(inFlightTotal)}</span> in flight</span>
-          <span className="text-gray-300">·</span>
-          <span><span className="font-semibold text-gray-900">{fmt(apThisWeek)}</span> AP this week</span>
-          <span className="text-gray-300">·</span>
-          <span><span className="font-semibold text-gray-900">{fmt(outstandingAP)}</span> AP outstanding</span>
-          {pendingDraws > 0 && (
-            <>
-              <span className="text-gray-300">·</span>
-              <span><span className="font-semibold text-gray-900">{pendingDraws}</span> draw{pendingDraws !== 1 ? "s" : ""} pending</span>
-            </>
-          )}
         </div>
 
         {/* ── Main Grid ── */}
