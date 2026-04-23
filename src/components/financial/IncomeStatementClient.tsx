@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState, useCallback, ReactNode } from "react";
@@ -67,6 +66,25 @@ export default function IncomeStatementClient() {
 
     const supabase = createClient();
 
+    // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+    type LedgerRow = {
+      id: string;
+      debit: number | null;
+      credit: number | null;
+      description: string | null;
+      account: {
+        account_number: string;
+        name: string;
+        type: string | null;
+      } | null;
+      journal_entry: {
+        entry_date: string;
+        reference: string | null;
+        description: string | null;
+        status: string;
+      } | null;
+    };
+
     // Fetch ALL journal entry lines with account and entry info — paginate past
     // Supabase's 1000-row default cap, then filter client-side.
     const ledgerSelect = `
@@ -74,7 +92,7 @@ export default function IncomeStatementClient() {
       account:chart_of_accounts(account_number, name, type),
       journal_entry:journal_entries(entry_date, reference, description, status)
     `;
-    let ledgerLines: any[] = [];
+    let ledgerLines: LedgerRow[] = [];
     let fromIdx = 0;
     const PAGE_SIZE = 1000;
     while (true) {
@@ -83,34 +101,34 @@ export default function IncomeStatementClient() {
         .select(ledgerSelect)
         .range(fromIdx, fromIdx + PAGE_SIZE - 1);
       if (!page || page.length === 0) break;
-      ledgerLines = ledgerLines.concat(page);
+      ledgerLines = ledgerLines.concat(page as unknown as LedgerRow[]);
       if (page.length < PAGE_SIZE) break;
       fromIdx += PAGE_SIZE;
     }
 
     // Filter to posted entries within date range (client-side to avoid PostgREST foreign table filter issues)
-    const posted = ledgerLines.filter((l: any) =>
+    const posted = ledgerLines.filter((l) =>
       l.journal_entry?.status === "posted" &&
-      l.journal_entry?.entry_date >= start &&
-      l.journal_entry?.entry_date <= end
+      (l.journal_entry?.entry_date ?? "") >= start &&
+      (l.journal_entry?.entry_date ?? "") <= end
     );
 
     // Group by account for revenue, cogs, expense types only
     const byAccount: Record<string, { account_number: string; name: string; type: string; debit: number; credit: number; entries: DrillLine[] }> = {};
 
     for (const line of posted) {
-      const acc = line.account as { account_number: string; name: string; type: string };
-      const je = line.journal_entry as { entry_date: string; reference: string | null; description: string };
-      if (!acc || !["revenue", "cogs", "expense"].includes(acc.type)) continue;
+      const acc = line.account;
+      const je = line.journal_entry;
+      if (!acc || !acc.type || !["revenue", "cogs", "expense"].includes(acc.type)) continue;
       if (!byAccount[acc.account_number]) {
         byAccount[acc.account_number] = { account_number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0, entries: [] };
       }
       byAccount[acc.account_number].debit += Number(line.debit ?? 0);
       byAccount[acc.account_number].credit += Number(line.credit ?? 0);
       byAccount[acc.account_number].entries.push({
-        date: je.entry_date,
-        reference: je.reference,
-        description: line.description ?? je.description,
+        date: je?.entry_date ?? "",
+        reference: je?.reference ?? null,
+        description: line.description ?? je?.description ?? "",
         amount: acc.type === "revenue" ? Number(line.credit ?? 0) : Number(line.debit ?? 0),
       });
     }

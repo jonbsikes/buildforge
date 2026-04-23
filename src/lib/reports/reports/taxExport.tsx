@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -70,6 +69,15 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
 
+  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+  type GlRow = {
+    debit: number | null;
+    credit: number | null;
+    description: string | null;
+    account: { account_number: string; name: string; type: string | null } | null;
+    journal_entry: { entry_date: string; status: string } | null;
+  };
+
   // ─ Income Statement (for the tax year)
   const { data: jelData } = await supabase
     .from("journal_entry_lines")
@@ -79,25 +87,26 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
       journal_entry:journal_entries(entry_date, status)
     `);
 
-  const glLines = (jelData ?? []).filter((l: any) =>
+  const glLines = ((jelData ?? []) as unknown as GlRow[]).filter((l) =>
     l.journal_entry?.status === "posted" &&
-    l.journal_entry?.entry_date >= startDate &&
-    l.journal_entry?.entry_date <= endDate
+    (l.journal_entry?.entry_date ?? "") >= startDate &&
+    (l.journal_entry?.entry_date ?? "") <= endDate
   );
 
-  const byAccount: Record<string, { type: string; debit: number; credit: number }> = {};
+  type AcctTotal = { type: string; debit: number; credit: number };
+  const byAccount: Record<string, AcctTotal> = {};
   for (const line of glLines) {
-    const acc = line.account as any;
+    const acc = line.account;
     if (!acc) continue;
     const key = acc.account_number;
     if (!byAccount[key]) {
-      byAccount[key] = { type: acc.type, debit: 0, credit: 0 };
+      byAccount[key] = { type: acc.type ?? "", debit: 0, credit: 0 };
     }
     byAccount[key].debit += Number(line.debit ?? 0);
     byAccount[key].credit += Number(line.credit ?? 0);
   }
 
-  const calcAmount = (acc: any) => {
+  const calcAmount = (acc: AcctTotal) => {
     const type = acc.type;
     return type === "revenue"
       ? acc.credit - acc.debit
@@ -107,22 +116,22 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   };
 
   const revenue = Object.values(byAccount)
-    .filter((a: any) => a.type === "revenue")
-    .reduce((s, a: any) => s + calcAmount(a), 0);
+    .filter((a) => a.type === "revenue")
+    .reduce((s, a) => s + calcAmount(a), 0);
 
   const cogs = Object.values(byAccount)
-    .filter((a: any) => a.type === "cogs")
-    .reduce((s, a: any) => s + calcAmount(a), 0);
+    .filter((a) => a.type === "cogs")
+    .reduce((s, a) => s + calcAmount(a), 0);
 
   const expenses = Object.values(byAccount)
-    .filter((a: any) => a.type === "expense")
-    .reduce((s, a: any) => s + calcAmount(a), 0);
+    .filter((a) => a.type === "expense")
+    .reduce((s, a) => s + calcAmount(a), 0);
 
   // ─ Balance Sheet (as of Dec 31 of tax year)
   const toBalanceRow = (type: string): BalanceSheetAccount[] =>
     Object.entries(byAccount)
-      .filter(([, a]: any) => a.type === type)
-      .map(([accNum, a]: any) => ({
+      .filter(([, a]) => a.type === type)
+      .map(([accNum, a]) => ({
         account: `${accNum}`,
         balance: calcAmount(a),
       }))
@@ -136,7 +145,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   // ─ Vendor 1099 totals (>$600)
   const { data: invoices } = await supabase
     .from("invoices")
-    .select("vendor, amount, total_amount, status, invoice_date")
+    .select("invoice_number, vendor, amount, total_amount, status, invoice_date")
     .in("status", ["approved", "released", "cleared"])
     .gte("invoice_date", startDate)
     .lte("invoice_date", endDate);
@@ -155,14 +164,14 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
 
   // ─ Paid invoices register
   const paidInvoices: PaidInvoice[] = (invoices ?? [])
-    .map((inv: any) => ({
+    .map((inv) => ({
       invoiceNumber: inv.invoice_number ?? "—",
       vendor: inv.vendor ?? "Unknown",
       date: inv.invoice_date ?? "—",
       amount: inv.total_amount ?? inv.amount ?? 0,
       project: "—",
     }))
-    .sort((a: any, b: any) => (a.date < b.date ? -1 : 1));
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
 
   return {
     incomeStatement: {

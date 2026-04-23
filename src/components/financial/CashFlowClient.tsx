@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -64,13 +63,33 @@ export default function CashFlowClient() {
 
     const supabase = createClient();
 
+    // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+    type LedgerRow = {
+      id: string;
+      debit: number | null;
+      credit: number | null;
+      description: string | null;
+      account: {
+        account_number: string;
+        name: string;
+        type: string | null;
+      } | null;
+      journal_entry: {
+        id: string;
+        entry_date: string;
+        status: string;
+        description: string | null;
+        source_type: string | null;
+      } | null;
+    };
+
     // Fetch ALL journal entry lines (paginate past Supabase 1000-row default)
     const selectQuery = `
         id, debit, credit, description,
         account:chart_of_accounts(account_number, name, type),
         journal_entry:journal_entries(id, entry_date, status, description, source_type)
     `;
-    let rawLines: any[] = [];
+    let rawLines: LedgerRow[] = [];
     let from = 0;
     const PAGE_SIZE = 1000;
     while (true) {
@@ -79,20 +98,20 @@ export default function CashFlowClient() {
         .select(selectQuery)
         .range(from, from + PAGE_SIZE - 1);
       if (!page || page.length === 0) break;
-      rawLines = rawLines.concat(page);
+      rawLines = rawLines.concat(page as unknown as LedgerRow[]);
       if (page.length < PAGE_SIZE) break;
       from += PAGE_SIZE;
     }
 
     // Filter to posted entries within date range
-    const lines = rawLines.filter((l: any) =>
+    const lines = rawLines.filter((l) =>
       l.journal_entry?.status === "posted" &&
-      l.journal_entry?.entry_date >= start &&
-      l.journal_entry?.entry_date <= end
+      (l.journal_entry?.entry_date ?? "") >= start &&
+      (l.journal_entry?.entry_date ?? "") <= end
     );
 
     // Helper to build drill entries from lines
-    const toDrillEntries = (filtered: any[]): DrillEntry[] =>
+    const toDrillEntries = (filtered: LedgerRow[]): DrillEntry[] =>
       filtered.map(l => ({
         id: l.id,
         entry_date: l.journal_entry?.entry_date ?? "",
@@ -107,7 +126,7 @@ export default function CashFlowClient() {
     // of source_type, including migrated/historical JEs.
     // ─────────────────────────────────────────────────────────────────
 
-    const jeGroups = new Map<string, any[]>();
+    const jeGroups = new Map<string, LedgerRow[]>();
     for (const line of lines) {
       const jeId = line.journal_entry?.id;
       if (!jeId) continue;
@@ -116,28 +135,28 @@ export default function CashFlowClient() {
     }
 
     // Category buckets (each holds the Cash-account line for drill-down)
-    const operatingInLines: any[] = [];   // DR Cash — revenue / customer payments
-    const operatingOutLines: any[] = [];  // CR Cash — vendor / G&A payments
-    const drawInLines: any[] = [];        // DR Cash — loan draw proceeds
-    const capitalInLines: any[] = [];     // DR Cash — capital contributions
-    const loanPayOutLines: any[] = [];    // CR Cash — loan principal payments
-    const ownerDrawOutLines: any[] = [];  // CR Cash — owner draws / distributions
+    const operatingInLines: LedgerRow[] = [];   // DR Cash — revenue / customer payments
+    const operatingOutLines: LedgerRow[] = [];  // CR Cash — vendor / G&A payments
+    const drawInLines: LedgerRow[] = [];        // DR Cash — loan draw proceeds
+    const capitalInLines: LedgerRow[] = [];     // DR Cash — capital contributions
+    const loanPayOutLines: LedgerRow[] = [];    // CR Cash — loan principal payments
+    const ownerDrawOutLines: LedgerRow[] = [];  // CR Cash — owner draws / distributions
 
     for (const [, jeLines] of jeGroups) {
       // Find Cash (1000) lines in this JE
-      const cashLines = jeLines.filter((l: any) => l.account?.account_number === '1000');
+      const cashLines = jeLines.filter((l) => l.account?.account_number === '1000');
       if (cashLines.length === 0) continue;
 
       // Collect sibling account numbers for categorization
-      const siblings = jeLines.filter((l: any) => l.account?.account_number !== '1000');
-      const siblingAccts = siblings.map((l: any) => l.account?.account_number ?? '');
-      const siblingTypes = siblings.map((l: any) => l.account?.type ?? '');
+      const siblings = jeLines.filter((l) => l.account?.account_number !== '1000');
+      const siblingAccts = siblings.map((l) => l.account?.account_number ?? '');
+      const siblingTypes = siblings.map((l) => l.account?.type ?? '');
 
       // Determine if siblings include financing-related accounts
-      const hasLoanPayable = siblingAccts.some((a: string) => a.startsWith('22') || a === '2100');
-      const hasDueFromLender = siblingAccts.some((a: string) => a === '1120');
-      const hasEquity = siblingAccts.some((a: string) => a.startsWith('30')) || siblingTypes.includes('equity');
-      const hasDistributions = siblingAccts.some((a: string) => a.startsWith('32'));
+      const hasLoanPayable = siblingAccts.some((a) => a.startsWith('22') || a === '2100');
+      const hasDueFromLender = siblingAccts.some((a) => a === '1120');
+      const hasEquity = siblingAccts.some((a) => a.startsWith('30')) || siblingTypes.includes('equity');
+      const hasDistributions = siblingAccts.some((a) => a.startsWith('32'));
 
       for (const cashLine of cashLines) {
         const debit = Number(cashLine.debit || 0);
@@ -168,8 +187,8 @@ export default function CashFlowClient() {
     }
 
     // Sum helpers
-    const sumDebit = (arr: any[]) => arr.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
-    const sumCredit = (arr: any[]) => arr.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+    const sumDebit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.debit || 0), 0);
+    const sumCredit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.credit || 0), 0);
 
     const cashFromCustomers = sumDebit(operatingInLines);
     const cashToVendors = sumCredit(operatingOutLines);

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -42,6 +41,15 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
   const start = p.start!;
   const end = p.end!;
 
+  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+  type LedgerRow = {
+    debit: number | null;
+    credit: number | null;
+    project_id: string | null;
+    account: { account_number: string; name: string; type: string | null } | null;
+    journal_entry: { entry_date: string; status: string } | null;
+  };
+
   const [ledgerRes, loansRes, projectsRes] = await Promise.all([
     supabase.from("journal_entry_lines").select(`
       debit, credit, project_id,
@@ -53,12 +61,12 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
   ]);
 
   // Filter to posted entries
-  const lines = (ledgerRes.data ?? []).filter((l: any) => l.journal_entry?.status === "posted");
+  const lines = ((ledgerRes.data ?? []) as unknown as LedgerRow[]).filter((l) => l.journal_entry?.status === "posted");
 
   // Aggregate by account
   const acctTotals: Record<string, { debit: number; credit: number; type: string }> = {};
   for (const line of lines) {
-    const acc = line.account as any;
+    const acc = line.account;
     if (!acc) continue;
     const key = acc.account_number;
     if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: acc.type ?? "" };
@@ -111,7 +119,7 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
   // WIP per project
   const projectWIP: Record<string, number> = {};
   for (const line of lines) {
-    const acc = line.account as any;
+    const acc = line.account;
     if (!acc || !line.project_id) continue;
     const pid = line.project_id;
     const debit = Number(line.debit ?? 0);
@@ -195,7 +203,7 @@ export function Pdf({ data, params, logo }: { data: FinancialSummaryData; params
       {/* Balance Summary */}
       <View style={{ marginTop: 12 }}>
         <Text style={styles.sectionHeading}>Balance Sheet Summary (All-Time)</Text>
-        <View style={[styles.tr] as any} wrap={false}>
+        <View style={[styles.tr]} wrap={false}>
           <View style={{ width: "70%" }}>
             <Text style={styles.td}>Total Assets</Text>
           </View>
@@ -203,7 +211,7 @@ export function Pdf({ data, params, logo }: { data: FinancialSummaryData; params
             <Text style={styles.tdNum}>{fmtMoney(data.totalAssets)}</Text>
           </View>
         </View>
-        <View style={[styles.tr, styles.trZebra] as any} wrap={false}>
+        <View style={[styles.tr, styles.trZebra]} wrap={false}>
           <View style={{ width: "70%" }}>
             <Text style={styles.td}>Total Liabilities</Text>
           </View>
@@ -211,7 +219,7 @@ export function Pdf({ data, params, logo }: { data: FinancialSummaryData; params
             <Text style={styles.tdNum}>{fmtMoney(data.totalLiabilities)}</Text>
           </View>
         </View>
-        <View style={[styles.tr] as any} wrap={false}>
+        <View style={[styles.tr]} wrap={false}>
           <View style={{ width: "70%" }}>
             <Text style={styles.td}>Total Equity</Text>
           </View>

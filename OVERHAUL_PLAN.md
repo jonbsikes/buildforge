@@ -719,17 +719,29 @@ Audit on 2026-04-23 surfaced remaining cleanup the earlier phases deferred. The 
 
 ---
 
-### Step 23 — Remove `@ts-nocheck` from financial reports
+### Step 23 — Remove `@ts-nocheck` from financial reports ✅ DONE
 
-**Goal:** Clear the largest cluster of `@ts-nocheck` in one themed session.
+**Status:** Completed 2026-04-23 on branch `overhaul/step-23-financial-reports`. 15 files cleaned plus 3 real bugs surfaced.
 
-**Files (~15):**
-- `src/components/financial/*.tsx` (7 files: BalanceSheet, CashFlow, FinancialSummary, IncomeStatement, JournalEntries, TaxExport, WIP)
-- `src/lib/reports/reports/*.tsx` (8 files: apAging, balanceSheet, cashFlow, financialSummary, stageProgress, taxExport, vendorSpend, wip)
+**What shipped per file:**
+- **Client components (7):** `BalanceSheetClient`, `CashFlowClient`, `FinancialSummaryClient`, `IncomeStatementClient`, `JournalEntriesClient`, `TaxExportClient`, `WIPClient`. Each got a typed `LedgerRow` (or equivalent) narrow alias for the journal_entry_lines + chart_of_accounts joins; `as any` casts replaced with field-level access.
+- **Server report generators (8):** `apAging`, `balanceSheet`, `cashFlow`, `financialSummary`, `stageProgress`, `taxExport`, `vendorSpend`, `wip`. Same narrowing patterns; `stageProgress` had a `colors.blue` (didn't exist) → `colors.brand` fix; `cashFlow` and `balanceSheet` dropped 3-4 `as Style[]` react-pdf casts that weren't needed once the inferred types are honoured.
 
-**Rationale for batching:** all read-only display code; errors cluster around the same GL / account / invoice joined-result types. Fixing them together means writing each narrowing helper once.
+**Real bugs surfaced + fixed in scope:**
+1. **`projects.contract_price` doesn't exist on the live schema.** [wip.tsx:45](src/lib/reports/reports/wip.tsx:45) was selecting and filtering on `contract_price` — column has been `total_budget` for a long time. The WIP report would have shown zero rows at runtime. Fixed: renamed to `total_budget` throughout the file (column name, internal type, filter, calculations); column header still reads "Contract Price" for user-facing terminology.
+2. **`invoice_number` missing from `.select()` projections.** [TaxExportClient.tsx](src/components/financial/TaxExportClient.tsx) and [taxExport.tsx](src/lib/reports/reports/taxExport.tsx) read `inv.invoice_number` but the original selects didn't fetch it. Result: tax export had a literal `"—"` in every invoice number column. Fixed: added the field to both `.select()` calls.
+3. **`JournalEntriesClient` `Project.type` field** referenced a non-existent column (`projects.type`). The canonical column is `project_type`. Removed `type` from both the `Project` alias and the select since nothing read it after removal.
 
-**Verify:** `grep "ts-nocheck" src/components/financial src/lib/reports/reports` empty. `npx tsc --noEmit` clean.
+**Real bug NOT fixed (deferred — needs product call):**
+- **`"scheduled"` invoice status filter, 6 call sites.** Per CLAUDE.md the valid invoice statuses are `pending_review | approved | released | cleared | disputed | void`. Six places filter on `.in("status", [..., "scheduled", ...])` — the literal matches nothing at runtime. Looks like deliberate forward-compat for a planned status. Left alone as a no-op filter; should either be implemented as a real status or pruned in a future cleanup. Files: `TaxExportClient.tsx:136`, `APAgingClient.tsx:88`, `app/(app)/reports/page.tsx:22`, `app/(app)/projects/[id]/page.tsx:104`, `app/(app)/projects/[id]/budget/page.tsx:23`, `app/(app)/projects/[id]/loans/[loanId]/page.tsx:21`.
+
+**Invariants after this step:**
+- `grep "ts-nocheck" src/components/financial src/lib/reports/reports` → empty.
+- `grep "as any" src/components/financial` → empty (financial client side fully clean).
+- `grep "as any" src/lib/reports/reports` → still has matches in 7 sibling files (`budgetVariance`, `fieldLogs`, `gantt`, `incomeStatement`, `jobCost`, `selections`, `subdivisionOverview`) that were NOT `@ts-nocheck` and so weren't in Step 23 scope. Worth a follow-up `as any` sweep at some point.
+- `npx tsc --noEmit` → EXIT=0.
+
+**References:** Closes the financial-report cluster of `@ts-nocheck` directives.
 
 ---
 

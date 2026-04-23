@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useState, useTransition } from "react";
@@ -48,6 +47,22 @@ export default function TaxExportClient() {
       try {
         const completed: string[] = [];
 
+        // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+        type GlRow = {
+          debit: number | null;
+          credit: number | null;
+          description: string | null;
+          account: { account_number: string; name: string; type: string | null } | null;
+          journal_entry: {
+            entry_date: string;
+            description: string | null;
+            reference: string | null;
+            status: string;
+            source_type: string | null;
+          } | null;
+          project: { name: string } | null;
+        };
+
         // 1. GL entries from journal_entry_lines + journal_entries + chart_of_accounts
         //    Paginate past Supabase's 1000-row default cap; tax export can easily exceed that.
         const jelSelect = `
@@ -56,7 +71,7 @@ export default function TaxExportClient() {
           journal_entry:journal_entries(entry_date, description, reference, status, source_type),
           project:projects(name)
         `;
-        let jelData: any[] = [];
+        let jelData: GlRow[] = [];
         {
           let fromIdx = 0;
           const PAGE_SIZE = 1000;
@@ -66,16 +81,16 @@ export default function TaxExportClient() {
               .select(jelSelect)
               .range(fromIdx, fromIdx + PAGE_SIZE - 1);
             if (!page || page.length === 0) break;
-            jelData = jelData.concat(page);
+            jelData = jelData.concat(page as unknown as GlRow[]);
             if (page.length < PAGE_SIZE) break;
             fromIdx += PAGE_SIZE;
           }
         }
 
-        const glLines = jelData.filter((l: any) =>
+        const glLines = jelData.filter((l) =>
           l.journal_entry?.status === "posted" &&
-          l.journal_entry?.entry_date >= fromDate &&
-          l.journal_entry?.entry_date <= toDate
+          (l.journal_entry?.entry_date ?? "") >= fromDate &&
+          (l.journal_entry?.entry_date ?? "") <= toDate
         );
 
         if (glLines.length > 0) {
@@ -83,8 +98,8 @@ export default function TaxExportClient() {
             `gl_entries_${year}.csv`,
             toCSV(
               ["Date", "Reference", "Description", "Account #", "Account Name", "Account Type", "Project", "Debit", "Credit", "Source Type"],
-              glLines.map((l: any) => [
-                l.journal_entry?.entry_date,
+              glLines.map((l) => [
+                l.journal_entry?.entry_date ?? "",
                 l.journal_entry?.reference ?? "",
                 l.description || l.journal_entry?.description || "",
                 l.account?.account_number ?? "",
@@ -103,7 +118,19 @@ export default function TaxExportClient() {
         }
 
         // 2. Paid invoices
-        const { data: invoices } = await supabase
+        type InvoiceRow = {
+          invoice_date: string | null;
+          invoice_number: string | null;
+          vendor: string | null;
+          amount: number | null;
+          total_amount: number | null;
+          status: string;
+          payment_date: string | null;
+          payment_method: string | null;
+          projects: { name: string } | null;
+          cost_codes: { code: string; name: string } | null;
+        };
+        const { data: invoicesData } = await supabase
           .from("invoices")
           .select("invoice_date, invoice_number, vendor, amount, total_amount, status, payment_date, payment_method, projects(name), cost_codes(code, name)")
           .in("status", ["approved", "scheduled", "released", "cleared", "pending_review"])
@@ -111,14 +138,15 @@ export default function TaxExportClient() {
           .lte("invoice_date", toDate)
           .order("invoice_date");
 
-        if (invoices && invoices.length > 0) {
+        const invoices = (invoicesData ?? []) as unknown as InvoiceRow[];
+        if (invoices.length > 0) {
           downloadCSV(
             `invoices_${year}.csv`,
             toCSV(
               ["Invoice Date", "Invoice #", "Vendor", "Project", "Cost Code", "Amount", "Status", "Payment Date", "Payment Method"],
-              invoices.map((inv: any) => {
-                const project = inv.projects as { name: string } | null;
-                const cc = inv.cost_codes as { code: string; name: string } | null;
+              invoices.map((inv) => {
+                const project = inv.projects;
+                const cc = inv.cost_codes;
                 return [
                   inv.invoice_date,
                   inv.invoice_number,
@@ -140,9 +168,9 @@ export default function TaxExportClient() {
 
         // 3. Vendor totals
         const vendorMap: Record<string, number> = {};
-        for (const inv of invoices ?? []) {
-          const v = (inv as any).vendor ?? "Unknown";
-          vendorMap[v] = (vendorMap[v] ?? 0) + ((inv as any).total_amount ?? (inv as any).amount ?? 0);
+        for (const inv of invoices) {
+          const v = inv.vendor ?? "Unknown";
+          vendorMap[v] = (vendorMap[v] ?? 0) + (Number(inv.total_amount ?? inv.amount ?? 0));
         }
         downloadCSV(
           `vendor_totals_${year}.csv`,
@@ -158,12 +186,12 @@ export default function TaxExportClient() {
         // 4. Account balances summary (from GL)
         const acctMap: Record<string, { number: string; name: string; type: string; debit: number; credit: number }> = {};
         for (const l of glLines) {
-          const acc = (l as any).account;
+          const acc = l.account;
           if (!acc) continue;
           const key = acc.account_number;
-          if (!acctMap[key]) acctMap[key] = { number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0 };
-          acctMap[key].debit += Number((l as any).debit ?? 0);
-          acctMap[key].credit += Number((l as any).credit ?? 0);
+          if (!acctMap[key]) acctMap[key] = { number: acc.account_number, name: acc.name, type: acc.type ?? "", debit: 0, credit: 0 };
+          acctMap[key].debit += Number(l.debit ?? 0);
+          acctMap[key].credit += Number(l.credit ?? 0);
         }
 
         downloadCSV(
@@ -185,16 +213,16 @@ export default function TaxExportClient() {
         // 5. Project WIP summary
         const projectWIP: Record<string, { name: string; wip: number; loans: number }> = {};
         for (const l of glLines) {
-          const acc = (l as any).account;
-          const proj = (l as any).project;
+          const acc = l.account;
+          const proj = l.project;
           if (!acc || !proj) continue;
           const pname = proj.name;
           if (!projectWIP[pname]) projectWIP[pname] = { name: pname, wip: 0, loans: 0 };
           if (acc.account_number === "1210" || acc.account_number === "1220") {
-            projectWIP[pname].wip += Number((l as any).debit ?? 0) - Number((l as any).credit ?? 0);
+            projectWIP[pname].wip += Number(l.debit ?? 0) - Number(l.credit ?? 0);
           }
           if (acc.account_number === "2100") {
-            projectWIP[pname].loans += Number((l as any).credit ?? 0) - Number((l as any).debit ?? 0);
+            projectWIP[pname].loans += Number(l.credit ?? 0) - Number(l.debit ?? 0);
           }
         }
 

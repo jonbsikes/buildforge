@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -102,6 +101,32 @@ export default function BalanceSheetClient() {
     setLoading(true);
     const supabase = createClient();
 
+    // Narrow the PostgREST nested-join shape. The generic types can't infer the
+    // aliased nested relations ("account:chart_of_accounts(...)") so we declare
+    // the row shape explicitly here.
+    type LedgerRow = {
+      id: string;
+      debit: number | null;
+      credit: number | null;
+      description: string | null;
+      project_id: string | null;
+      account: {
+        account_number: string;
+        name: string;
+        type: string | null;
+        subtype: string | null;
+        is_active: boolean | null;
+      } | null;
+      journal_entry: {
+        id: string;
+        entry_date: string;
+        status: string;
+        description: string | null;
+        reference: string | null;
+      } | null;
+      project: { id: string; name: string } | null;
+    };
+
     // Fetch ALL journal entry lines (paginate past Supabase 1000-row default).
     // Failing to paginate silently truncates the ledger and breaks the balance sheet.
     const selectQuery = `
@@ -110,7 +135,7 @@ export default function BalanceSheetClient() {
       journal_entry:journal_entries(id, entry_date, status, description, reference),
       project:projects(id, name)
     `;
-    let rawLines: any[] = [];
+    let rawLines: LedgerRow[] = [];
     let fromIdx = 0;
     const PAGE_SIZE = 1000;
     while (true) {
@@ -119,21 +144,21 @@ export default function BalanceSheetClient() {
         .select(selectQuery)
         .range(fromIdx, fromIdx + PAGE_SIZE - 1);
       if (!page || page.length === 0) break;
-      rawLines = rawLines.concat(page);
+      rawLines = rawLines.concat(page as unknown as LedgerRow[]);
       if (page.length < PAGE_SIZE) break;
       fromIdx += PAGE_SIZE;
     }
 
     // Filter to posted entries within date range
-    const ledgerLines = rawLines.filter((l: any) =>
-      l.journal_entry?.status === "posted" && l.journal_entry?.entry_date <= asOf
+    const ledgerLines = rawLines.filter((l) =>
+      l.journal_entry?.status === "posted" && (l.journal_entry?.entry_date ?? "") <= asOf
     );
 
     // Aggregate by account and collect individual lines
     const acctMap: Record<string, AccountBalance> = {};
     for (const line of ledgerLines) {
-      const acc = line.account as any;
-      const je = line.journal_entry as any;
+      const acc = line.account;
+      const je = line.journal_entry;
       if (!acc || acc.is_active === false) continue;
       const key = acc.account_number;
       if (!acctMap[key]) {
@@ -155,7 +180,7 @@ export default function BalanceSheetClient() {
         entry_date: je?.entry_date ?? "",
         reference: je?.reference ?? "",
         je_description: je?.description ?? "",
-        line_description: (line as any).description ?? "",
+        line_description: line.description ?? "",
         debit: Number(line.debit ?? 0),
         credit: Number(line.credit ?? 0),
       });
@@ -165,14 +190,14 @@ export default function BalanceSheetClient() {
     const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
     const projMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
     for (const line of ledgerLines) {
-      const acc = (line as any).account;
+      const acc = line.account;
       if (!acc || !WIP_CIP_ACCOUNTS.has(acc.account_number)) continue;
-      const pid = (line as any).project_id;
+      const pid = line.project_id;
       if (!pid) continue;
       const key = acc.account_number;
       if (!projMap[key]) projMap[key] = {};
       if (!projMap[key][pid]) {
-        const proj = (line as any).project;
+        const proj = line.project;
         projMap[key][pid] = { project_id: pid, project_name: proj?.name ?? "Unknown Project", debit: 0, credit: 0 };
       }
       projMap[key][pid].debit += Number(line.debit ?? 0);

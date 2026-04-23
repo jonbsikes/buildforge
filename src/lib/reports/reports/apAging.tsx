@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";

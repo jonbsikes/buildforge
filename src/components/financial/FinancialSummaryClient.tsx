@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState } from "react";
@@ -43,12 +42,29 @@ export default function FinancialSummaryClient() {
         supabase.from("projects").select("id, name").order("name"),
       ]);
 
+      // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+      type LedgerRow = {
+        debit: number | null;
+        credit: number | null;
+        project_id: string | null;
+        account: {
+          account_number: string;
+          name: string;
+          type: string | null;
+        } | null;
+        journal_entry: {
+          id: string;
+          entry_date: string;
+          status: string;
+        } | null;
+      };
+
       const ledgerSelect = `
         debit, credit, project_id,
         account:chart_of_accounts(account_number, name, type),
         journal_entry:journal_entries(id, entry_date, status)
       `;
-      let rawLines: any[] = [];
+      let rawLines: LedgerRow[] = [];
       let fromIdx = 0;
       const PAGE_SIZE = 1000;
       while (true) {
@@ -57,18 +73,18 @@ export default function FinancialSummaryClient() {
           .select(ledgerSelect)
           .range(fromIdx, fromIdx + PAGE_SIZE - 1);
         if (!page || page.length === 0) break;
-        rawLines = rawLines.concat(page);
+        rawLines = rawLines.concat(page as unknown as LedgerRow[]);
         if (page.length < PAGE_SIZE) break;
         fromIdx += PAGE_SIZE;
       }
 
       // Filter to posted entries
-      const lines = rawLines.filter((l: any) => l.journal_entry?.status === "posted");
+      const lines = rawLines.filter((l) => l.journal_entry?.status === "posted");
 
       // Aggregate by account
       const acctTotals: Record<string, { debit: number; credit: number; type: string }> = {};
       for (const line of lines) {
-        const acc = line.account as any;
+        const acc = line.account;
         if (!acc) continue;
         const key = acc.account_number;
         if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: acc.type ?? "" };
@@ -120,7 +136,7 @@ export default function FinancialSummaryClient() {
       // WIP per project from GL (1210 + 1220 + 1230)
       const projectWIP: Record<string, number> = {};
       for (const line of lines) {
-        const acc = line.account as any;
+        const acc = line.account;
         if (!acc || !line.project_id) continue;
         const pid = line.project_id;
         const debit = Number(line.debit ?? 0);

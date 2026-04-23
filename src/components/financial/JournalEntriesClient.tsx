@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState, useCallback, Fragment } from "react";
@@ -9,7 +8,7 @@ import ConfirmButton from "@/components/ui/ConfirmButton";
 
 type Account  = { id: string; account_number: string; name: string; type: string; subtype: string | null };
 type CostCode = { id: string; code: number; description: string; category: string };
-type Project  = { id: string; name: string; type: string };
+type Project  = { id: string; name: string };
 type Loan     = { id: string; loan_number: string; project_id: string; loan_type: string; coa_account_id: string | null; project?: { name: string } | null };
 
 type JournalLine = {
@@ -107,12 +106,15 @@ export default function JournalEntriesClient() {
         .order("created_at", { ascending: false }),
       supabase.from("chart_of_accounts").select("id, account_number, name, type, subtype").eq("is_active", true).order("account_number"),
       supabase.from("cost_codes").select("id, code, description, category").order("code"),
-      supabase.from("projects").select("id, name, type").order("name"),
+      supabase.from("projects").select("id, name").order("name"),
       supabase.from("loans").select("id, loan_number, project_id, loan_type, coa_account_id, project:projects(name)").order("loan_number"),
     ]);
 
-    const enriched: JournalEntry[] = (entriesData ?? []).map((e: any) => {
-      const total = (e.journal_entry_lines ?? []).reduce((s: number, l: { debit: number }) => s + Number(l.debit), 0);
+    type FetchedEntry = Omit<JournalEntry, "total_debits" | "lines"> & {
+      journal_entry_lines?: { debit: number | null }[] | null;
+    };
+    const enriched: JournalEntry[] = ((entriesData ?? []) as unknown as FetchedEntry[]).map((e) => {
+      const total = (e.journal_entry_lines ?? []).reduce((s, l) => s + Number(l.debit ?? 0), 0);
       const { journal_entry_lines: _lines, ...rest } = e;
       return { ...rest, total_debits: total };
     });
@@ -130,13 +132,14 @@ export default function JournalEntriesClient() {
     if (!projectId) { setProjectWipBalance(null); return; }
     const wipAcct = accounts.find((a) => a.account_number === "1210");
     if (!wipAcct) { setProjectWipBalance(null); return; }
+    type WipRow = { debit: number | null; credit: number | null; journal_entry: { status: string } | null };
     const { data } = await supabase
       .from("journal_entry_lines")
       .select("debit, credit, journal_entry:journal_entries(status)")
       .eq("account_id", wipAcct.id)
       .eq("project_id", projectId);
-    const posted = (data ?? []).filter((l: any) => l.journal_entry?.status === "posted");
-    const balance = posted.reduce((s: number, l: any) => s + Number(l.debit) - Number(l.credit), 0);
+    const posted = ((data ?? []) as unknown as WipRow[]).filter((l) => l.journal_entry?.status === "posted");
+    const balance = posted.reduce((s, l) => s + Number(l.debit ?? 0) - Number(l.credit ?? 0), 0);
     setProjectWipBalance(balance);
   }
 
@@ -317,8 +320,9 @@ export default function JournalEntriesClient() {
     try {
       await reverseJournalEntry(id, date);
       load();
-    } catch (err: any) {
-      setToastError("Reversal failed: " + (err?.message ?? "Unknown error"));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setToastError("Reversal failed: " + msg);
     }
   }
 

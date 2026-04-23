@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -59,7 +58,7 @@ export async function getData(p: ReportParams): Promise<VendorSpendData> {
         vendor: vendorName,
         total: 0,
         count: 0,
-        trade: inv.vendors?.trade,
+        trade: inv.vendors?.trade ?? undefined,
       };
     }
     vendorMap[vendorName].total += amount;

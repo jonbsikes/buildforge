@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -39,8 +38,21 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
   const start = p.start!;
   const end = p.end!;
 
+  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+  type LedgerRow = {
+    debit: number | null;
+    credit: number | null;
+    account: { account_number: string; name: string; type: string | null } | null;
+    journal_entry: {
+      id: string;
+      entry_date: string;
+      status: string;
+      source_type: string | null;
+    } | null;
+  };
+
   // Fetch ALL journal entry lines with JE id for grouping (paginate past Supabase 1000-row default)
-  let allLines: any[] = [];
+  let allLines: LedgerRow[] = [];
   let from = 0;
   const PAGE_SIZE = 1000;
   while (true) {
@@ -53,7 +65,7 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
       `)
       .range(from, from + PAGE_SIZE - 1);
     if (!page || page.length === 0) break;
-    allLines = allLines.concat(page);
+    allLines = allLines.concat(page as unknown as LedgerRow[]);
     if (page.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
@@ -64,13 +76,13 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
   // including migrated/historical entries regardless of source_type.
   // ─────────────────────────────────────────────────────────────────
 
-  const filteredLines = allLines.filter((l: any) =>
+  const filteredLines = allLines.filter((l) =>
     l.journal_entry?.status === "posted" &&
-    l.journal_entry?.entry_date >= start &&
-    l.journal_entry?.entry_date <= end
+    (l.journal_entry?.entry_date ?? "") >= start &&
+    (l.journal_entry?.entry_date ?? "") <= end
   );
 
-  const jeGroupsPdf = new Map<string, any[]>();
+  const jeGroupsPdf = new Map<string, LedgerRow[]>();
   for (const line of filteredLines) {
     const jeId = line.journal_entry?.id;
     if (!jeId) continue;
@@ -79,25 +91,25 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
   }
 
   // Category buckets
-  const operatingInLines: any[] = [];
-  const operatingOutLines: any[] = [];
-  const drawInLines: any[] = [];
-  const capitalInLines: any[] = [];
-  const loanPayOutLines: any[] = [];
-  const ownerDrawOutLines: any[] = [];
+  const operatingInLines: LedgerRow[] = [];
+  const operatingOutLines: LedgerRow[] = [];
+  const drawInLines: LedgerRow[] = [];
+  const capitalInLines: LedgerRow[] = [];
+  const loanPayOutLines: LedgerRow[] = [];
+  const ownerDrawOutLines: LedgerRow[] = [];
 
   for (const [, jeLines] of jeGroupsPdf) {
-    const cashLines = jeLines.filter((l: any) => l.account?.account_number === '1000');
+    const cashLines = jeLines.filter((l) => l.account?.account_number === '1000');
     if (cashLines.length === 0) continue;
 
-    const siblings = jeLines.filter((l: any) => l.account?.account_number !== '1000');
-    const siblingAccts = siblings.map((l: any) => l.account?.account_number ?? '');
-    const siblingTypes = siblings.map((l: any) => l.account?.type ?? '');
+    const siblings = jeLines.filter((l) => l.account?.account_number !== '1000');
+    const siblingAccts = siblings.map((l) => l.account?.account_number ?? '');
+    const siblingTypes = siblings.map((l) => l.account?.type ?? '');
 
-    const hasLoanPayable = siblingAccts.some((a: string) => a.startsWith('22') || a === '2100');
-    const hasDueFromLender = siblingAccts.some((a: string) => a === '1120');
-    const hasEquity = siblingAccts.some((a: string) => a.startsWith('30')) || siblingTypes.includes('equity');
-    const hasDistributions = siblingAccts.some((a: string) => a.startsWith('32'));
+    const hasLoanPayable = siblingAccts.some((a) => a.startsWith('22') || a === '2100');
+    const hasDueFromLender = siblingAccts.some((a) => a === '1120');
+    const hasEquity = siblingAccts.some((a) => a.startsWith('30')) || siblingTypes.includes('equity');
+    const hasDistributions = siblingAccts.some((a) => a.startsWith('32'));
 
     for (const cashLine of cashLines) {
       const debit = Number(cashLine.debit || 0);
@@ -125,8 +137,8 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
     }
   }
 
-  const sumDebit = (arr: any[]) => arr.reduce((s: number, l: any) => s + Number(l.debit || 0), 0);
-  const sumCredit = (arr: any[]) => arr.reduce((s: number, l: any) => s + Number(l.credit || 0), 0);
+  const sumDebit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.debit || 0), 0);
+  const sumCredit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.credit || 0), 0);
 
   const cashFromCustomers = sumDebit(operatingInLines);
   const cashToVendors = sumCredit(operatingOutLines);
@@ -183,7 +195,7 @@ function CashFlowSection({ section }: { section: CashFlowSection }) {
         section.lines.map((line, i) => (
           <View
             key={i}
-            style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}] as any}
+            style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}]}
             wrap={false}
           >
             <View style={{ width: "70%" }}>
@@ -193,7 +205,7 @@ function CashFlowSection({ section }: { section: CashFlowSection }) {
               </Text>
             </View>
             <View style={{ width: "30%" }}>
-              <Text style={[styles.tdNum, line.isSubtraction ? { color: colors.red } : {}] as any}>
+              <Text style={[styles.tdNum, line.isSubtraction ? { color: colors.red } : {}]}>
                 {line.isSubtraction ? `(${fmtMoney(line.amount)})` : fmtMoney(line.amount)}
               </Text>
             </View>
@@ -205,7 +217,7 @@ function CashFlowSection({ section }: { section: CashFlowSection }) {
           <Text style={[styles.tdStrong]}>Net Cash from {section.title}</Text>
         </View>
         <View style={{ width: "30%" }}>
-          <Text style={[styles.tdNumStrong, { color: section.total >= 0 ? colors.green : colors.red }] as any}>
+          <Text style={[styles.tdNumStrong, { color: section.total >= 0 ? colors.green : colors.red }]}>
             {section.total < 0 ? `(${fmtMoney(Math.abs(section.total))})` : fmtMoney(section.total)}
           </Text>
         </View>
@@ -234,7 +246,7 @@ export function Pdf({ data, params, logo }: { data: CashFlowData; params: Report
             style={[
               styles.tdNumStrong,
               { fontSize: 11, color: data.netChange >= 0 ? colors.green : colors.red },
-            ] as any}
+            ]}
           >
             {data.netChange < 0 ? `(${fmtMoney(Math.abs(data.netChange))})` : fmtMoney(data.netChange)}
           </Text>

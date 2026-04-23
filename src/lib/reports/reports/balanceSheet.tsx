@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -45,6 +44,21 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
   const supabase = await createClient();
   const asOf = p.asOf!;
 
+  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
+  type LedgerRow = {
+    debit: number | null;
+    credit: number | null;
+    project_id: string | null;
+    account: {
+      account_number: string;
+      name: string;
+      type: string | null;
+      is_active: boolean | null;
+    } | null;
+    journal_entry: { entry_date: string; status: string } | null;
+    project: { id: string; name: string } | null;
+  };
+
   const { data: ledgerLines } = await supabase
     .from("journal_entry_lines")
     .select(`
@@ -54,10 +68,12 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
       project:projects(id, name)
     `);
 
+  const allLines = (ledgerLines ?? []) as unknown as LedgerRow[];
+
   // Filter to posted entries as of date
-  const posted = (ledgerLines ?? []).filter((l: any) =>
+  const posted = allLines.filter((l) =>
     l.journal_entry?.status === "posted" &&
-    l.journal_entry?.entry_date <= asOf &&
+    (l.journal_entry?.entry_date ?? "") <= asOf &&
     l.account?.is_active !== false
   );
 
@@ -70,8 +86,8 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
   const projectMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
 
   for (const line of posted) {
-    const acc = line.account as any;
-    if (!acc || !["asset", "liability", "equity"].includes(acc.type)) continue;
+    const acc = line.account;
+    if (!acc || !acc.type || !["asset", "liability", "equity"].includes(acc.type)) continue;
     const key = acc.account_number;
     if (!acctMap[key]) {
       acctMap[key] = { account_number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0 };
@@ -80,11 +96,11 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
     acctMap[key].credit += Number(line.credit ?? 0);
 
     // Track per-project for WIP/CIP
-    if (WIP_CIP_ACCOUNTS.has(key) && (line as any).project_id) {
+    if (WIP_CIP_ACCOUNTS.has(key) && line.project_id) {
       if (!projectMap[key]) projectMap[key] = {};
-      const pid = (line as any).project_id;
+      const pid = line.project_id;
       if (!projectMap[key][pid]) {
-        const proj = (line as any).project;
+        const proj = line.project;
         projectMap[key][pid] = {
           project_id: pid,
           project_name: proj?.name ?? "Unknown Project",
@@ -127,15 +143,15 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
   const equityAccounts = accounts.filter(a => a.type === "equity").sort((a, b) => a.account_number.localeCompare(b.account_number));
 
   // Compute retained earnings from P&L accounts
-  const incomeLines = (ledgerLines ?? []).filter((l: any) =>
+  const incomeLines = allLines.filter((l) =>
     l.journal_entry?.status === "posted" &&
-    l.journal_entry?.entry_date <= asOf &&
+    (l.journal_entry?.entry_date ?? "") <= asOf &&
     l.account?.is_active !== false
   );
 
   let revenue = 0, cogs = 0, expenses = 0;
   for (const line of incomeLines) {
-    const acc = line.account as any;
+    const acc = line.account;
     if (!acc) continue;
     const balance = acc.type === "revenue" ? (Number(line.credit ?? 0) - Number(line.debit ?? 0)) :
                     (acc.type === "cogs" || acc.type === "expense") ? (Number(line.debit ?? 0) - Number(line.credit ?? 0)) : 0;
@@ -175,7 +191,7 @@ function AccountRows({ lines }: { lines: AccountBalance[] }) {
         const mainRow = (
           <View
             key={l.account_number}
-            style={[styles.tr, rowIdx++ % 2 === 1 ? styles.trZebra : {}] as any}
+            style={[styles.tr, rowIdx++ % 2 === 1 ? styles.trZebra : {}]}
             wrap={false}
           >
             <View style={{ width: "70%" }}>
@@ -197,7 +213,7 @@ function AccountRows({ lines }: { lines: AccountBalance[] }) {
             {l.projectBreakdown!.map((p) => (
               <View
                 key={p.project_id}
-                style={[styles.tr, rowIdx++ % 2 === 1 ? styles.trZebra : {}] as any}
+                style={[styles.tr, rowIdx++ % 2 === 1 ? styles.trZebra : {}]}
                 wrap={false}
               >
                 <View style={{ width: "70%", paddingLeft: 14 }}>

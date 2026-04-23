@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState } from "react";
@@ -75,25 +74,33 @@ export default function WIPClient() {
       }
 
       // Pull ledger WIP balances (1210 + 1220) by project from posted journal entries
-      const wipAcctId = (coaRes.data ?? []).find((a: any) => a.account_number === "1210")?.id;
-      const cipAcctId = (coaRes.data ?? []).find((a: any) => a.account_number === "1230")?.id;
-      const intAcctId = (coaRes.data ?? []).find((a: any) => a.account_number === "1220")?.id;
+      const wipAcctId = (coaRes.data ?? []).find((a) => a.account_number === "1210")?.id;
+      const cipAcctId = (coaRes.data ?? []).find((a) => a.account_number === "1230")?.id;
+      const intAcctId = (coaRes.data ?? []).find((a) => a.account_number === "1220")?.id;
 
       const ledgerWipMap: Record<string, number> = {};
       const capIntMap: Record<string, number> = {};
 
       if (wipAcctId || cipAcctId || intAcctId) {
         const acctIds = [wipAcctId, cipAcctId, intAcctId].filter(Boolean) as string[];
+        // Aliased nested join shape — narrow explicitly.
+        type WipLineRow = {
+          account_id: string;
+          project_id: string | null;
+          debit: number | null;
+          credit: number | null;
+          journal_entry: { status: string } | null;
+        };
         const { data: ledgerLines } = await supabase
           .from("journal_entry_lines")
           .select("account_id, project_id, debit, credit, journal_entry:journal_entries(status)")
           .in("account_id", acctIds);
 
-        for (const line of ledgerLines ?? []) {
-          if ((line as any).journal_entry?.status !== "posted") continue;
+        for (const line of ((ledgerLines ?? []) as unknown as WipLineRow[])) {
+          if (line.journal_entry?.status !== "posted") continue;
           const pid = line.project_id;
           if (!pid) continue;
-          const net = Number(line.debit) - Number(line.credit);
+          const net = Number(line.debit ?? 0) - Number(line.credit ?? 0);
           if (line.account_id === wipAcctId || line.account_id === cipAcctId) ledgerWipMap[pid] = (ledgerWipMap[pid] ?? 0) + net;
           if (line.account_id === intAcctId) capIntMap[pid] = (capIntMap[pid] ?? 0) + net;
         }

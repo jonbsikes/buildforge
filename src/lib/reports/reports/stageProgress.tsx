@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -121,10 +120,8 @@ export async function getData(p: ReportParams): Promise<StageProgressData> {
   const interiorStageNums = new Set([16, 17, 19, 22, 23, 24, 30, 31, 32, 33, 34, 35, 36, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 52, 53, 54, 55]);
 
   // Build stage rows and calculate variance
-  const stageRows: StageRow[] = (stages ?? []).map((s: any) => {
-    const plannedStart = s.planned_start_date ? new Date(s.planned_start_date) : null;
+  const stageRows: StageRow[] = (stages ?? []).map((s) => {
     const plannedEnd = s.planned_end_date ? new Date(s.planned_end_date) : null;
-    const actualStart = s.actual_start_date ? new Date(s.actual_start_date) : null;
     const actualEnd = s.actual_end_date ? new Date(s.actual_end_date) : null;
 
     let daysVariance: number | null = null;
@@ -134,7 +131,7 @@ export async function getData(p: ReportParams): Promise<StageProgressData> {
       daysVariance = Math.round((actualMs - plannedMs) / (1000 * 60 * 60 * 24));
     }
 
-    const track = exteriorStageNums.has(s.stage_number) ? "exterior" : interiorStageNums.has(s.stage_number) ? "interior" : "exterior";
+    const track: StageRow["track"] = exteriorStageNums.has(s.stage_number) ? "exterior" : interiorStageNums.has(s.stage_number) ? "interior" : "exterior";
 
     return {
       stageNumber: s.stage_number,
@@ -190,7 +187,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function VarianceBadge({ variance }: { variance: number | null }) {
   if (variance === null) return <Text style={styles.muted}>—</Text>;
-  const color = variance === 0 ? colors.green : variance > 0 ? colors.orange : colors.blue;
+  const color = variance === 0 ? colors.green : variance > 0 ? colors.orange : colors.brand;
   return <Text style={{ fontSize: 8, color, fontFamily: "Helvetica-Bold" }}>{variance > 0 ? "+" : ""}{variance}d</Text>;
 }
 

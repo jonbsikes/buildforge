@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { View, Text } from "@react-pdf/renderer";
 import { createClient } from "@/lib/supabase/server";
 import { ReportDocument } from "../pdf/ReportDocument";
@@ -19,7 +18,7 @@ import type { ReportParams } from "../types";
 interface WIPRow {
   id: string;
   name: string;
-  contract_price: number;
+  total_budget: number;
   costs_to_date: number;
   ledger_wip: number;
   pct_complete: number;
@@ -43,7 +42,7 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   // Get all home construction projects (active status)
   const { data: projects } = await supabase
     .from("projects")
-    .select("id, name, contract_price, status")
+    .select("id, name, total_budget, status")
     .eq("status", "active")
     .order("name");
 
@@ -54,6 +53,13 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
     .in("invoices.status", ["approved", "released", "cleared"]);
 
   // Get ledger WIP balances from journal entries
+  type LedgerRow = {
+    project_id: string | null;
+    debit: number | null;
+    credit: number | null;
+    account: { account_number: string } | null;
+    journal_entry: { entry_date: string; status: string } | null;
+  };
   const { data: ledgerLines } = await supabase
     .from("journal_entry_lines")
     .select(`
@@ -71,13 +77,13 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   }
 
   const wipMap: Record<string, number> = {};
-  const postedLines = (ledgerLines ?? []).filter((l: any) =>
+  const postedLines = ((ledgerLines ?? []) as unknown as LedgerRow[]).filter((l) =>
     l.journal_entry?.status === "posted" &&
-    l.journal_entry?.entry_date <= asOf
+    (l.journal_entry?.entry_date ?? "") <= asOf
   );
 
   for (const line of postedLines) {
-    const acc = line.account as any;
+    const acc = line.account;
     if (!acc || !line.project_id) continue;
     if (acc.account_number === "1210" || acc.account_number === "1230" || acc.account_number === "1220") {
       const net = Number(line.debit ?? 0) - Number(line.credit ?? 0);
@@ -86,9 +92,9 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   }
 
   const rows: WIPRow[] = (projects ?? [])
-    .filter((p: any) => p.contract_price && p.contract_price > 0)
-    .map((p: any) => {
-      const contractPrice = Number(p.contract_price ?? 0);
+    .filter((p) => p.total_budget && p.total_budget > 0)
+    .map((p) => {
+      const contractPrice = Number(p.total_budget ?? 0);
       const costsToDdate = invoiceMap[p.id] ?? 0;
       const ledgerWip = wipMap[p.id] ?? 0;
       const pctComplete = contractPrice > 0 ? (costsToDdate / contractPrice) * 100 : 0;
@@ -97,7 +103,7 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
       return {
         id: p.id,
         name: p.name,
-        contract_price: contractPrice,
+        total_budget: contractPrice,
         costs_to_date: costsToDdate,
         ledger_wip: ledgerWip,
         pct_complete: Math.min(100, Math.max(0, pctComplete)),
@@ -105,7 +111,7 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
       };
     });
 
-  const totalContractPrice = rows.reduce((s, r) => s + r.contract_price, 0);
+  const totalContractPrice = rows.reduce((s, r) => s + r.total_budget, 0);
   const totalCosts = rows.reduce((s, r) => s + r.costs_to_date, 0);
   const totalLedgerWIP = rows.reduce((s, r) => s + r.ledger_wip, 0);
   const totalEstimatedProfit = rows.reduce((s, r) => s + r.estimated_profit, 0);
@@ -124,7 +130,7 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
 export function Pdf({ data, params, logo }: { data: WIPReportData; params: ReportParams; logo?: Buffer | string }) {
   const columns: Column<WIPRow>[] = [
     { key: "name", label: "Project", width: 30 },
-    { key: "contract", label: "Contract Price", width: 15, align: "right", getText: (r) => fmtMoney(r.contract_price) },
+    { key: "contract", label: "Contract Price", width: 15, align: "right", getText: (r) => fmtMoney(r.total_budget) },
     { key: "costs", label: "Costs to Date", width: 15, align: "right", getText: (r) => fmtMoney(r.costs_to_date) },
     { key: "pct", label: "% Complete", width: 12, align: "right", getText: (r) => fmtPct(r.pct_complete, 1) },
     { key: "profit", label: "Estimated Profit", width: 15, align: "right", getText: (r) => fmtMoney(r.estimated_profit) },
@@ -167,7 +173,7 @@ export function Pdf({ data, params, logo }: { data: WIPReportData; params: Repor
                 </Text>
               </View>
               <View style={{ width: "15%" }}>
-                <Text style={[styles.tdNumStrong, { color: data.totalEstimatedProfit >= 0 ? colors.green : colors.red }] as any}>
+                <Text style={[styles.tdNumStrong, { color: data.totalEstimatedProfit >= 0 ? colors.green : colors.red }]}>
                   {fmtMoney(data.totalEstimatedProfit)}
                 </Text>
               </View>
@@ -201,7 +207,7 @@ export function Pdf({ data, params, logo }: { data: WIPReportData; params: Repor
                 <Text style={[styles.tdStrong]}>Estimated Total Profit</Text>
               </View>
               <View style={{ width: "50%" }}>
-                <Text style={[styles.tdNumStrong, { color: data.totalEstimatedProfit >= 0 ? colors.green : colors.red }] as any}>
+                <Text style={[styles.tdNumStrong, { color: data.totalEstimatedProfit >= 0 ? colors.green : colors.red }]}>
                   {fmtMoney(data.totalEstimatedProfit)}
                 </Text>
               </View>
