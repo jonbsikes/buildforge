@@ -9,21 +9,13 @@ import {
 import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
 import ProgressRing from "@/components/ui/ProgressRing";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
-
-const STATUS_COLOR: Record<string, string> = {
-  planning:       "bg-gray-100 text-gray-700",
-  active:         "bg-green-100 text-green-700",
-  pre_construction: "bg-gray-100 text-gray-600",
-  on_hold:        "bg-amber-100 text-amber-700",
-  completed:      "bg-blue-100 text-blue-700",
-  cancelled:      "bg-red-100 text-red-600",
-};
 
 function daysUnderConstruction(startDate: string | null): number | null {
   if (!startDate) return null;
@@ -252,9 +244,7 @@ export default async function ProjectDetailPage({ params }: Props) {
                 <div className="flex-1 min-w-0">
                   <h1 className="text-lg font-bold text-gray-900 truncate">{project.name}</h1>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-100 text-gray-600"}`}>
-                      {project.status.replace(/_/g, " ")}
-                    </span>
+                    <StatusBadge status={project.status} size="sm" />
                     {project.subdivision && <span className="text-xs text-gray-400">{project.subdivision}</span>}
                   </div>
                 </div>
@@ -361,9 +351,8 @@ export default async function ProjectDetailPage({ params }: Props) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLOR[project.status] ?? "bg-gray-100 text-gray-600"}`}>
-                    {project.status.replace(/_/g, " ")}
-                  </span>
+                  <StatusBadge status={project.status} />
+
                   <Link href={`/projects/${id}/edit`} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-[#4272EF] hover:bg-blue-50 border border-gray-200 rounded-lg transition-colors">
                     <Pencil size={13} />
                     Edit

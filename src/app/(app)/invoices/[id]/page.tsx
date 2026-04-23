@@ -6,6 +6,7 @@ import { AlertTriangle, Pencil } from "lucide-react";
 import InvoiceDetailActions from "@/components/invoices/InvoiceDetailActions";
 import DeleteInvoiceButton from "@/components/invoices/DeleteInvoiceButton";
 import StatusBadge from "@/components/ui/StatusBadge";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 export const dynamic = "force-dynamic";
 
@@ -170,15 +171,9 @@ export default async function InvoiceDetailPage({ params }: Props) {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {invoice.pending_draw && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#4272EF]/10 text-[#4272EF]">
-                        Pending Draw
-                      </span>
-                    )}
+                    {invoice.pending_draw && <MetadataChip variant="accent">Pending Draw</MetadataChip>}
                     {(invoice as { direct_cash_payment?: boolean }).direct_cash_payment && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                        Auto-Draft
-                      </span>
+                      <MetadataChip>Auto-Draft</MetadataChip>
                     )}
                     <StatusBadge status={invoice.status} />
                   </div>
@@ -290,17 +285,17 @@ export default async function InvoiceDetailPage({ params }: Props) {
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <p className="text-xs text-gray-400 mb-2">AI Extraction Confidence</p>
                   <div className="flex items-center gap-3">
-                    <span
-                      className={`text-xs font-medium px-3 py-1 rounded-full ${
+                    <StatusBadge
+                      status={
                         invoice.ai_confidence === "high"
-                          ? "bg-green-100 text-green-700"
+                          ? "complete"
                           : invoice.ai_confidence === "medium"
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
+                            ? "active"
+                            : "warning"
+                      }
                     >
                       {invoice.ai_confidence.charAt(0).toUpperCase() + invoice.ai_confidence.slice(1)}
-                    </span>
+                    </StatusBadge>
                     {invoice.ai_notes && (
                       <p className="text-xs text-gray-600">{invoice.ai_notes}</p>
                     )}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ChevronDown, ChevronRight, FileDown, Circle, CheckCircle2 } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 interface Todo {
   id: string;
@@ -166,9 +167,9 @@ export default function FieldLogsReportClient() {
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-xs font-medium text-[#4272EF]">{log.projectName}</span>
                       {log.todos.length > 0 && (
-                        <span className={"text-xs px-1.5 py-0.5 rounded-full " + (openTodos.length > 0 ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700")}>
+                        <StatusBadge status={openTodos.length > 0 ? "warning" : "complete"} size="sm">
                           {openTodos.length > 0 ? openTodos.length + " open" : doneTodos.length + " done"}
-                        </span>
+                        </StatusBadge>
                       )}
                     </div>
                     <p className="text-sm text-gray-700 line-clamp-2">{log.notes}</p>

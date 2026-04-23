@@ -5,6 +5,7 @@ import { Plus, Pencil } from "lucide-react";
 import DeleteLoanButton from "@/components/banking/DeleteLoanButton";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 import AdminOnly from "@/components/ui/AdminOnly";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 export const dynamic = "force-dynamic";
 
@@ -121,9 +122,9 @@ export default async function LoansPage() {
                       <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3 font-medium text-gray-900">#{loan.loan_number}</td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isLOC ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                          <MetadataChip variant={isLOC ? "accent" : "default"}>
                             {isLOC ? "Line of Credit" : "Term Loan"}
-                          </span>
+                          </MetadataChip>
                         </td>
                         <td className="px-4 py-3 text-gray-700">{project?.name ?? "—"}</td>
                         <td className="px-4 py-3 text-gray-700">{lender?.name ?? "—"}</td>
@@ -134,8 +135,16 @@ export default async function LoansPage() {
                             {used > 0 && (
                               <div className="mt-1 w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                 <div
-                                  className={`h-full rounded-full ${pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-500" : "bg-[#4272EF]"}`}
-                                  style={{ width: `${Math.min(pct, 100)}%` }}
+                                  className="h-full rounded-full"
+                                  style={{
+                                    width: `${Math.min(pct, 100)}%`,
+                                    backgroundColor:
+                                      pct >= 90
+                                        ? "var(--status-over)"
+                                        : pct >= 70
+                                          ? "var(--status-warning)"
+                                          : "var(--brand-blue)",
+                                  }}
                                 />
                               </div>
                             )}

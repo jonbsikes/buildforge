@@ -666,7 +666,17 @@ function SingleUpload({ projects, costCodes, vendors: initialVendors, hasAI }: P
                 <div key={s} className="flex items-center gap-2">
                   {i > 0 && <div className={`h-px w-8 ${done ? "bg-[#4272EF]" : "bg-gray-200"}`} />}
                   <div className={`flex items-center gap-1.5 text-xs font-medium ${active ? "text-[#4272EF]" : done ? "text-green-600" : "text-gray-400"}`}>
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${active ? "bg-[#4272EF] text-white" : done ? "bg-green-500 text-white" : "bg-gray-200 text-gray-400"}`}>
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-xs"
+                      style={{
+                        backgroundColor: active
+                          ? "var(--brand-blue)"
+                          : done
+                            ? "var(--status-complete)"
+                            : "#E5E7EB",
+                        color: active || done ? "#fff" : "var(--text-muted)",
+                      }}
+                    >
                       {done ? <CheckCircle2 size={12} /> : i + 1}
                     </div>
                     {["Upload", "Extract", "Review"][i]}

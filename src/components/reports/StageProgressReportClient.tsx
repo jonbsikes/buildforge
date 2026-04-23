@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 interface Stage {
   stage_number: number;
@@ -155,22 +156,22 @@ export default function StageProgressReportClient() {
                     <span className="text-gray-700 font-medium">{current}</span>
                   </div>
                   {days !== null && (
-                    <span className={`px-2 py-0.5 rounded-full font-medium ${days > 14 ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600"}`}>
+                    <StatusBadge status={days > 14 ? "warning" : "neutral"} size="sm">
                       {days}d in stage
-                    </span>
+                    </StatusBadge>
                   )}
                 </div>
 
                 {/* Stage breakdown */}
                 <div className="flex gap-3 text-xs text-gray-500 pt-1 border-t border-gray-50">
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-green-500" /> {complete} done
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-complete)" }} /> {complete} done
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-[#4272EF]" /> {inProgress} active
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-active)" }} /> {inProgress} active
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-gray-200" /> {total - complete - inProgress} pending
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-planned)" }} /> {total - complete - inProgress} pending
                   </span>
                 </div>
               </div>

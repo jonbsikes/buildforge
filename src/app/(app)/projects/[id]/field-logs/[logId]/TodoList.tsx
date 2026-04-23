@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 type TodoStatus = "open" | "in_progress" | "done";
 type TodoPriority = "low" | "normal" | "urgent";
@@ -26,18 +27,22 @@ const statusLabels: Record<TodoStatus, string> = {
   done: "Done",
 };
 
-const statusStyles: Record<TodoStatus, string> = {
-  open: "bg-gray-100 text-gray-600",
-  in_progress: "bg-amber-100 text-amber-700",
-  done: "bg-green-100 text-green-700",
+const statusKinds: Record<TodoStatus, StatusKind> = {
+  open: "neutral",
+  in_progress: "warning",
+  done: "complete",
+};
+
+const priorityKinds: Record<TodoPriority, StatusKind> = {
+  low: "neutral",
+  normal: "active",
+  urgent: "over",
 };
 
 export default function TodoList({
   todos: initial,
-  priorityStyles,
 }: {
   todos: Todo[];
-  priorityStyles: Record<string, string>;
 }) {
   const supabase = createClient();
   const [todos, setTodos] = useState(initial);
@@ -93,16 +98,20 @@ export default function TodoList({
               )}
             </div>
 
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${priorityStyles[todo.priority]}`}>
-              {todo.priority}
+            <span className="shrink-0">
+              <StatusBadge status={priorityKinds[todo.priority]} size="sm">
+                {todo.priority}
+              </StatusBadge>
             </span>
 
             <button
               onClick={() => cycleStatus(todo)}
               disabled={updating === todo.id}
-              className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${statusStyles[todo.status]} hover:opacity-80`}
+              className="shrink-0 hover:opacity-80"
             >
-              {statusLabels[todo.status]}
+              <StatusBadge status={statusKinds[todo.status]} size="sm">
+                {statusLabels[todo.status]}
+              </StatusBadge>
             </button>
           </li>
         );

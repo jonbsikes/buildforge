@@ -280,8 +280,15 @@ export default function DocumentsTab({
       {/* Progress bar */}
       <div className="w-full bg-gray-100 rounded-full h-1.5">
         <div
-          className={`h-1.5 rounded-full transition-all ${overLimit ? "bg-red-500" : nearLimit ? "bg-amber-400" : "bg-[#4272EF]"}`}
-          style={{ width: `${Math.min((totalKb / PROJECT_WARN_KB) * 100, 100)}%` }}
+          className="h-1.5 rounded-full transition-all"
+          style={{
+            width: `${Math.min((totalKb / PROJECT_WARN_KB) * 100, 100)}%`,
+            backgroundColor: overLimit
+              ? "var(--status-over)"
+              : nearLimit
+                ? "var(--status-warning)"
+                : "var(--brand-blue)",
+          }}
         />
       </div>
 

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import NotificationBell from "@/components/layout/NotificationBell";
+import AvatarMenu from "@/components/layout/AvatarMenu";
 
 export default async function Header({ title }: { title: string }) {
   const supabase = await createClient();
@@ -7,7 +8,8 @@ export default async function Header({ title }: { title: string }) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const emailLocal = user?.email?.split("@")[0] ?? "";
+  const email = user?.email ?? "";
+  const emailLocal = email.split("@")[0] ?? "";
   const displayName =
     emailLocal
       .split(/[._]/)
@@ -33,17 +35,7 @@ export default async function Header({ title }: { title: string }) {
       </div>
       <div className="flex items-center gap-3 lg:gap-4">
         <NotificationBell />
-        <div className="flex items-center gap-2 pl-3 lg:pl-4 border-l border-gray-200">
-          <span className="text-sm text-gray-600 font-medium hidden sm:block">
-            {displayName}
-          </span>
-          <div
-            className="w-8 h-8 lg:w-9 lg:h-9 rounded-full flex items-center justify-center text-white font-medium text-sm"
-            style={{ backgroundColor: "#4272EF" }}
-          >
-            {initials}
-          </div>
-        </div>
+        <AvatarMenu displayName={displayName} initials={initials} email={email} />
       </div>
     </header>
   );

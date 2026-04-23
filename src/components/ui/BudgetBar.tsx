@@ -25,7 +25,10 @@ export default function BudgetBar({
       {!compact && (
         <div className="flex justify-between text-xs mb-1 tabular-nums">
           <span className="text-gray-500">{fmt(spent)} spent</span>
-          <span className={over ? "text-red-500 font-semibold" : "text-gray-400"}>
+          <span
+            className={over ? "font-semibold" : "text-gray-400"}
+            style={over ? { color: "var(--status-over)" } : undefined}
+          >
             {fmt(budget)}
           </span>
         </div>
@@ -39,14 +42,21 @@ export default function BudgetBar({
           className="h-full rounded-full transition-all duration-500"
           style={{
             width: `${Math.min(pct, 100)}%`,
-            backgroundColor: over ? "#EF4444" : pct > 85 ? "#F59E0B" : "#4272EF",
+            backgroundColor: over
+              ? "var(--status-over)"
+              : pct > 85
+                ? "var(--status-warning)"
+                : "var(--brand-blue)",
           }}
         />
       </div>
       {compact && (
         <div className="flex justify-between text-[11px] mt-0.5 tabular-nums">
           <span className="text-gray-500">{fmt(spent)}</span>
-          <span className={over ? "text-red-500 font-medium" : "text-gray-400"}>
+          <span
+            className={over ? "font-medium" : "text-gray-400"}
+            style={over ? { color: "var(--status-over)" } : undefined}
+          >
             / {fmt(budget)}
           </span>
         </div>

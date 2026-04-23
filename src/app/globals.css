@@ -14,6 +14,34 @@
   --text-secondary: #64748b;
   --text-muted: #94a3b8;
   --card-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+
+  /* Status — reserved meanings, don't overload.
+     Orange = schedule delay. Amber = needs review / expiring. Never cross them. */
+  --status-complete:  #10B981;   /* green — finished, paid, sold, closed */
+  --status-active:    #4272EF;   /* blue — in progress, healthy */
+  --status-delayed:   #F97316;   /* orange — schedule slip, past due */
+  --status-warning:   #F59E0B;   /* amber — pending approval, expiring soon, review needed */
+  --status-over:      #EF4444;   /* red — over budget, error, critical */
+  --status-planned:   #CBD5E1;   /* grey — not started, void, cancelled */
+  --status-neutral:   #64748B;   /* slate — muted labels, metadata */
+
+  /* Row / card tints (10% versions) */
+  --tint-over:     #FEF2F2;
+  --tint-delayed:  #FFFBF5;
+  --tint-warning:  #FFFBEB;
+  --tint-active:   #F0F4FF;
+  --tint-complete: #ECFDF5;
+
+  /* Card */
+  --card-bg:      #FFFFFF;
+  --card-border:  #E5E7EB;
+  --card-radius:  12px;
+  --card-padding: 14px;
+
+  /* Borders / dividers */
+  --border-strong: #CBD5E1;
+  --border-weak:   #E5E7EB;
+  --border-hair:   #F1F5F9;
 }
 
 /* Dark mode: activated via [data-theme="dark"] on <html> */

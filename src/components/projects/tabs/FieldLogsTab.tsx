@@ -12,6 +12,7 @@ import {
   updateProjectTodoStatus,
   uploadFieldLogPhoto,
 } from "@/app/actions/field-logs";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 interface Todo {
   id: string;
@@ -402,9 +403,9 @@ export default function FieldLogsTab({ projectId }: { projectId: string }) {
             {logs.length} log{logs.length !== 1 ? "s" : ""}
           </span>
           {totalOpenTodos > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200 font-medium">
+            <StatusBadge status="warning" size="sm">
               {totalOpenTodos} open to-do{totalOpenTodos !== 1 ? "s" : ""}
-            </span>
+            </StatusBadge>
           )}
         </div>
         <button

@@ -4,6 +4,8 @@ import { useState, useEffect, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { createTodo, completeTodo, reopenTodo, deleteTodo } from "@/app/actions/todos";
 import { Plus, Circle, CheckCircle2, Trash2, RotateCcw } from "lucide-react";
+import StatusBadge from "@/components/ui/StatusBadge";
+import type { StatusKind } from "@/components/ui/StatusBadge";
 
 interface Project { id: string; name: string }
 
@@ -18,10 +20,10 @@ interface Todo {
   created_at: string;
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  low:    "text-gray-400 bg-gray-100",
-  normal: "text-blue-600 bg-blue-50",
-  urgent: "text-red-600 bg-red-50",
+const PRIORITY_KIND: Record<string, StatusKind> = {
+  low: "neutral",
+  normal: "active",
+  urgent: "over",
 };
 
 function isOverdue(due: string | null) {
@@ -167,11 +169,11 @@ export default function TodosClient() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={"px-4 py-2 text-sm font-medium border-b-2 transition-colors " + (tab === t ? "border-[#4272EF] text-[#4272EF]" : "border-transparent text-gray-500 hover:text-gray-700")}
+            className={"px-4 py-2 text-sm font-medium border-b-2 transition-colors " + (tab === t ? "border-[color:var(--brand-blue)] text-[color:var(--brand-blue)]" : "border-transparent text-gray-500 hover:text-gray-700")}
           >
             {t === "open" ? "Open" : "Completed"}
-            <span className={"ml-1.5 text-xs px-1.5 py-0.5 rounded-full " + (t === "open" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500")}>
-              {t === "open" ? openTodos.length : doneTodos.length}
+            <span className="ml-1.5 text-xs text-gray-400 tabular-nums">
+              ({t === "open" ? openTodos.length : doneTodos.length})
             </span>
           </button>
         ))}
@@ -202,11 +204,14 @@ export default function TodosClient() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-800">{t.description}</p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <span className={"text-xs px-1.5 py-0.5 rounded font-medium " + (PRIORITY_COLORS[t.priority] ?? "text-gray-500 bg-gray-100")}>
+                        <StatusBadge status={PRIORITY_KIND[t.priority] ?? "neutral"} size="sm">
                           {t.priority}
-                        </span>
+                        </StatusBadge>
                         {t.due_date && (
-                          <span className={"text-xs " + (isOverdue(t.due_date) ? "text-red-500 font-medium" : "text-gray-400")}>
+                          <span
+                            className="text-xs"
+                            style={isOverdue(t.due_date) ? { color: "var(--status-over)", fontWeight: 500 } : { color: "var(--text-muted)" }}
+                          >
                             due {t.due_date}{isOverdue(t.due_date) ? " · overdue" : ""}
                           </span>
                         )}

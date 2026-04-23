@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, Trash2, AlertTriangle, AlertCircle, Truck } from "lucide-react";
 import { createVendor, updateVendor, deleteVendor } from "@/app/actions/vendors";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import StatusBadge from "@/components/ui/StatusBadge";
 import type { Database } from "@/types/database";
 
 function vendorInputFromForm(fd: FormData, existing?: Vendor) {
@@ -51,15 +52,15 @@ function ExpiryBadge({ label, dateStr }: { label: string; dateStr: string | null
   if (days === null) return null;
   if (days < 0)
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium bg-red-50 text-red-700 px-2 py-0.5 rounded-full">
-        <AlertCircle size={11} /> {label} EXPIRED
-      </span>
+      <StatusBadge status="over" size="sm">
+        <AlertCircle size={11} className="mr-0.5" /> {label} EXPIRED
+      </StatusBadge>
     );
   if (days <= 30)
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
-        <AlertTriangle size={11} /> {label} expires in {days}d
-      </span>
+      <StatusBadge status="warning" size="sm">
+        <AlertTriangle size={11} className="mr-0.5" /> {label} expires in {days}d
+      </StatusBadge>
     );
   return (
     <span className="text-xs text-gray-400">

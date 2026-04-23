@@ -11,6 +11,7 @@ import {
   Shield,
   Bell,
 } from "lucide-react";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -222,14 +223,17 @@ export default async function ManageHubPage() {
                         href={`/vendors/${v.id}`}
                         className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
                       >
-                        <div className={`w-2 h-2 rounded-full shrink-0 ${isExpired ? "bg-red-500" : "bg-amber-500"}`} />
+                        <div
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: isExpired ? "var(--status-over)" : "var(--status-warning)" }}
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{v.name}</p>
                           <p className="text-xs text-gray-400">{v.trade ?? "No trade"}</p>
                         </div>
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isExpired ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"}`}>
+                        <StatusBadge status={isExpired ? "over" : "warning"} size="sm">
                           {isExpired ? "Expired" : `${Math.min(coiDays ?? 999, licDays ?? 999)}d`}
-                        </span>
+                        </StatusBadge>
                       </Link>
                     );
                   })}

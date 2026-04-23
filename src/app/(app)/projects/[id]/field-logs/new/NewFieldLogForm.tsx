@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Plus, Trash2, Camera, Upload, X } from "lucide-react";
 import { uploadFieldLogPhoto } from "@/app/actions/field-logs";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 interface Todo {
   description: string;
@@ -12,10 +13,10 @@ interface Todo {
   due_date: string;
 }
 
-const priorityStyles = {
-  low: "bg-gray-100 text-gray-600",
-  normal: "bg-blue-100 text-blue-700",
-  urgent: "bg-red-100 text-red-700",
+const priorityKinds: Record<Todo["priority"], StatusKind> = {
+  low: "neutral",
+  normal: "active",
+  urgent: "over",
 };
 
 export default function NewFieldLogForm({ projectId, userId }: { projectId: string; userId: string }) {
@@ -226,9 +227,9 @@ export default function NewFieldLogForm({ projectId, userId }: { projectId: stri
           <ul className="space-y-2">
             {todos.map((t, i) => (
               <li key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${priorityStyles[t.priority]}`}>
+                <StatusBadge status={priorityKinds[t.priority]} size="sm">
                   {t.priority}
-                </span>
+                </StatusBadge>
                 <span className="flex-1 text-sm text-gray-800">{t.description}</span>
                 {t.due_date && <span className="text-xs text-gray-400">Due {t.due_date}</span>}
                 <button type="button" onClick={() => removeTodo(i)} className="text-gray-300 hover:text-red-400">

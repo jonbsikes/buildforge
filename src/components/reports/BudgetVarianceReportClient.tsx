@@ -198,8 +198,16 @@ export default function BudgetVarianceReportClient() {
                         <div className="flex items-center justify-end gap-2">
                           <div className="w-16 bg-gray-100 rounded-full h-1.5">
                             <div
-                              className={`h-1.5 rounded-full ${r.pct > 100 ? "bg-red-500" : r.pct > 80 ? "bg-amber-400" : "bg-green-500"}`}
-                              style={{ width: `${Math.min(usedPct / 2, 100)}%` }}
+                              className="h-1.5 rounded-full"
+                              style={{
+                                width: `${Math.min(usedPct / 2, 100)}%`,
+                                backgroundColor:
+                                  r.pct > 100
+                                    ? "var(--status-over)"
+                                    : r.pct > 80
+                                      ? "var(--status-warning)"
+                                      : "var(--status-complete)",
+                              }}
                             />
                           </div>
                           <span className="text-xs text-gray-500 w-10 text-right">{r.pct.toFixed(0)}%</span>

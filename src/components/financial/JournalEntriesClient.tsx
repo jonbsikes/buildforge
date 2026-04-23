@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, HardHat, Home, DollarSign, Landmark, Percent, Tag, RotateCcw } from "lucide-react";
 import { createJournalEntry, voidJournalEntry, reverseJournalEntry, type JournalLineInput } from "@/app/actions/journal-entries";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 type Account  = { id: string; account_number: string; name: string; type: string; subtype: string | null };
 type CostCode = { id: string; code: number; description: string; category: string };
@@ -327,9 +328,9 @@ export default function JournalEntriesClient() {
   }
 
   const statusBadge = (s: string) => {
-    if (s === "posted") return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Posted</span>;
-    if (s === "draft")  return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Draft</span>;
-    return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Voided</span>;
+    if (s === "posted") return <StatusBadge status="complete" size="sm">Posted</StatusBadge>;
+    if (s === "draft")  return <StatusBadge status="warning" size="sm">Draft</StatusBadge>;
+    return <StatusBadge status="planned" size="sm">Voided</StatusBadge>;
   };
 
   // Group accounts — relabeled COGS to deter incorrect usage during active construction

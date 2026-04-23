@@ -16,6 +16,7 @@ import {
   Calendar,
   Hammer,
 } from "lucide-react";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -246,13 +247,21 @@ export default async function ProjectsHubPage() {
                       href={`/projects/${s.project_id}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${s.status !== "in_progress" ? "bg-amber-500" : "bg-[#4272EF]"}`} />
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{
+                          backgroundColor:
+                            s.status !== "in_progress"
+                              ? "var(--status-delayed)"
+                              : "var(--status-active)",
+                        }}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{s.stage_name}</p>
                         <p className="text-xs text-gray-400">{projectNames[s.project_id] ?? "Unknown"}</p>
                       </div>
                       {s.status !== "in_progress" && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">Delayed</span>
+                        <StatusBadge status="delayed" size="sm">Delayed</StatusBadge>
                       )}
                     </Link>
                   ))}

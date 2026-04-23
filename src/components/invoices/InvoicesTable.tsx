@@ -19,15 +19,6 @@ import {
 import StatusDot from "@/components/ui/StatusDot";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 
-const STATUS_COLORS: Record<string, string> = {
-  pending_review: "bg-amber-100 text-amber-700",
-  approved: "bg-blue-100 text-blue-700",
-  released: "bg-purple-100 text-purple-700",
-  cleared: "bg-green-100 text-green-700",
-  disputed: "bg-red-100 text-red-600",
-  void: "bg-gray-100 text-gray-500",
-};
-
 // Status sort order: unpaid first (pending -> approved -> released -> disputed), then cleared/void last
 const STATUS_SORT_ORDER: Record<string, number> = {
   pending_review: 0,
@@ -47,18 +38,6 @@ function fmtDate(d: string | null) {
   if (!d) return " - ";
   const [y, m, day] = d.split("-");
   return `${parseInt(m)}/${parseInt(day)}/${y}`;
-}
-
-function getStatusDotColor(status: string): "amber" | "blue" | "purple" | "green" | "red" | "gray" {
-  const colorMap: Record<string, "amber" | "blue" | "purple" | "green" | "red" | "gray"> = {
-    pending_review: "amber",
-    approved: "blue",
-    released: "purple",
-    cleared: "green",
-    disputed: "red",
-    void: "gray",
-  };
-  return colorMap[status] || "gray";
 }
 
 type SortField = "status" | "due_date" | "vendor" | "amount" | "invoice_date";
@@ -235,8 +214,8 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   function SortIcon({ field }: { field: SortField }) {
     if (sortField !== field) return <span className="ml-1 text-gray-300">↕</span>;
     return sortDir === "asc"
-      ? <ChevronUp size={12} className="inline ml-1 text-[#4272EF]" />
-      : <ChevDown size={12} className="inline ml-1 text-[#4272EF]" />;
+      ? <ChevronUp size={12} className="inline ml-1" style={{ color: "var(--brand-blue)" }} />
+      : <ChevDown size={12} className="inline ml-1" style={{ color: "var(--brand-blue)" }} />;
   }
 
   // Compute summary metrics
@@ -310,9 +289,9 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
 
       {/* Summary Metric Strip */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] p-4">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-amber-400" />
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pending Review</p>
               <p className="text-lg font-bold text-gray-900">{summaryMetrics.pendingCount}</p>
@@ -320,9 +299,9 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] p-4">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-blue-500" />
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--status-active)" }} />
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Approved</p>
               <p className="text-lg font-bold text-gray-900">{summaryMetrics.approvedCount}</p>
@@ -330,9 +309,9 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] p-4">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
             <div>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Past Due</p>
               <p className="text-lg font-bold text-gray-900">{summaryMetrics.pastDueCount}</p>
@@ -350,7 +329,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
             onClick={() => setFilterStatus("")}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
               filterStatus === ""
-                ? "bg-[#4272EF] text-white"
+                ? "bg-[color:var(--brand-blue)] text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-150"
             }`}
           >
@@ -371,7 +350,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                 onClick={() => setFilterStatus(filterStatus === s ? "" : s)}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
                   filterStatus === s
-                    ? "bg-[#4272EF] text-white"
+                    ? "bg-[color:var(--brand-blue)] text-white"
                     : "bg-gray-100 text-gray-600 hover:bg-gray-150"
                 }`}
               >
@@ -389,7 +368,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search vendor or invoice #..."
-            className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+            className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-blue)]"
           />
         </div>
 
@@ -397,7 +376,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
         <select
           value={filterProject}
           onChange={(e) => setFilterProject(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-blue)]"
         >
           <option value="">All Projects</option>
           {uniqueProjects.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -418,7 +397,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
           onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
           className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
             selectMode
-              ? "border-[#4272EF] text-[#4272EF] bg-blue-50"
+              ? "border-[color:var(--brand-blue)] text-[color:var(--brand-blue)] bg-[color:var(--tint-active)]"
               : "border-gray-300 text-gray-600 hover:bg-gray-50"
           }`}
         >
@@ -441,7 +420,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       type="checkbox"
                       checked={allSelected}
                       onChange={(e) => toggleAll(e.target.checked)}
-                      className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                      className="rounded border-gray-300 text-[color:var(--brand-blue)] focus:ring-[color:var(--brand-blue)]"
                     />
                   </th>
                 )}
@@ -504,7 +483,14 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                     <tr
                       key={inv.id}
                       onClick={() => !selectMode && setExpandedId(isExpanded ? null : inv.id)}
-                      className={`transition-colors group cursor-pointer ${isSelected ? "bg-blue-50" : isPastDue ? "bg-red-50/30 hover:bg-red-50/50" : "hover:bg-gray-50"}`}
+                      className={`transition-colors group cursor-pointer ${
+                        isSelected
+                          ? "bg-[color:var(--tint-active)]"
+                          : isPastDue
+                            ? "hover:brightness-95"
+                            : "hover:bg-gray-50"
+                      }`}
+                      style={isPastDue ? { borderLeft: "3px solid var(--status-over)", backgroundColor: "var(--tint-over)" } : undefined}
                     >
                       {selectMode && (
                         <td className="px-4 py-2 w-8" onClick={(e) => e.stopPropagation()}>
@@ -512,22 +498,22 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                             type="checkbox"
                             checked={isSelected}
                             onChange={(e) => toggleOne(inv.id, e.target.checked)}
-                            className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                            className="rounded border-gray-300 text-[color:var(--brand-blue)] focus:ring-[color:var(--brand-blue)]"
                           />
                         </td>
                       )}
                     <td className="px-0 py-0">
                       <Link href={`/invoices/${inv.id}`} className="block px-4 py-2">
                         <p className="font-medium text-gray-900 flex items-center gap-1.5 text-sm">
-                          {isLowConf && <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />}
-                          {isPastDue && !isLowConf && <AlertTriangle size={13} className="text-red-400 flex-shrink-0" />}
+                          {isLowConf && <AlertTriangle size={13} className="flex-shrink-0" style={{ color: "var(--status-warning)" }} />}
+                          {isPastDue && !isLowConf && <AlertTriangle size={13} className="flex-shrink-0" style={{ color: "var(--status-over)" }} />}
                           {inv.vendor ?? " - "}
                         </p>
                         <p className="text-xs text-gray-400 flex items-center gap-1.5">
                           {inv.invoice_number ?? "No #"}
-                          {inv.pending_draw && <span className="text-[#4272EF] font-medium">• Draw</span>}
+                          {inv.pending_draw && <span className="text-[color:var(--brand-blue)] font-medium">• Draw</span>}
                           {inv.source === "email" && (
-                            <span className="inline-flex items-center gap-0.5 text-[#4272EF]" title="Imported via Gmail">
+                            <span className="inline-flex items-center gap-0.5 text-[color:var(--brand-blue)]" title="Imported via Gmail">
                               <Mail size={11} />
                               <span className="text-[10px] font-medium">Email</span>
                             </span>
@@ -541,11 +527,14 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       </Link>
                     </td>
                     <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2 text-gray-600 text-xs">
+                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2">
                         {inv.cost_codes ? (
-                          <span title={inv.cost_codes.name}>{inv.cost_codes.code}</span>
+                          <>
+                            <span className="text-gray-700 text-xs truncate block">{inv.cost_codes.name}</span>
+                            <span className="text-[10px] text-gray-400 tabular-nums">{inv.cost_codes.code}</span>
+                          </>
                         ) : (
-                          <span className="text-gray-400"> - </span>
+                          <span className="text-gray-400 text-xs">—</span>
                         )}
                       </Link>
                     </td>
@@ -555,9 +544,13 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       </Link>
                     </td>
                     <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className={`block px-4 py-2 text-xs font-medium ${isPastDue ? "text-red-600" : "text-gray-600"}`}>
-                        {fmtDate(inv.due_date)}
-                        {isPastDue && <span className="ml-1 text-[10px] text-red-400">Past due</span>}
+                      <Link
+                        href={`/invoices/${inv.id}`}
+                        className="block px-4 py-2 text-xs font-medium"
+                        style={{ color: isPastDue ? "var(--status-over)" : undefined }}
+                      >
+                        <span className={!isPastDue ? "text-gray-600" : ""}>{fmtDate(inv.due_date)}</span>
+                        {isPastDue && <span className="ml-1 text-[10px]" style={{ color: "var(--status-over)", opacity: 0.8 }}>Past due</span>}
                       </Link>
                     </td>
                     <td className="px-0 py-0 text-right">
@@ -582,7 +575,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                                 ? `In draw request — ${inv.in_draw.draw_date}${inv.in_draw.status ? ` (${inv.in_draw.status})` : ""}`
                                 : "In draw request"
                             }
-                            className="text-[#4272EF] hover:text-[#3461de] transition-colors flex-shrink-0"
+                            className="text-[color:var(--brand-blue)] hover:text-[#3461de] transition-colors flex-shrink-0"
                           >
                             <Landmark size={14} />
                           </Link>
@@ -607,7 +600,8 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                               });
                             }}
                             disabled={isPending || (isLowConf && !inv.manually_reviewed)}
-                            className="opacity-0 group-hover:opacity-100 ml-auto text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-lg font-medium hover:bg-blue-200 transition-all disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
+                            className="ml-auto text-xs font-semibold hover:underline transition-colors disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
+                            style={{ color: "var(--brand-blue)" }}
                           >
                             <Check size={12} />
                             Approve
@@ -623,7 +617,8 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                               setMoreMenuFor(null);
                             }}
                             disabled={isPending}
-                            className="opacity-0 group-hover:opacity-100 ml-auto text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-lg font-medium hover:bg-purple-200 transition-all disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
+                            className="ml-auto text-xs font-semibold hover:underline transition-colors disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
+                            style={{ color: "var(--brand-blue)" }}
                           >
                             <CreditCard size={12} />
                             Pay
@@ -832,7 +827,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                           });
                         }}
                         disabled={isPending}
-                        className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                        className="rounded border-gray-300 text-[color:var(--brand-blue)] focus:ring-[color:var(--brand-blue)]"
                       />
                     </td>
                     <td className="px-4 py-2 w-8 text-center" onClick={(e) => e.stopPropagation()}>
@@ -861,7 +856,17 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                           </div>
                           <div>
                             <span className="text-gray-400 block mb-0.5">AI Confidence</span>
-                            <span className={`font-medium ${inv.ai_confidence === "high" ? "text-green-600" : inv.ai_confidence === "medium" ? "text-amber-600" : "text-red-600"}`}>
+                            <span
+                              className="font-medium"
+                              style={{
+                                color:
+                                  inv.ai_confidence === "high"
+                                    ? "var(--status-complete)"
+                                    : inv.ai_confidence === "medium"
+                                      ? "var(--status-warning)"
+                                      : "var(--status-over)",
+                              }}
+                            >
                               {inv.ai_confidence ?? " - "}
                             </span>
                           </div>
@@ -872,7 +877,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                           <div>
                             <Link
                               href={`/invoices/${inv.id}`}
-                              className="inline-flex items-center gap-1 text-[#4272EF] font-medium hover:underline"
+                              className="inline-flex items-center gap-1 text-[color:var(--brand-blue)] font-medium hover:underline"
                             >
                               View Details {">"}
                             </Link>

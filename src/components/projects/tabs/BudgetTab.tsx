@@ -175,8 +175,16 @@ export default function BudgetTab({ costCodes, committedByCostCodeId, actualByCo
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
             <div
-              className={`h-full rounded-full transition-all ${pctSpent >= 100 ? "bg-red-500" : pctSpent >= 80 ? "bg-amber-400" : "bg-[#4272EF]"}`}
-              style={{ width: `${Math.min(100, pctSpent)}%` }}
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${Math.min(100, pctSpent)}%`,
+                backgroundColor:
+                  pctSpent >= 100
+                    ? "var(--status-over)"
+                    : pctSpent >= 80
+                      ? "var(--status-warning)"
+                      : "var(--brand-blue)",
+              }}
             />
           </div>
         </div>

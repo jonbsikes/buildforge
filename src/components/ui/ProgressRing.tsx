@@ -16,8 +16,12 @@ export default function ProgressRing({
   const r = (size - strokeWidth) / 2;
   const c = 2 * Math.PI * r;
   const offset = c - (progress / 100) * c;
-  const color =
-    progress >= 70 ? "#10B981" : progress >= 40 ? "#4272EF" : "#F59E0B";
+  const colorVar =
+    progress >= 70
+      ? "var(--status-complete)"
+      : progress >= 40
+        ? "var(--brand-blue)"
+        : "var(--status-warning)";
 
   return (
     <div
@@ -30,25 +34,24 @@ export default function ProgressRing({
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="#E2E8F0"
           strokeWidth={strokeWidth}
+          style={{ stroke: "var(--border-weak)" }}
         />
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
           fill="none"
-          stroke={color}
           strokeWidth={strokeWidth}
           strokeDasharray={c}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.6s ease" }}
+          style={{ stroke: colorVar, transition: "stroke-dashoffset 0.6s ease" }}
         />
       </svg>
       <span
         className="absolute text-xs font-bold tabular-nums"
-        style={{ color }}
+        style={{ color: colorVar }}
       >
         {progress}%
       </span>

@@ -1,36 +1,37 @@
 /**
  * Compact status indicator: colored dot + text label.
- * Used in dense financial tables where full badges take too much space.
+ * Consumes the canonical status tokens from globals.css.
+ *
+ * For new code, prefer StatusBadge — it takes the same 7-kind enum and
+ * lets the caller control the label. StatusDot is kept as a legacy-status
+ * convenience for dense tables where existing string codes are passed in.
  */
 
-const DOT_COLORS: Record<string, string> = {
-  pending_review: "bg-amber-400",
-  approved: "bg-blue-500",
-  released: "bg-purple-500",
-  cleared: "bg-emerald-500",
-  disputed: "bg-red-500",
-  void: "bg-gray-300",
-  draft: "bg-gray-400",
-  submitted: "bg-amber-500",
-  funded: "bg-blue-500",
-  paid: "bg-emerald-500",
-  active: "bg-blue-500",
-  pending: "bg-amber-400",
+import type { StatusKind } from "./StatusBadge";
+
+const KIND_VAR: Record<StatusKind, string> = {
+  complete: "var(--status-complete)",
+  active: "var(--status-active)",
+  delayed: "var(--status-delayed)",
+  warning: "var(--status-warning)",
+  over: "var(--status-over)",
+  planned: "var(--status-planned)",
+  neutral: "var(--status-neutral)",
 };
 
-const DOT_LABELS: Record<string, string> = {
-  pending_review: "Pending",
-  approved: "Approved",
-  released: "Released",
-  cleared: "Cleared",
-  disputed: "Disputed",
-  void: "Void",
-  draft: "Draft",
-  submitted: "Submitted",
-  funded: "Funded",
-  paid: "Paid",
-  active: "Active",
-  pending: "Pending",
+const LEGACY_TO_KIND: Record<string, { kind: StatusKind; label: string }> = {
+  pending_review: { kind: "warning", label: "Pending" },
+  pending: { kind: "warning", label: "Pending" },
+  approved: { kind: "active", label: "Approved" },
+  released: { kind: "active", label: "Released" },
+  cleared: { kind: "complete", label: "Cleared" },
+  disputed: { kind: "over", label: "Disputed" },
+  void: { kind: "planned", label: "Void" },
+  draft: { kind: "planned", label: "Draft" },
+  submitted: { kind: "warning", label: "Submitted" },
+  funded: { kind: "active", label: "Funded" },
+  paid: { kind: "complete", label: "Paid" },
+  active: { kind: "active", label: "Active" },
 };
 
 interface StatusDotProps {
@@ -39,10 +40,19 @@ interface StatusDotProps {
 }
 
 export default function StatusDot({ status, className = "" }: StatusDotProps) {
+  const entry = LEGACY_TO_KIND[status];
+  const kind: StatusKind = entry?.kind ?? "neutral";
+  const label = entry?.label ?? status.replace(/_/g, " ");
+
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs text-gray-700 ${className}`}>
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${DOT_COLORS[status] || "bg-gray-300"}`} />
-      {DOT_LABELS[status] || status.replace(/_/g, " ")}
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs text-[color:var(--text-primary)] ${className}`}
+    >
+      <span
+        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+        style={{ backgroundColor: KIND_VAR[kind] }}
+      />
+      {label}
     </span>
   );
 }

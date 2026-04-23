@@ -12,12 +12,6 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
 
-const priorityStyles: Record<string, string> = {
-  low: "bg-gray-100 text-gray-600",
-  normal: "bg-blue-100 text-blue-700",
-  urgent: "bg-red-100 text-red-700",
-};
-
 export default async function FieldLogDetailPage({
   params,
 }: {
@@ -156,7 +150,6 @@ export default async function FieldLogDetailPage({
                   priority: t.priority as "low" | "normal" | "urgent",
                   due_date: t.due_date,
                 }))}
-                priorityStyles={priorityStyles}
               />
             )}
           </div>
