@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
@@ -113,7 +114,11 @@ export default function StageProgressReportClient() {
             const days = daysInStage(p.stages);
 
             return (
-              <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+              <Link
+                key={p.id}
+                href={`/projects/${p.id}`}
+                className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 block hover:border-[#4272EF]/40 hover:shadow-sm transition-all"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-900 leading-tight">{p.name}</h3>
@@ -178,7 +183,7 @@ export default function StageProgressReportClient() {
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-planned)" }} /> {total - complete - inProgress} pending
                   </span>
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

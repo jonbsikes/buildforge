@@ -99,7 +99,7 @@ export default async function ManageHubPage() {
 
   const utilityCards = [
     { href: "/notifications", icon: Bell, label: "Notifications", description: unreadNotifications > 0 ? `${unreadNotifications} unread` : "All caught up", color: "text-amber-600", bg: "bg-amber-50" },
-    { href: "/settings", icon: Settings, label: "Settings", description: "Company & cost codes", color: "text-gray-600", bg: "bg-gray-100" },
+    { href: "/settings", icon: Settings, label: "Settings", description: "Profile & cost codes", color: "text-gray-600", bg: "bg-gray-100" },
   ];
 
   return (

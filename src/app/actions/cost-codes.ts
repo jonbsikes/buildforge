@@ -26,7 +26,7 @@ export async function createCostCode(formData: FormData) {
   });
 
   if (error) throw new Error(error.message);
-  revalidatePath("/settings");
+  revalidatePath("/settings/cost-codes");
 }
 
 export async function toggleCostCode(id: string, isActive: boolean) {
@@ -36,12 +36,12 @@ export async function toggleCostCode(id: string, isActive: boolean) {
     .update({ is_active: isActive })
     .eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/settings");
+  revalidatePath("/settings/cost-codes");
 }
 
 export async function deleteCostCode(id: string) {
   const supabase = await createClient();
   const { error } = await supabase.from("cost_codes").delete().eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/settings");
+  revalidatePath("/settings/cost-codes");
 }

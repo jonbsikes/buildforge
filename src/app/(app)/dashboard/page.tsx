@@ -74,11 +74,10 @@ export default async function DashboardPage() {
   }
 
   const todosByProject: Record<string, number> = {};
-  let urgentTodos = 0;
   for (const t of fieldTodos ?? []) {
     if (t.project_id) todosByProject[t.project_id] = (todosByProject[t.project_id] ?? 0) + 1;
-    if (t.priority === "urgent") urgentTodos++;
   }
+  const openTodos = (fieldTodos ?? []).length;
 
   const stagesByProject: Record<string, NonNullable<typeof buildStages>> = {};
   for (const s of buildStages ?? []) {
@@ -494,12 +493,12 @@ export default async function DashboardPage() {
                   </span>
                 </Link>
                 <Link href="/todos" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">
-                  <span className="text-gray-700">Urgent to-dos</span>
+                  <span className="text-gray-700">Open to-dos</span>
                   <span
                     className="font-semibold tabular-nums"
-                    style={{ color: urgentTodos > 0 ? "var(--status-over)" : undefined }}
+                    style={{ color: openTodos > 0 ? "var(--status-over)" : undefined }}
                   >
-                    {urgentTodos}
+                    {openTodos}
                   </span>
                 </Link>
                 <Link href="/vendors" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">

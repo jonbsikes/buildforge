@@ -67,6 +67,7 @@ export const navSections: NavSection[] = [
       { label: "Vendors", href: "/vendors" },
       { label: "Contacts", href: "/contacts" },
       { label: "Documents", href: "/documents" },
+      { label: "Cost Codes", href: "/settings/cost-codes" },
       { label: "Settings", href: "/settings" },
     ],
   },
