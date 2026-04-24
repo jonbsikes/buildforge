@@ -62,19 +62,29 @@ export default async function FinancialHubPage() {
   ]);
 
   const allInvoices = invoices ?? [];
-  const pendingReview = allInvoices.filter((i) => i.status === "pending_review").length;
+  const pendingReviewInvoices = allInvoices.filter((i) => i.status === "pending_review");
+  const pendingReview = pendingReviewInvoices.length;
+  const pendingReviewAmount = pendingReviewInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const approvedAP = allInvoices.filter((i) => i.status === "approved");
   const outstandingAP = approvedAP.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
-  const pastDue = allInvoices.filter(
+  const pastDueInvoices = allInvoices.filter(
     (i) => i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today
-  ).length;
-  const releasedCount = allInvoices.filter((i) => i.status === "released").length;
+  );
+  const pastDue = pastDueInvoices.length;
+  const pastDueAmount = pastDueInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
+  const releasedInvoices = allInvoices.filter((i) => i.status === "released");
+  const releasedCount = releasedInvoices.length;
+  const releasedAmount = releasedInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
 
   const activeLoans = loans ?? [];
   const totalLoanBalance = activeLoans.reduce((s, l) => s + (l.current_balance ?? 0), 0);
   const totalLoanCommitment = activeLoans.reduce((s, l) => s + (l.loan_amount ?? 0), 0);
 
-  const pendingDraws = (draws ?? []).filter((d) => d.status === "draft" || d.status === "submitted").length;
+  const pendingDrawList = (draws ?? []).filter((d) => d.status === "draft" || d.status === "submitted");
+  const pendingDraws = pendingDrawList.length;
+  const pendingDrawsAmount = pendingDrawList.reduce((s, d) => s + (d.total_amount ?? 0), 0);
+
+  const attentionCount = (pastDue > 0 ? 1 : 0) + (pendingReview > 0 ? 1 : 0) + (releasedCount > 0 ? 1 : 0) + (pendingDraws > 0 ? 1 : 0);
 
   const mainNavCards = [
     {
@@ -85,7 +95,6 @@ export default async function FinancialHubPage() {
       color: "text-[#4272EF]",
       bg: "bg-blue-50",
       badge: pendingReview > 0 ? `${pendingReview}` : null,
-      badgeColor: "bg-amber-100 text-amber-700",
     },
     {
       href: "/financial/journal-entries",
@@ -95,7 +104,6 @@ export default async function FinancialHubPage() {
       color: "text-indigo-600",
       bg: "bg-indigo-50",
       badge: null,
-      badgeColor: "",
     },
   ];
 
@@ -121,48 +129,128 @@ export default async function FinancialHubPage() {
     <>
       <Header title="Financial" />
       <main className="flex-1 p-4 lg:p-8 overflow-auto">
-        {/* KPI Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6">
-          <div className={`bg-white border rounded-xl p-4 lg:p-5 shadow-sm ${pastDue > 0 ? "border-red-200" : "border-gray-200"}`}>
-            <div className="flex items-center gap-3 mb-2">
-              <div className={`w-9 h-9 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center ${pastDue > 0 ? "bg-red-50" : "bg-blue-50"}`}>
-                <Receipt size={18} className={pastDue > 0 ? "text-red-500" : "text-[#4272EF]"} />
-              </div>
+        {/* ── Needs Attention hero (financial-level) ── */}
+        {attentionCount > 0 && (
+          <div
+            className="rounded-xl px-5 py-4 mb-6 text-white"
+            style={{ backgroundColor: "#0F172A" }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={13} style={{ color: "var(--status-warning)" }} />
+              <span
+                className="text-[10px] font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--status-warning)" }}
+              >
+                Needs Attention · {attentionCount}
+              </span>
             </div>
-            <p className="text-xl lg:text-2xl font-bold text-gray-900 tabular-nums">{fmt(outstandingAP)}</p>
-            <p className="text-xs lg:text-sm text-gray-500">AP Outstanding</p>
-            {pastDue > 0 && <p className="text-xs text-red-500 font-medium mt-0.5">{pastDue} past due</p>}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+              {pastDue > 0 && (
+                <Link
+                  href="/invoices"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-over)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {pastDue} past-due invoice{pastDue !== 1 ? "s" : ""}
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pastDueAmount)}</p>
+                  </div>
+                </Link>
+              )}
+              {pendingReview > 0 && (
+                <Link
+                  href="/invoices"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-warning)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {pendingReview} invoice{pendingReview !== 1 ? "s" : ""} to review
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pendingReviewAmount)}</p>
+                  </div>
+                </Link>
+              )}
+              {releasedCount > 0 && (
+                <Link
+                  href="/banking/payments"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-active)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {releasedCount} check{releasedCount !== 1 ? "s" : ""} outstanding
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(releasedAmount)}</p>
+                  </div>
+                </Link>
+              )}
+              {pendingDraws > 0 && (
+                <Link
+                  href="/draws"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-warning)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {pendingDraws} draw{pendingDraws !== 1 ? "s" : ""} pending
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pendingDrawsAmount)}</p>
+                  </div>
+                </Link>
+              )}
+            </div>
           </div>
-          <div className={`bg-white border rounded-xl p-4 lg:p-5 shadow-sm ${pendingReview > 0 ? "border-amber-200" : "border-gray-200"}`}>
-            <div className="flex items-center gap-3 mb-2">
-              <div className={`w-9 h-9 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center ${pendingReview > 0 ? "bg-amber-50" : "bg-gray-50"}`}>
-                <AlertTriangle size={18} className={pendingReview > 0 ? "text-amber-600" : "text-gray-400"} />
-              </div>
-            </div>
-            <p className="text-xl lg:text-2xl font-bold text-gray-900 tabular-nums">{pendingReview}</p>
-            <p className="text-xs lg:text-sm text-gray-500">Pending Review</p>
-            {releasedCount > 0 && <p className="text-xs text-gray-400 mt-0.5">{releasedCount} checks outstanding</p>}
+        )}
+
+        {/* ── Inline secondary metrics ── */}
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 pb-4 mb-6 border-b border-gray-200 tabular-nums">
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AP outstanding</p>
+            <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(outstandingAP)}</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 lg:p-5 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                <Banknote size={18} className="text-[#4272EF]" />
-              </div>
-            </div>
-            <p className="text-xl lg:text-2xl font-bold text-gray-900 tabular-nums">{fmt(totalLoanBalance)}</p>
-            <p className="text-xs lg:text-sm text-gray-500">Loan Balance</p>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Pending review</p>
+            <p
+              className="text-lg font-bold leading-none mt-1"
+              style={{ color: pendingReview > 0 ? "var(--status-warning)" : undefined }}
+            >
+              {pendingReview}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Past due</p>
+            <p
+              className="text-lg font-bold leading-none mt-1"
+              style={{ color: pastDue > 0 ? "var(--status-over)" : undefined }}
+            >
+              {pastDue}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Loan balance</p>
+            <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(totalLoanBalance)}</p>
             {totalLoanCommitment > 0 && (
-              <p className="text-xs text-gray-400 mt-0.5">of {fmt(totalLoanCommitment)} committed</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">of {fmt(totalLoanCommitment)} committed</p>
             )}
           </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 lg:p-5 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <div className={`w-9 h-9 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center ${pendingDraws > 0 ? "bg-amber-50" : "bg-gray-50"}`}>
-                <HandCoins size={18} className={pendingDraws > 0 ? "text-amber-600" : "text-gray-400"} />
-              </div>
-            </div>
-            <p className="text-xl lg:text-2xl font-bold text-gray-900 tabular-nums">{pendingDraws}</p>
-            <p className="text-xs lg:text-sm text-gray-500">Pending Draws</p>
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Pending draws</p>
+            <p className="text-lg font-bold text-gray-900 leading-none mt-1">{pendingDraws}</p>
           </div>
         </div>
 
@@ -186,7 +274,12 @@ export default async function FinancialHubPage() {
                           <Icon size={20} className={card.color} />
                         </div>
                         {card.badge && (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${card.badgeColor}`}>{card.badge}</span>
+                          <span
+                            className="text-xs font-bold px-2 py-0.5 rounded-full"
+                            style={{ backgroundColor: "var(--tint-warning)", color: "#92400E" }}
+                          >
+                            {card.badge}
+                          </span>
                         )}
                       </div>
                       <p className="font-semibold text-gray-900 mb-0.5 group-hover:text-[#4272EF] transition-colors">{card.label}</p>

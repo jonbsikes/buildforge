@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { uploadDocument, deleteDocument } from "@/app/actions/documents";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import MetadataChip from "@/components/ui/MetadataChip";
 import type { Database } from "@/types/database";
 
 type Document = Database["public"]["Tables"]["documents"]["Row"];
@@ -33,15 +34,6 @@ const PROJECT_FOLDERS = [
   "Other",
 ] as const;
 
-const FOLDER_COLORS: Record<string, string> = {
-  "Construction Plans": "bg-blue-50 text-blue-700",
-  "Field Photos": "bg-pink-50 text-pink-700",
-  "Inspections/Permits": "bg-purple-50 text-purple-700",
-  Marketing: "bg-amber-50 text-amber-700",
-  Closing: "bg-emerald-50 text-emerald-700",
-  Sales: "bg-indigo-50 text-indigo-700",
-  Other: "bg-gray-100 text-gray-600",
-};
 
 type Category = "project" | "vendor" | "company";
 type View =
@@ -252,9 +244,7 @@ function DocTable({
               </td>
               {showFolder && (
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${FOLDER_COLORS[doc.folder] ?? "bg-gray-100 text-gray-600"}`}>
-                    {doc.folder}
-                  </span>
+                  <MetadataChip>{doc.folder}</MetadataChip>
                 </td>
               )}
               <td className="px-4 py-3 text-gray-500 text-xs">{resolveContext(doc)}</td>

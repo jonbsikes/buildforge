@@ -7,6 +7,7 @@ import { Search } from "lucide-react";
 import { updatePhaseLotsSold, addProjectCostCodes, removeProjectCostCode, getInvoicesForCostCode } from "@/app/actions/projects";
 import type { CostCodeInvoice } from "@/app/actions/projects";
 import Link from "next/link";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -108,13 +109,12 @@ function PhaseRow({ phase, projectId }: { phase: Phase; projectId: string }) {
         {remaining >= 0 ? remaining : 0}
       </td>
       <td className="px-4 py-3">
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-          phase.status === "complete" ? "bg-green-100 text-green-700" :
-          phase.status === "in_progress" ? "bg-blue-100 text-blue-700" :
-          "bg-gray-100 text-gray-600"
-        }`}>
+        <StatusBadge
+          status={phase.status === "complete" ? "complete" : phase.status === "in_progress" ? "active" : "planned"}
+          size="sm"
+        >
           {phase.status.replace(/_/g, " ")}
-        </span>
+        </StatusBadge>
       </td>
     </tr>
   );
@@ -292,32 +292,27 @@ function AddCostCodePanel({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Invoice status badge
-// ---------------------------------------------------------------------------
-function StatusBadge({ status }: { status: string | null }) {
+// Invoice status badge — delegates to the canonical StatusBadge so the status
+// dot+label rhythm matches everywhere in the app.
+function InvoiceStatusBadge({ status }: { status: string | null }) {
   const s = status ?? "";
-  const styles: Record<string, string> = {
-    pending_review: "bg-yellow-50 text-yellow-700 border border-yellow-200",
-    approved:       "bg-blue-50 text-blue-700 border border-blue-200",
-    released:       "bg-purple-50 text-purple-700 border border-purple-200",
-    cleared:        "bg-green-50 text-green-700 border border-green-200",
-    disputed:       "bg-red-50 text-red-700 border border-red-200",
-    void:           "bg-gray-50 text-gray-400 border border-gray-200",
-  };
-  const labels: Record<string, string> = {
-    pending_review: "Pending Review",
-    approved: "Approved",
-    released: "Released",
-    cleared: "Cleared",
-    disputed: "Disputed",
-    void: "Void",
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${styles[s] ?? "bg-gray-50 text-gray-500 border border-gray-200"}`}>
-      {labels[s] ?? s}
-    </span>
-  );
+  const kind: StatusKind =
+    s === "pending_review" ? "warning" :
+    s === "approved" ? "active" :
+    s === "released" ? "active" :
+    s === "cleared" ? "complete" :
+    s === "disputed" ? "over" :
+    s === "void" ? "planned" :
+    "neutral";
+  const label =
+    s === "pending_review" ? "Pending Review" :
+    s === "approved" ? "Approved" :
+    s === "released" ? "Released" :
+    s === "cleared" ? "Cleared" :
+    s === "disputed" ? "Disputed" :
+    s === "void" ? "Void" :
+    s;
+  return <StatusBadge status={kind} size="sm">{label}</StatusBadge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +373,7 @@ function InvoiceSubRow({
                       {fmtDate(inv.invoice_date)}
                     </td>
                     <td className="py-2 pr-4">
-                      <StatusBadge status={inv.status} />
+                      <InvoiceStatusBadge status={inv.status} />
                     </td>
                     <td className="py-2 text-right font-medium text-gray-800 pr-4">
                       {inv.amount != null ? fmt(inv.amount) : "—"}

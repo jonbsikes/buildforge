@@ -91,7 +91,8 @@ interface TrackGroup {
 function buildGroups(stages: GanttStage[], isHome: boolean): TrackGroup[] {
   // Filter out skipped stages — they don't belong on the Gantt
   const active = stages.filter((s) => s.status !== "skipped");
-  if (!isHome) return [{ label: "All Stages", stages: active }];
+  // Land Development: single horizontal-work track, no EXT/INT split.
+  if (!isHome) return [{ label: "Horizontal Work", stages: active }];
   const exterior = active.filter((s) => s.track === "exterior");
   const interior = active.filter((s) => s.track === "interior");
   const groups: TrackGroup[] = [];

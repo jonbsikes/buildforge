@@ -3,6 +3,7 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { Plus, FileText, Pencil } from "lucide-react";
 import DeleteContractButton from "@/components/contracts/DeleteContractButton";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +11,12 @@ function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  draft:     "bg-gray-100 text-gray-600",
-  active:    "bg-blue-100 text-blue-700",
-  signed:    "bg-green-100 text-green-700",
-  completed: "bg-emerald-100 text-emerald-700",
-  voided:    "bg-red-100 text-red-600",
+const STATUS_KIND: Record<string, StatusKind> = {
+  draft: "planned",
+  active: "active",
+  signed: "complete",
+  completed: "complete",
+  voided: "over",
 };
 
 export default async function ContractsPage() {
@@ -101,9 +102,9 @@ export default async function ContractsPage() {
                         <td className="px-5 py-3 text-xs text-gray-500 font-mono">{costCode ? `${costCode.code}` : "—"}</td>
                         <td className="px-5 py-3 text-right font-medium text-gray-900">{fmt(c.amount ?? 0)}</td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[c.status] ?? "bg-gray-100 text-gray-600"}`}>
+                          <StatusBadge status={STATUS_KIND[c.status] ?? "neutral"} size="sm">
                             {c.status}
-                          </span>
+                          </StatusBadge>
                         </td>
                         <td className="px-5 py-3 text-gray-500">{c.signed_date ?? "—"}</td>
                         <td className="px-5 py-3 text-right">

@@ -62,9 +62,16 @@ const BUCKET_LABELS: Record<AgingBucket, string> = {
   "current": "Current", "1-30": "1–30 Days", "31-60": "31–60 Days", "61-90": "61–90 Days", "90+": "90+ Days",
 };
 
-const BUCKET_COLORS: Record<AgingBucket, string> = {
-  "current": "bg-green-100 text-green-700", "1-30": "bg-yellow-100 text-yellow-700",
-  "31-60": "bg-orange-100 text-orange-700", "61-90": "bg-red-100 text-red-700", "90+": "bg-red-200 text-red-800",
+const BUCKET_BAR_BG: Record<AgingBucket, string> = {
+  "current": "var(--status-complete)", "1-30": "var(--status-warning)",
+  "31-60": "var(--status-delayed)", "61-90": "var(--status-over)", "90+": "var(--status-over)",
+};
+const BUCKET_HEADER_STYLE: Record<AgingBucket, { bg: string; text: string }> = {
+  "current": { bg: "var(--tint-complete)", text: "var(--status-complete)" },
+  "1-30":    { bg: "var(--tint-warning)",  text: "#92400E" },
+  "31-60":   { bg: "var(--tint-delayed)",  text: "#9A3412" },
+  "61-90":   { bg: "var(--tint-over)",     text: "var(--status-over)" },
+  "90+":     { bg: "var(--tint-over)",     text: "var(--status-over)" },
 };
 
 export default function APAgingClient() {
@@ -211,7 +218,7 @@ export default function APAgingClient() {
             <div key={b} className="bg-white rounded-xl border border-gray-200 p-4">
               <p className="text-xs text-gray-500 mb-2">{BUCKET_LABELS[b]}</p>
               <div className="flex items-center gap-2">
-                <div className={`w-1 h-10 rounded-full flex-shrink-0 ${BUCKET_COLORS[b].split(" ")[0]}`} />
+                <div className="w-1 h-10 rounded-full flex-shrink-0" style={{ backgroundColor: BUCKET_BAR_BG[b] }} />
                 <p className="text-sm font-semibold text-gray-900">{fmt(bucketTotals[b])}</p>
               </div>
             </div>
@@ -236,7 +243,10 @@ export default function APAgingClient() {
                 const bucketTotal = bucketRows.reduce((s, r) => s + r.amount, 0);
                 return (
                   <div key={bucket}>
-                    <div className={`px-5 py-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide border-b border-gray-100 ${BUCKET_COLORS[bucket]}`}>
+                    <div
+                      className="px-5 py-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide border-b border-gray-100"
+                      style={{ backgroundColor: BUCKET_HEADER_STYLE[bucket].bg, color: BUCKET_HEADER_STYLE[bucket].text }}
+                    >
                       <span>{BUCKET_LABELS[bucket]}</span>
                       <span>{fmt(bucketTotal)}</span>
                     </div>

@@ -10,6 +10,7 @@ import {
   type UpdateHomeInput,
   type UpdateLandInput,
 } from "@/app/actions/projects";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,13 +122,12 @@ function LoanSection({
           {allLoans.map((loan, i) => (
             <div key={loan.id || i} className="flex items-center justify-between text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
               <span className="font-medium text-gray-800">#{loan.loan_number}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                loan.status === "active" ? "bg-green-100 text-green-700" :
-                loan.status === "paid_off" ? "bg-blue-100 text-blue-700" :
-                "bg-red-100 text-red-600"
-              }`}>
+              <StatusBadge
+                status={loan.status === "active" ? "active" : loan.status === "paid_off" ? "complete" : "over"}
+                size="sm"
+              >
                 {loan.status.replace(/_/g, " ")}
-              </span>
+              </StatusBadge>
             </div>
           ))}
         </div>

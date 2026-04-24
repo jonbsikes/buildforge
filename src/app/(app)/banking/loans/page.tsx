@@ -6,6 +6,7 @@ import DeleteLoanButton from "@/components/banking/DeleteLoanButton";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 import AdminOnly from "@/components/ui/AdminOnly";
 import MetadataChip from "@/components/ui/MetadataChip";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +15,15 @@ function fmt(n: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  active:     "bg-green-100 text-green-700",
-  paid_off:   "bg-blue-100 text-blue-700",
-  in_default: "bg-red-100 text-red-600",
+const STATUS_KIND: Record<string, StatusKind> = {
+  active: "active",
+  paid_off: "complete",
+  in_default: "over",
+};
+const STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  paid_off: "Paid off",
+  in_default: "In default",
 };
 
 export default async function LoansPage() {
@@ -156,9 +162,9 @@ export default async function LoansPage() {
                         <td className="px-4 py-3 text-xs text-gray-500">{loan.origination_date ?? "—"}</td>
                         <td className="px-4 py-3 text-xs text-gray-500">{loan.maturity_date ?? "—"}</td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[loan.status] ?? "bg-gray-100 text-gray-600"}`}>
-                            {loan.status.replace(/_/g, " ")}
-                          </span>
+                          <StatusBadge status={STATUS_KIND[loan.status] ?? "neutral"} size="sm">
+                            {STATUS_LABEL[loan.status] ?? loan.status.replace(/_/g, " ")}
+                          </StatusBadge>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 justify-end">

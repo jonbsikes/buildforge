@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { Building2 } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -190,14 +191,18 @@ export default function SubdivisionOverviewClient() {
                           )}
                         </div>
                       </div>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
-                        home.status === "active" ? "bg-green-100 text-green-700" :
-                        home.status === "planning" ? "bg-gray-100 text-gray-600" :
-                        home.status === "on_hold" ? "bg-amber-100 text-amber-700" :
-                        "bg-blue-100 text-blue-700"
-                      }`}>
+                      <StatusBadge
+                        status={
+                          (home.status === "active" ? "active" :
+                           home.status === "planning" ? "planned" :
+                           home.status === "on_hold" ? "warning" :
+                           "complete") as StatusKind
+                        }
+                        size="sm"
+                        className="flex-shrink-0"
+                      >
                         {home.status.replace(/_/g, " ")}
-                      </span>
+                      </StatusBadge>
                     </div>
 
                     {/* Stage progress */}

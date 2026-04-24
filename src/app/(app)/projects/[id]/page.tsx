@@ -10,6 +10,7 @@ import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
 import ProgressRing from "@/components/ui/ProgressRing";
 import StatusBadge from "@/components/ui/StatusBadge";
+import StageStrip, { type StageStripStage } from "@/components/ui/StageStrip";
 
 export const dynamic = "force-dynamic";
 
@@ -145,6 +146,24 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const buildStages = stagesResult.data ?? [];
   const documents = documentsResult.data ?? [];
+
+  // Build stage-strip data for the header-band visual (§02 §3.3 spec).
+  // Home: EXT + INT tracks. Land Dev: single WORK (horizontal work) track.
+  const toStripEntry = (s: (typeof buildStages)[number]): StageStripStage => ({
+    name: s.stage_name ?? "",
+    status: s.status ?? "not_started",
+    startDate: s.actual_start_date ?? s.planned_start_date ?? null,
+    endDate: s.actual_end_date ?? s.planned_end_date ?? null,
+    stageNumber: s.stage_number,
+  });
+  const extStrip: StageStripStage[] = isHome
+    ? buildStages.filter((s) => s.track === "exterior" || !s.track).map(toStripEntry)
+    : [];
+  const intStrip: StageStripStage[] = isHome
+    ? buildStages.filter((s) => s.track === "interior").map(toStripEntry)
+    : [];
+  const workStrip: StageStripStage[] = !isHome ? buildStages.map(toStripEntry) : [];
+  const stripDelayedCount = buildStages.filter((s) => s.status === "delayed").length;
 
   const projectTypeName = isHome ? "home_construction" : "land_development";
   const enabledCodes = new Set(costCodes.map((c) => c.code));
@@ -412,6 +431,28 @@ export default async function ProjectDetailPage({ params }: Props) {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {(extStrip.length > 0 || workStrip.length > 0) && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex items-baseline justify-between mb-3">
+                  <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                    {isHome ? "Stage track" : "Horizontal work"}
+                  </h2>
+                  {stripDelayedCount > 0 && (
+                    <span className="text-xs font-medium" style={{ color: "var(--status-delayed)" }}>
+                      {stripDelayedCount} delayed
+                    </span>
+                  )}
+                </div>
+                <StageStrip
+                  extStages={extStrip}
+                  intStages={intStrip}
+                  workStages={workStrip}
+                  delayedCount={0}
+                  projectHref={`/projects/${id}`}
+                />
               </div>
             )}
 

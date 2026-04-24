@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 interface Selection {
   id: string;
@@ -17,11 +18,17 @@ interface Selection {
 
 interface Project { id: string; name: string }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending:   "bg-gray-100 text-gray-600",
-  confirmed: "bg-blue-100 text-blue-700",
-  ordered:   "bg-purple-100 text-purple-700",
-  installed: "bg-green-100 text-green-700",
+const STATUS_KIND: Record<string, StatusKind> = {
+  pending: "planned",
+  confirmed: "active",
+  ordered: "warning",
+  installed: "complete",
+};
+const STATUS_DOT: Record<string, string> = {
+  pending: "var(--status-planned)",
+  confirmed: "var(--status-active)",
+  ordered: "var(--status-warning)",
+  installed: "var(--status-complete)",
 };
 
 const STATUSES = ["pending", "confirmed", "ordered", "installed"];
@@ -132,7 +139,7 @@ export default function SelectionsReportClient() {
               filterStatus === st ? "border-[#4272EF] bg-[#4272EF]/10 text-[#4272EF]" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[st]?.split(" ")[0] ?? "bg-gray-200"}`} />
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUS_DOT[st] ?? "var(--status-neutral)" }} />
             {st.charAt(0).toUpperCase() + st.slice(1)}
             <span className="font-bold">{statusCounts[st] ?? 0}</span>
           </button>
@@ -162,9 +169,9 @@ export default function SelectionsReportClient() {
                         <tr key={s.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-5 py-2.5 text-gray-800 font-medium">{s.item_name}</td>
                           <td className="px-4 py-2.5 w-28">
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLORS[s.status] ?? "bg-gray-100 text-gray-600"}`}>
+                            <StatusBadge status={STATUS_KIND[s.status] ?? "neutral"} size="sm">
                               {s.status}
-                            </span>
+                            </StatusBadge>
                           </td>
                           <td className="px-4 py-2.5 text-sm text-gray-400 max-w-xs truncate">
                             {s.notes ?? ""}

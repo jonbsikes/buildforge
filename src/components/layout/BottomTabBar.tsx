@@ -3,10 +3,13 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Home, HardHat, Plus, DollarSign, Layers } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import QuickActionSheet from "./QuickActionSheet";
 import NavSheet from "./NavSheet";
 import { navSections, type NavSection } from "./navMap";
+
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_MOVE_TOLERANCE = 10;
 
 type Tab = {
   key: string;
@@ -61,7 +64,59 @@ export default function BottomTabBar() {
   const [showActions, setShowActions] = useState(false);
   const [sheetKey, setSheetKey] = useState<string | null>(null);
 
+  // Long-press handling: a touch held ≥450ms on any tab opens its sheet,
+  // regardless of active state. Short tap retains tap-to-navigate (or
+  // tap-active-to-sheet) behavior.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+  const longPressStart = useRef<{ x: number; y: number } | null>(null);
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
+
+  function onTabTouchStart(e: React.TouchEvent, tab: Tab) {
+    const t = e.touches[0];
+    if (!t) return;
+    longPressStart.current = { x: t.clientX, y: t.clientY };
+    longPressFired.current = false;
+    cancelLongPress();
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setSheetKey(tab.sectionKey);
+      // Haptic feedback on supported devices
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try { navigator.vibrate?.(15); } catch {}
+      }
+    }, LONG_PRESS_MS);
+  }
+
+  function onTabTouchMove(e: React.TouchEvent) {
+    const start = longPressStart.current;
+    const t = e.touches[0];
+    if (!start || !t) return;
+    const dx = Math.abs(t.clientX - start.x);
+    const dy = Math.abs(t.clientY - start.y);
+    if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
+      cancelLongPress();
+    }
+  }
+
+  function onTabTouchEnd() {
+    cancelLongPress();
+    longPressStart.current = null;
+  }
+
   function handleTabClick(e: React.MouseEvent, tab: Tab) {
+    // If a long-press just fired, suppress the synthetic click.
+    if (longPressFired.current) {
+      e.preventDefault();
+      longPressFired.current = false;
+      return;
+    }
     const active = isTabActive(pathname, tab);
     // Tap on already-active tab (or "More" always) opens sheet
     if (active || tab.sectionKey === "more") {
@@ -93,7 +148,12 @@ export default function BottomTabBar() {
                 key={tab.key}
                 href={tab.href}
                 onClick={(e) => handleTabClick(e, tab)}
-                className="flex flex-col items-center gap-0.5 py-1 px-3 min-w-0"
+                onTouchStart={(e) => onTabTouchStart(e, tab)}
+                onTouchMove={onTabTouchMove}
+                onTouchEnd={onTabTouchEnd}
+                onTouchCancel={onTabTouchEnd}
+                onContextMenu={(e) => e.preventDefault()}
+                className="flex flex-col items-center gap-0.5 py-1 px-3 min-w-0 select-none"
               >
                 <Icon
                   size={22}
@@ -134,7 +194,12 @@ export default function BottomTabBar() {
                 key={tab.key}
                 href={tab.href}
                 onClick={(e) => handleTabClick(e, tab)}
-                className="flex flex-col items-center gap-0.5 py-1 px-3 min-w-0"
+                onTouchStart={(e) => onTabTouchStart(e, tab)}
+                onTouchMove={onTabTouchMove}
+                onTouchEnd={onTabTouchEnd}
+                onTouchCancel={onTabTouchEnd}
+                onContextMenu={(e) => e.preventDefault()}
+                className="flex flex-col items-center gap-0.5 py-1 px-3 min-w-0 select-none"
               >
                 <Icon
                   size={22}

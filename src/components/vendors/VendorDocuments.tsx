@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Upload, FileText, Trash2, ExternalLink, Loader2 } from "lucide-react";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 const FOLDER_OPTIONS = ["W9", "COI", "License", "Contract", "Other"] as const;
 type Folder = typeof FOLDER_OPTIONS[number];
@@ -34,13 +35,6 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-const FOLDER_COLORS: Record<string, string> = {
-  W9:       "bg-blue-50 text-blue-700",
-  COI:      "bg-green-50 text-green-700",
-  License:  "bg-purple-50 text-purple-700",
-  Contract: "bg-amber-50 text-amber-700",
-  Other:    "bg-gray-100 text-gray-600",
-};
 
 export default function VendorDocuments({ vendorId, initialDocs }: Props) {
   const supabase = createClient();
@@ -168,9 +162,7 @@ export default function VendorDocuments({ vendorId, initialDocs }: Props) {
                   {fmtDate(doc.created_at)}{doc.file_size_kb ? ` · ${fmtSize(doc.file_size_kb)}` : ""}
                 </p>
               </div>
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${FOLDER_COLORS[doc.folder] ?? FOLDER_COLORS.Other}`}>
-                {doc.folder}
-              </span>
+              <MetadataChip className="flex-shrink-0">{doc.folder}</MetadataChip>
               <button
                 type="button"
                 onClick={() => handleOpen(doc)}

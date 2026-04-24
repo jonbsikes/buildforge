@@ -331,11 +331,18 @@ function LogCard({ log, todos, projectId, onRefresh }: {
           <p className="text-sm text-gray-800 line-clamp-2 leading-relaxed">{log.notes}</p>
         </div>
         {todos.length > 0 && (
-          <span className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-full font-medium mt-0.5 ${
-            openCount > 0 ? "bg-amber-50 text-amber-600 border border-amber-200" : "bg-green-50 text-green-600 border border-green-200"
-          }`}>
-            {openCount > 0 ? `${openCount} open` : "done"}
-          </span>
+          openCount > 0 ? (
+            <span className="inline-flex items-center gap-1.5 flex-shrink-0 text-[11px] leading-none py-1 px-2 rounded border font-medium mt-0.5"
+                  style={{ borderColor: "var(--status-warning)", color: "var(--status-warning)" }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
+              {openCount} open
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 flex-shrink-0 text-[11px] leading-none py-1 px-2 rounded border font-medium mt-0.5 text-gray-500 border-[color:var(--border-strong)]">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "var(--status-complete)" }} />
+              done
+            </span>
+          )
         )}
       </button>
 

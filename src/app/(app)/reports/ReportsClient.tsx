@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 type Project = { id: string; name: string; status: string };
 
@@ -33,13 +34,13 @@ function pct(a: number, b: number) {
   return `${((a / b) * 100).toFixed(1)}%`;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  planning: "bg-gray-100 text-gray-600",
-  pre_construction: "bg-gray-100 text-gray-600",
-  active: "bg-green-100 text-green-700",
-  on_hold: "bg-amber-100 text-amber-700",
-  completed: "bg-blue-100 text-blue-700",
-  cancelled: "bg-red-100 text-red-600",
+const STATUS_KIND: Record<string, StatusKind> = {
+  planning: "planned",
+  pre_construction: "planned",
+  active: "active",
+  on_hold: "warning",
+  completed: "complete",
+  cancelled: "over",
 };
 
 export default function ReportsClient({
@@ -179,9 +180,9 @@ export default function ReportsClient({
                         </a>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status] ?? "bg-gray-100 text-gray-600"}`}>
+                        <StatusBadge status={STATUS_KIND[project.status] ?? "neutral"} size="sm">
                           {project.status.replace(/_/g, " ")}
-                        </span>
+                        </StatusBadge>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-700">{fmt(budgeted)}</td>
                       <td className="px-4 py-3 text-right text-gray-700">{fmt(actual)}</td>

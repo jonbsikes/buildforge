@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
@@ -20,10 +20,15 @@ export interface NavSheetProps {
   fullNav?: boolean;
 }
 
+const SWIPE_DISMISS_THRESHOLD = 70; // px
+const SWIPE_HORIZONTAL_TOLERANCE = 40; // px
+
 export default function NavSheet({ section, onClose, fullNav }: NavSheetProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [pinned, setPinned] = useState<PinnedProject[]>([]);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -59,6 +64,37 @@ export default function NavSheet({ section, onClose, fullNav }: NavSheetProps) {
     router.refresh();
   }
 
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    if (!t) return;
+    dragStart.current = { x: t.clientX, y: t.clientY };
+    setDragOffset(0);
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    const start = dragStart.current;
+    const t = e.touches[0];
+    if (!start || !t) return;
+    const dy = t.clientY - start.y;
+    const dx = Math.abs(t.clientX - start.x);
+    // Ignore if primarily a horizontal gesture (e.g. scrolling inline).
+    if (dx > SWIPE_HORIZONTAL_TOLERANCE) {
+      setDragOffset(0);
+      return;
+    }
+    // Only track downward drag.
+    if (dy > 0) setDragOffset(dy);
+  }
+
+  function onTouchEnd() {
+    if (dragOffset >= SWIPE_DISMISS_THRESHOLD) {
+      onClose();
+    } else {
+      setDragOffset(0);
+    }
+    dragStart.current = null;
+  }
+
   return (
     <>
       <div
@@ -74,10 +110,18 @@ export default function NavSheet({ section, onClose, fullNav }: NavSheetProps) {
           boxShadow: "0 -4px 20px rgba(0,0,0,.12)",
           maxHeight: "60vh",
           overflowY: "auto",
+          transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
+          transition: dragOffset > 0 ? "none" : "transform 180ms ease-out",
         }}
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2 pb-1">
+        {/* Drag handle (also the swipe-down grip area) */}
+        <div
+          className="flex justify-center pt-2 pb-2 touch-none"
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}
+        >
           <div
             className="w-9 h-1 rounded"
             style={{ backgroundColor: "var(--border-strong)" }}

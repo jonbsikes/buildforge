@@ -8,6 +8,7 @@ import RemoveInvoiceButton from "@/components/draws/RemoveInvoiceButton";
 import VendorPaymentsPanel from "@/components/draws/VendorPaymentsPanel";
 import React from "react";
 import { drawDisplayName } from "@/lib/draws";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -15,11 +16,11 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  draft:     "bg-gray-100 text-gray-600",
-  submitted: "bg-amber-100 text-amber-700",
-  funded:    "bg-blue-100 text-blue-700",
-  paid:      "bg-green-100 text-green-700",
+const STATUS_KIND: Record<string, StatusKind> = {
+  draft: "planned",
+  submitted: "warning",
+  funded: "active",
+  paid: "complete",
 };
 
 function fmt(n: number | null) {
@@ -265,13 +266,9 @@ export default async function DrawDetailPage({ params }: Props) {
                   <Printer size={13} />
                   Print / PDF
                 </Link>
-                <span
-                  className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                    STATUS_COLORS[draw.status] ?? "bg-gray-100 text-gray-600"
-                  }`}
-                >
+                <StatusBadge status={STATUS_KIND[draw.status] ?? "neutral"} size="sm">
                   {draw.status}
-                </span>
+                </StatusBadge>
               </div>
             </div>
 

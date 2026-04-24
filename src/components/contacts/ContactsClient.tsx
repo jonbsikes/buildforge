@@ -8,6 +8,7 @@ import {
   deleteContact,
   type ContactInput,
 } from "@/app/actions/contacts";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 interface Contact {
   id: string;
@@ -23,11 +24,6 @@ const TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
-const TYPE_BADGE: Record<string, string> = {
-  lender: "bg-blue-100 text-blue-700",
-  owner: "bg-green-100 text-green-700",
-  other: "bg-gray-100 text-gray-600",
-};
 
 const EMPTY_FORM: ContactInput = {
   name: "",
@@ -178,13 +174,7 @@ export default function ContactsClient({ contacts }: { contacts: Contact[] }) {
                 <tr key={c.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-3.5 font-medium text-gray-900">{c.name}</td>
                   <td className="px-5 py-3.5">
-                    <span
-                      className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full capitalize ${
-                        TYPE_BADGE[c.type] ?? TYPE_BADGE.other
-                      }`}
-                    >
-                      {c.type}
-                    </span>
+                    <MetadataChip className="capitalize">{c.type}</MetadataChip>
                   </td>
                   <td className="px-5 py-3.5 text-gray-500">{c.email ?? "—"}</td>
                   <td className="px-5 py-3.5 text-gray-500">{c.phone ?? "—"}</td>

@@ -26,6 +26,7 @@ import {
   History,
 } from "lucide-react";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,10 +76,10 @@ function fmtDate(d: string | null | undefined) {
   });
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  outstanding: "bg-amber-100 text-amber-700",
-  cleared: "bg-green-100 text-green-700",
-  void: "bg-red-100 text-red-600",
+const STATUS_KIND: Record<string, StatusKind> = {
+  outstanding: "warning",
+  cleared: "complete",
+  void: "over",
 };
 
 const METHOD_ICONS: Record<string, typeof CreditCard> = {
@@ -555,13 +556,9 @@ function PaymentTableRow({
           {fmtDate(p.cleared_date)}
         </td>
         <td className="px-3 py-3">
-          <span
-            className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
-              STATUS_COLORS[p.status] ?? "bg-gray-100 text-gray-600"
-            }`}
-          >
+          <StatusBadge status={STATUS_KIND[p.status] ?? "neutral"} size="sm" className="capitalize">
             {p.status}
-          </span>
+          </StatusBadge>
         </td>
         <td className="px-3 py-3 text-xs text-gray-500 capitalize">
           {p.funding_source.replace("_", " ")}

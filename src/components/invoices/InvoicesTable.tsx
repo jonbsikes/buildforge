@@ -16,8 +16,11 @@ import {
   approveInvoicesBatch,
   setPendingDrawBatch,
 } from "@/app/actions/invoice-batch";
-import StatusDot from "@/components/ui/StatusDot";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import {
+  EMPTY_FILTERS,
+  type InvoiceFilters,
+} from "@/components/invoices/InvoicesFiltersPopover";
 
 // Status sort order: unpaid first (pending -> approved -> released -> disputed), then cleared/void last
 const STATUS_SORT_ORDER: Record<string, number> = {
@@ -42,6 +45,25 @@ function fmtDate(d: string | null) {
 
 type SortField = "status" | "due_date" | "vendor" | "amount" | "invoice_date";
 type SortDir = "asc" | "desc";
+
+const STATUS_CHIP_LABEL: Record<string, string> = {
+  pending_review: "Pending",
+  approved: "Approved",
+  released: "Released",
+  cleared: "Cleared",
+  disputed: "Disputed",
+  void: "Void",
+};
+
+const STATUS_DOT_COLOR: Record<string, string> = {
+  pending_review: "var(--status-warning)",
+  approved: "var(--status-active)",
+  released: "var(--status-active)",
+  cleared: "var(--status-complete)",
+  disputed: "var(--status-over)",
+  void: "var(--status-planned)",
+};
+
 
 type InvoiceRow = {
   id: string;
@@ -76,11 +98,12 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   const [isPending, startTransition] = useTransition();
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const [drawOverrides, setDrawOverrides] = useState<Record<string, boolean>>({});
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [payMenuFor, setPayMenuFor] = useState<string | null>(null);
   const [moreMenuFor, setMoreMenuFor] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     function onDown(e: MouseEvent) {
@@ -95,6 +118,29 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
     }
   }, [payMenuFor, moreMenuFor]);
 
+  // Inline single-row approve used by both the row button and the `a` shortcut.
+  function approveRow(invId: string) {
+    const row = rows.find((r) => r.id === invId);
+    if (!row) return;
+    const isLowConf = row.ai_confidence === "low" && (statusOverrides[invId] ?? row.status) === "pending_review";
+    if (isLowConf && !row.manually_reviewed) {
+      setBanner({ type: "error", msg: "Review required before approval" });
+      return;
+    }
+    setStatusOverrides((prev) => ({ ...prev, [invId]: "approved" }));
+    startTransition(async () => {
+      const r = await approveInvoice(invId);
+      if (r.error) {
+        setStatusOverrides((prev) => {
+          const n = { ...prev };
+          delete n[invId];
+          return n;
+        });
+        setBanner({ type: "error", msg: r.error });
+      }
+    });
+  }
+
   useEffect(() => {
     if (banner) {
       const t = setTimeout(() => setBanner(null), 4000);
@@ -104,8 +150,82 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
 
   // Search & filter state
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterProject, setFilterProject] = useState("");
+  const [filters, setFilters] = useState<InvoiceFilters>(EMPTY_FILTERS);
+  const [pastDueOnly, setPastDueOnly] = useState(false);
+
+  // Keyboard shortcuts (j/k move, x select, a approve, o open, / focus search)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      const isTyping =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.isContentEditable;
+
+      if (e.key === "/" && !isTyping) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if (isTyping) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const len = sortedRowsRef.current.length;
+      if (len === 0) return;
+      const cur = focusedIndexRef.current ?? 0;
+
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusedIndex(Math.min(cur + 1, len - 1));
+        return;
+      }
+      if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusedIndex(Math.max(cur - 1, 0));
+        return;
+      }
+
+      const row = sortedRowsRef.current[cur];
+      if (!row) return;
+
+      if (e.key === "x") {
+        e.preventDefault();
+        if (!selectMode) setSelectMode(true);
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (next.has(row.id)) next.delete(row.id);
+          else next.add(row.id);
+          return next;
+        });
+        return;
+      }
+      if (e.key === "o" || e.key === "Enter") {
+        e.preventDefault();
+        router.push(`/invoices/${row.id}`);
+        return;
+      }
+      if (e.key === "a") {
+        const st = statusOverridesRef.current[row.id] ?? row.status;
+        if (st === "pending_review") {
+          e.preventDefault();
+          approveRow(row.id);
+        }
+        return;
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectMode]);
+
+  // Keep refs in sync so the keyboard handler above reads current state.
+  const focusedIndexRef = useRef<number | null>(focusedIndex);
+  const sortedRowsRef = useRef<InvoiceRow[]>([]);
+  const statusOverridesRef = useRef<Record<string, string>>({});
+  useEffect(() => { focusedIndexRef.current = focusedIndex; }, [focusedIndex]);
+  useEffect(() => { statusOverridesRef.current = statusOverrides; }, [statusOverrides]);
 
   // Sort state  -  default: status asc, then due_date asc
   const [sortField, setSortField] = useState<SortField>("status");
@@ -132,13 +252,24 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   }
 
   const sortedRows = useMemo(() => {
-    let filtered = rows.filter((r) => {
+    const amountMinNum = filters.amountMin ? parseFloat(filters.amountMin) : null;
+    const amountMaxNum = filters.amountMax ? parseFloat(filters.amountMax) : null;
+    const today = new Date().toISOString().split("T")[0]!;
+    const filtered = rows.filter((r) => {
       const effectiveStatus = statusOverrides[r.id] ?? r.status;
-      if (filterStatus && effectiveStatus !== filterStatus) return false;
-      if (filterProject) {
-        const proj = r.projects?.name ?? "G&A";
-        if (proj !== filterProject) return false;
+      if (filters.statuses.length > 0 && !filters.statuses.includes(effectiveStatus)) return false;
+      if (pastDueOnly) {
+        const isPaid = effectiveStatus === "cleared" || effectiveStatus === "void";
+        if (isPaid || !r.due_date || r.due_date >= today) return false;
       }
+      if (filters.projects.length > 0) {
+        const proj = r.projects?.name ?? "G&A";
+        if (!filters.projects.includes(proj)) return false;
+      }
+      if (filters.dateFrom && (r.due_date ?? "") < filters.dateFrom) return false;
+      if (filters.dateTo && (r.due_date ?? "9999-99-99") > filters.dateTo) return false;
+      if (amountMinNum != null && (r.amount ?? 0) < amountMinNum) return false;
+      if (amountMaxNum != null && (r.amount ?? 0) > amountMaxNum) return false;
       if (search) {
         const q = search.toLowerCase();
         const vendorMatch = r.vendor?.toLowerCase().includes(q) ?? false;
@@ -185,7 +316,9 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
     });
 
     return filtered;
-  }, [rows, search, filterStatus, filterProject, sortField, sortDir, statusOverrides]);
+  }, [rows, search, filters, pastDueOnly, sortField, sortDir, statusOverrides]);
+
+  useEffect(() => { sortedRowsRef.current = sortedRows; }, [sortedRows]);
 
   const allSelected = sortedRows.length > 0 && sortedRows.every((r) => selected.has(r.id));
 
@@ -287,112 +420,102 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
         </div>
       )}
 
-      {/* Summary Metric Strip */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Pending Review</p>
-              <p className="text-lg font-bold text-gray-900">{summaryMetrics.pendingCount}</p>
-              <p className="text-xs text-gray-400">{fmt(summaryMetrics.pendingAmount)}</p>
-            </div>
-          </div>
+      {/* Inline summary strip (no card chrome) */}
+      <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 pb-3 mb-4 border-b border-gray-200 tabular-nums">
+        <div>
+          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-2">Pending</span>
+          <span className="text-sm font-bold text-gray-900">{summaryMetrics.pendingCount}</span>
+          <span className="text-gray-300 mx-1.5">·</span>
+          <span className="text-sm font-bold text-gray-900">{fmt(summaryMetrics.pendingAmount)}</span>
         </div>
-        <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--status-active)" }} />
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Approved</p>
-              <p className="text-lg font-bold text-gray-900">{summaryMetrics.approvedCount}</p>
-              <p className="text-xs text-gray-400">{fmt(summaryMetrics.approvedAmount)}</p>
-            </div>
-          </div>
+        <div>
+          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-2">Approved</span>
+          <span className="text-sm font-bold text-gray-900">{summaryMetrics.approvedCount}</span>
+          <span className="text-gray-300 mx-1.5">·</span>
+          <span className="text-sm font-bold text-gray-900">{fmt(summaryMetrics.approvedAmount)}</span>
         </div>
-        <div className="bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Past Due</p>
-              <p className="text-lg font-bold text-gray-900">{summaryMetrics.pastDueCount}</p>
-              <p className="text-xs text-gray-400">{fmt(summaryMetrics.pastDueAmount)}</p>
-            </div>
-          </div>
+        <div>
+          <span className="text-[10px] font-semibold uppercase tracking-wider mr-2" style={{ color: "var(--status-over)" }}>Past due</span>
+          <span className="text-sm font-bold" style={{ color: "var(--status-over)" }}>{summaryMetrics.pastDueCount}</span>
+          <span className="mx-1.5" style={{ color: "var(--status-over)", opacity: 0.4 }}>·</span>
+          <span className="text-sm font-bold" style={{ color: "var(--status-over)" }}>{fmt(summaryMetrics.pastDueAmount)}</span>
         </div>
       </div>
 
-      {/* Filter Pills + Search + Actions */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        {/* Status filter pills */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setFilterStatus("")}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              filterStatus === ""
-                ? "bg-[color:var(--brand-blue)] text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-150"
-            }`}
-          >
-            All
-          </button>
-          {["pending_review", "approved", "released", "cleared", "disputed"].map((s) => {
-            const labels: Record<string, string> = {
-              pending_review: "Pending",
-              approved: "Approved",
-              released: "Released",
-              cleared: "Cleared",
-              disputed: "Disputed",
-            };
-            const count = sortedRows.filter((r) => (statusOverrides[r.id] ?? r.status) === s).length;
+      {/* Segmented status + search + project + select */}
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        {/* Segmented status control */}
+        <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-gray-100">
+          {([
+            { key: "", label: "All", count: rows.length },
+            { key: "pending_review", label: "Pending", count: rows.filter((r) => (statusOverrides[r.id] ?? r.status) === "pending_review").length },
+            { key: "approved", label: "Approved", count: rows.filter((r) => (statusOverrides[r.id] ?? r.status) === "approved").length },
+            { key: "past_due", label: "Past due", count: (() => {
+              const t = new Date().toISOString().split("T")[0]!;
+              return rows.filter((r) => {
+                const s = statusOverrides[r.id] ?? r.status;
+                return s !== "cleared" && s !== "void" && r.due_date && r.due_date < t;
+              }).length;
+            })() },
+          ] as const).map((seg) => {
+            const active =
+              seg.key === ""
+                ? filters.statuses.length === 0 && !pastDueOnly
+                : seg.key === "past_due"
+                ? pastDueOnly
+                : filters.statuses.length === 1 && filters.statuses[0] === seg.key;
             return (
               <button
-                key={s}
-                onClick={() => setFilterStatus(filterStatus === s ? "" : s)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
-                  filterStatus === s
-                    ? "bg-[color:var(--brand-blue)] text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-150"
+                key={seg.key || "all"}
+                onClick={() => {
+                  if (seg.key === "") {
+                    setFilters((f) => ({ ...f, statuses: [] }));
+                    setPastDueOnly(false);
+                  } else if (seg.key === "past_due") {
+                    setPastDueOnly(true);
+                    setFilters((f) => ({ ...f, statuses: [] }));
+                  } else {
+                    setFilters((f) => ({ ...f, statuses: [seg.key as string] }));
+                    setPastDueOnly(false);
+                  }
+                }}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  active
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
                 }`}
               >
-                {labels[s]} <span className="text-[10px] ml-1 opacity-75">({count})</span>
+                {seg.label} <span className="text-gray-400 font-normal ml-0.5">· {seg.count}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Search */}
-        <div className="relative flex-1 min-w-48 ml-auto">
+        <div className="relative flex-1 min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
+            ref={searchInputRef}
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search vendor or invoice #..."
+            placeholder="Search vendor, invoice #, or project… (press / to focus)"
             className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-blue)]"
           />
         </div>
 
-        {/* Project dropdown */}
         <select
-          value={filterProject}
-          onChange={(e) => setFilterProject(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-blue)]"
+          value={filters.projects[0] ?? ""}
+          onChange={(e) =>
+            setFilters((f) => ({ ...f, projects: e.target.value ? [e.target.value] : [] }))
+          }
+          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-blue)]"
         >
-          <option value="">All Projects</option>
-          {uniqueProjects.map((p) => <option key={p} value={p}>{p}</option>)}
+          <option value="">All projects</option>
+          {uniqueProjects.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
         </select>
 
-        {/* Clear button */}
-        {(search || filterStatus || filterProject) && (
-          <button
-            onClick={() => { setSearch(""); setFilterStatus(""); setFilterProject(""); }}
-            className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5 border border-gray-200 rounded-lg"
-          >
-            Clear
-          </button>
-        )}
-
-        {/* Select mode toggle */}
         <button
           onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
           className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
@@ -409,7 +532,92 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
         {sortedRows.length} of {rows.length} invoice{rows.length !== 1 ? "s" : ""}
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Mobile: card stack */}
+      <div className="md:hidden space-y-2">
+        {sortedRows.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 px-6 py-10 text-center text-sm text-gray-400">
+            No invoices match these filters.
+          </div>
+        ) : (
+          sortedRows.map((inv) => {
+            const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
+            const isLowConf = inv.ai_confidence === "low" && effectiveStatus === "pending_review";
+            const isPaid = effectiveStatus === "cleared";
+            const todayStr = new Date().toISOString().split("T")[0]!;
+            const isPastDue = !!inv.due_date && !isPaid && inv.due_date < todayStr;
+            const pastDueDays = isPastDue && inv.due_date
+              ? Math.floor((new Date(todayStr).getTime() - new Date(inv.due_date).getTime()) / 86400000)
+              : 0;
+            return (
+              <Link
+                key={inv.id}
+                href={`/invoices/${inv.id}`}
+                className="block bg-white rounded-xl border border-gray-200 p-3.5 active:bg-gray-50"
+                style={isPastDue ? { borderLeft: "3px solid var(--status-over)" } : undefined}
+              >
+                <div className="flex items-start gap-2.5">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: STATUS_DOT_COLOR[effectiveStatus] ?? "var(--status-neutral)" }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {inv.vendor ?? "—"}
+                      <span className="ml-1.5 text-[11px] font-normal text-gray-400">{inv.invoice_number ?? ""}</span>
+                    </p>
+                    <p className="text-[11px] text-gray-500 mt-0.5 truncate">
+                      {inv.projects?.name ?? "G&A"}
+                      {inv.cost_codes && <span className="text-gray-400"> · {inv.cost_codes.name}</span>}
+                    </p>
+                    {(isPastDue || isLowConf) && (
+                      <p className="text-[10px] mt-1 flex items-center gap-1.5">
+                        {isPastDue && (
+                          <span className="font-medium" style={{ color: "var(--status-over)" }}>
+                            Past due · {pastDueDays}d
+                          </span>
+                        )}
+                        {isLowConf && (
+                          <span className="inline-flex items-center gap-0.5 font-medium" style={{ color: "var(--status-warning)" }}>
+                            <AlertTriangle size={10} /> Low conf
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-sm font-semibold text-gray-900 tabular-nums">{fmt(inv.amount)}</div>
+                    <div
+                      className="text-[11px] tabular-nums"
+                      style={{ color: isPastDue ? "var(--status-over)" : "#94a3b8" }}
+                    >
+                      {fmtDate(inv.due_date)}
+                    </div>
+                  </div>
+                </div>
+                {effectiveStatus === "pending_review" && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      approveRow(inv.id);
+                    }}
+                    disabled={isPending || (isLowConf && !inv.manually_reviewed)}
+                    className="mt-3 w-full py-2 rounded-md text-xs font-semibold text-white disabled:opacity-40 inline-flex items-center justify-center gap-1.5 min-h-[44px]"
+                    style={{ backgroundColor: "var(--brand-blue)" }}
+                  >
+                    <Check size={14} />
+                    Approve
+                  </button>
+                )}
+              </Link>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop / tablet: full table */}
+      <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-white border-b border-gray-100">
@@ -424,23 +632,19 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                     />
                   </th>
                 )}
+                {/* Status dot column: narrow, no header label */}
+                <th className="w-6 px-2 py-2" />
                 <th
                   className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none"
                   onClick={() => handleSort("vendor")}
                 >
-                  Vendor / Invoice <SortIcon field="vendor" />
+                  Vendor · Inv <SortIcon field="vendor" />
                 </th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Project
                 </th>
                 <th className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Cost Code
-                </th>
-                <th
-                  className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none"
-                  onClick={() => handleSort("invoice_date")}
-                >
-                  Date <SortIcon field="invoice_date" />
+                  Cost code
                 </th>
                 <th
                   className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none"
@@ -454,11 +658,8 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                 >
                   Amount <SortIcon field="amount" />
                 </th>
-                <th
-                  className="text-left px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-600 select-none"
-                  onClick={() => handleSort("status")}
-                >
-                  Status <SortIcon field="status" />
+                <th className="text-right px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  Action
                 </th>
                 <th className="text-center px-4 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider">Draw</th>
                 <th className="w-8" />
@@ -468,28 +669,33 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
               {sortedRows.length === 0 ? (
                 <tr>
                   <td colSpan={selectMode ? 10 : 9} className="px-4 py-10 text-center text-sm text-gray-400">
-                    No invoices match your filters.
+                    No invoices match these filters.
                   </td>
                 </tr>
-              ) : sortedRows.map((inv) => {
+              ) : sortedRows.map((inv, rowIdx) => {
                 const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
                 const isLowConf = inv.ai_confidence === "low" && effectiveStatus === "pending_review";
                 const isSelected = selected.has(inv.id);
                 const isPaid = effectiveStatus === "cleared";
-                const isPastDue = inv.due_date && !isPaid && inv.due_date < new Date().toISOString().split("T")[0];
-                const isExpanded = expandedId === inv.id;
+                const todayStr = new Date().toISOString().split("T")[0]!;
+                const isPastDue = !!inv.due_date && !isPaid && inv.due_date < todayStr;
+                const isFocused = focusedIndex === rowIdx;
+                const pastDueDays = isPastDue && inv.due_date
+                  ? Math.floor((new Date(todayStr).getTime() - new Date(inv.due_date).getTime()) / 86400000)
+                  : 0;
                 return (
                   <>
                     <tr
                       key={inv.id}
-                      onClick={() => !selectMode && setExpandedId(isExpanded ? null : inv.id)}
+                      data-row-index={rowIdx}
+                      onClick={() => !selectMode && router.push(`/invoices/${inv.id}`)}
                       className={`transition-colors group cursor-pointer ${
                         isSelected
                           ? "bg-[color:var(--tint-active)]"
                           : isPastDue
                             ? "hover:brightness-95"
                             : "hover:bg-gray-50"
-                      }`}
+                      } ${isFocused ? "ring-2 ring-inset ring-[color:var(--brand-blue)]/40" : ""}`}
                       style={isPastDue ? { borderLeft: "3px solid var(--status-over)", backgroundColor: "var(--tint-over)" } : undefined}
                     >
                       {selectMode && (
@@ -502,70 +708,72 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                           />
                         </td>
                       )}
-                    <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2">
-                        <p className="font-medium text-gray-900 flex items-center gap-1.5 text-sm">
-                          {isLowConf && <AlertTriangle size={13} className="flex-shrink-0" style={{ color: "var(--status-warning)" }} />}
-                          {isPastDue && !isLowConf && <AlertTriangle size={13} className="flex-shrink-0" style={{ color: "var(--status-over)" }} />}
-                          {inv.vendor ?? " - "}
-                        </p>
-                        <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                          {inv.invoice_number ?? "No #"}
-                          {inv.pending_draw && <span className="text-[color:var(--brand-blue)] font-medium">• Draw</span>}
-                          {inv.source === "email" && (
-                            <span className="inline-flex items-center gap-0.5 text-[color:var(--brand-blue)]" title="Imported via Gmail">
-                              <Mail size={11} />
-                              <span className="text-[10px] font-medium">Email</span>
-                            </span>
-                          )}
-                        </p>
-                      </Link>
+                    {/* Status dot only */}
+                    <td className="w-6 px-2 py-2 align-middle">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full"
+                        style={{
+                          backgroundColor: STATUS_DOT_COLOR[effectiveStatus] ?? "var(--status-neutral)",
+                        }}
+                        title={STATUS_CHIP_LABEL[effectiveStatus] ?? effectiveStatus}
+                      />
                     </td>
-                    <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2 text-gray-600 text-xs">
-                        {inv.projects?.name ?? <span className="text-gray-400">G&A</span>}
-                      </Link>
-                    </td>
-                    <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2">
-                        {inv.cost_codes ? (
-                          <>
-                            <span className="text-gray-700 text-xs truncate block">{inv.cost_codes.name}</span>
-                            <span className="text-[10px] text-gray-400 tabular-nums">{inv.cost_codes.code}</span>
-                          </>
-                        ) : (
-                          <span className="text-gray-400 text-xs">—</span>
-                        )}
-                      </Link>
-                    </td>
-                    <td className="px-0 py-0">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2 text-gray-600 text-xs">
-                        {fmtDate(inv.invoice_date)}
-                      </Link>
-                    </td>
-                    <td className="px-0 py-0">
-                      <Link
-                        href={`/invoices/${inv.id}`}
-                        className="block px-4 py-2 text-xs font-medium"
-                        style={{ color: isPastDue ? "var(--status-over)" : undefined }}
-                      >
-                        <span className={!isPastDue ? "text-gray-600" : ""}>{fmtDate(inv.due_date)}</span>
-                        {isPastDue && <span className="ml-1 text-[10px]" style={{ color: "var(--status-over)", opacity: 0.8 }}>Past due</span>}
-                      </Link>
-                    </td>
-                    <td className="px-0 py-0 text-right">
-                      <Link href={`/invoices/${inv.id}`} className="block px-4 py-2">
-                        <span className="font-medium text-gray-900 tabular-nums">{fmt(inv.amount)}</span>
-                        {(inv.discount_taken ?? 0) > 0 && (
-                          <span className="block text-[10px] text-green-600 tabular-nums">
-                            Disc: {fmt(inv.discount_taken)}
+                    <td className="px-4 py-2">
+                      <p className="font-semibold text-gray-900 text-sm">
+                        {inv.vendor ?? " - "}
+                        <span className="ml-1.5 text-xs font-normal text-gray-400">{inv.invoice_number ?? "No #"}</span>
+                      </p>
+                      <p className="text-[10px] flex items-center gap-1.5 mt-0.5">
+                        {isPastDue && (
+                          <span className="font-medium" style={{ color: "var(--status-over)" }}>
+                            Past due · {pastDueDays}d
                           </span>
                         )}
-                      </Link>
+                        {isLowConf && (
+                          <span className="inline-flex items-center gap-0.5 font-medium" style={{ color: "var(--status-warning)" }}>
+                            <AlertTriangle size={10} /> Low conf
+                          </span>
+                        )}
+                        {inv.pending_draw && (
+                          <span className="text-[color:var(--brand-blue)] font-medium">• Draw</span>
+                        )}
+                        {inv.source === "email" && (
+                          <span className="inline-flex items-center gap-0.5 text-[color:var(--brand-blue)]" title="Imported via Gmail">
+                            <Mail size={10} />
+                            <span className="font-medium">Email</span>
+                          </span>
+                        )}
+                      </p>
                     </td>
-                    <td className="px-4 py-2 relative" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-2">
-                        <StatusDot status={effectiveStatus} />
+                    <td className="px-4 py-2 text-gray-600 text-xs">
+                      {inv.projects?.name ?? <span className="text-gray-400">G&A</span>}
+                    </td>
+                    <td className="px-4 py-2 text-xs">
+                      {inv.cost_codes ? (
+                        <span className="truncate">
+                          <span className="text-gray-700">{inv.cost_codes.name}</span>
+                          <span className="text-gray-400 ml-1 tabular-nums">{inv.cost_codes.code}</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td
+                      className="px-4 py-2 text-xs font-medium whitespace-nowrap"
+                      style={{ color: isPastDue ? "var(--status-over)" : undefined }}
+                    >
+                      <span className={!isPastDue ? "text-gray-600" : ""}>{fmtDate(inv.due_date)}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <span className="font-semibold text-gray-900 tabular-nums">{fmt(inv.amount)}</span>
+                      {(inv.discount_taken ?? 0) > 0 && (
+                        <span className="block text-[10px] text-green-600 tabular-nums">
+                          Disc: {fmt(inv.discount_taken)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 relative text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="inline-flex items-center gap-1 justify-end">
                         {inv.in_draw && (
                           <Link
                             href={`/draws/${inv.in_draw.id}`}
@@ -583,25 +791,14 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
 
                         {effectiveStatus === "pending_review" && (
                           <button
-                            title={isLowConf && !inv.manually_reviewed ? "Review required before approval" : "Approve invoice"}
+                            title={isLowConf && !inv.manually_reviewed ? "Review required before approval" : "Approve invoice (a)"}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
-                              startTransition(async () => {
-                                const r = await approveInvoice(inv.id);
-                                if (r.error) {
-                                  setStatusOverrides((prev) => {
-                                    const n = { ...prev };
-                                    delete n[inv.id];
-                                    return n;
-                                  });
-                                  setBanner({ type: "error", msg: r.error });
-                                }
-                              });
+                              approveRow(inv.id);
                             }}
                             disabled={isPending || (isLowConf && !inv.manually_reviewed)}
-                            className="ml-auto text-xs font-semibold hover:underline transition-colors disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
-                            style={{ color: "var(--brand-blue)" }}
+                            className="px-3 py-1 rounded-md text-xs font-semibold text-white disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1 transition-colors"
+                            style={{ backgroundColor: "var(--brand-blue)" }}
                           >
                             <Check size={12} />
                             Approve
@@ -617,12 +814,19 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                               setMoreMenuFor(null);
                             }}
                             disabled={isPending}
-                            className="ml-auto text-xs font-semibold hover:underline transition-colors disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1"
-                            style={{ color: "var(--brand-blue)" }}
+                            className="px-3 py-1 rounded-md text-xs font-semibold border disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1 transition-colors hover:bg-gray-50"
+                            style={{ borderColor: "var(--border-strong)", color: "#334155" }}
                           >
                             <CreditCard size={12} />
                             Pay
+                            <ChevDown size={10} />
                           </button>
+                        )}
+
+                        {(effectiveStatus === "released" || effectiveStatus === "cleared" || effectiveStatus === "void") && (
+                          <span className="text-xs text-gray-400 capitalize whitespace-nowrap">
+                            {effectiveStatus === "released" ? "Released" : effectiveStatus === "cleared" ? "Cleared" : "Void"}
+                          </span>
                         )}
 
                         {payMenuFor === inv.id && effectiveStatus === "approved" && (
@@ -845,47 +1049,6 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       />
                     </td>
                   </tr>
-                  {/* Expanded row */}
-                  {isExpanded && (
-                    <tr className="animate-expand-down">
-                      <td colSpan={selectMode ? 10 : 9} className="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                          <div>
-                            <span className="text-gray-400 block mb-0.5">Source</span>
-                            <span className="text-gray-700 capitalize">{inv.source ?? "upload"}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400 block mb-0.5">AI Confidence</span>
-                            <span
-                              className="font-medium"
-                              style={{
-                                color:
-                                  inv.ai_confidence === "high"
-                                    ? "var(--status-complete)"
-                                    : inv.ai_confidence === "medium"
-                                      ? "var(--status-warning)"
-                                      : "var(--status-over)",
-                              }}
-                            >
-                              {inv.ai_confidence ?? " - "}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400 block mb-0.5">Reviewed</span>
-                            <span className="text-gray-700">{inv.manually_reviewed ? "Yes" : "No"}</span>
-                          </div>
-                          <div>
-                            <Link
-                              href={`/invoices/${inv.id}`}
-                              className="inline-flex items-center gap-1 text-[color:var(--brand-blue)] font-medium hover:underline"
-                            >
-                              View Details {">"}
-                            </Link>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                   </>
                 );
               })}

@@ -114,12 +114,23 @@ export default async function DashboardPage() {
     return null;
   }
 
-  // Build stage strip data for each project
-  function getStageStripData(pid: string) {
+  // Build stage strip data for each project.
+  // Home construction: EXT + INT tracks. Land Development: single WORK track
+  // (no EXT/INT — land dev stages are horizontal work only).
+  function getStageStripData(pid: string, projectType: string) {
     const stages = stagesByProject[pid] ?? [];
-    const extAll = stages.filter((s) => s.track === "exterior" || !s.track);
-    const intAll = stages.filter((s) => s.track === "interior");
+    const isLandDev = projectType === "land_development";
 
+    function toStrip(s: (typeof stages)[number], status: string): StageStripStage {
+      return {
+        name: s.stage_name,
+        status,
+        date: s.actual_start_date ? fmtDate(s.actual_start_date) : null,
+        startDate: s.actual_start_date ?? s.planned_start_date ?? null,
+        endDate: s.actual_end_date ?? s.planned_end_date ?? null,
+        stageNumber: s.stage_number,
+      };
+    }
     function buildStrip(trackStages: typeof stages): StageStripStage[] {
       const result: StageStripStage[] = [];
       const lastComplete = [...trackStages].reverse().find((s) => s.status === "complete");
@@ -127,18 +138,28 @@ export default async function DashboardPage() {
       const nextUp = trackStages.find((s) => s.status === "not_started");
       const secondNext = nextUp ? trackStages.find((s) => s.stage_number > nextUp.stage_number && s.status === "not_started") : null;
 
-      if (lastComplete) result.push({ name: lastComplete.stage_name, status: "complete" });
-      if (inProgress) result.push({ name: inProgress.stage_name, status: inProgress.status });
-      if (nextUp) result.push({ name: nextUp.stage_name, status: "not_started", date: nextUp.actual_start_date ? fmtDate(nextUp.actual_start_date) : null });
-      if (secondNext) result.push({ name: secondNext.stage_name, status: "not_started", date: secondNext.actual_start_date ? fmtDate(secondNext.actual_start_date) : null });
+      if (lastComplete) result.push(toStrip(lastComplete, "complete"));
+      if (inProgress) result.push(toStrip(inProgress, inProgress.status));
+      if (nextUp) result.push(toStrip(nextUp, "not_started"));
+      if (secondNext) result.push(toStrip(secondNext, "not_started"));
       return result;
     }
 
-    return { ext: buildStrip(extAll), int: buildStrip(intAll), delayed: stages.filter((s) => s.status === "delayed").length };
+    const delayed = stages.filter((s) => s.status === "delayed").length;
+
+    if (isLandDev) {
+      return { ext: [], int: [], work: buildStrip(stages), delayed };
+    }
+
+    const extAll = stages.filter((s) => s.track === "exterior" || !s.track);
+    const intAll = stages.filter((s) => s.track === "interior");
+    return { ext: buildStrip(extAll), int: buildStrip(intAll), work: [], delayed };
   }
 
   const pendingInvoices = (invoices ?? []).filter((i) => i.status === "pending_review");
+  const pendingReviewAmount = pendingInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const pastDueInvoices = (invoices ?? []).filter((i) => i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today);
+  const pastDueAmount = pastDueInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const outstandingAP = (invoices ?? []).filter((i) => i.status === "approved").reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
 
   // AP due this week
@@ -155,6 +176,12 @@ export default async function DashboardPage() {
   const daysUntil = (d: string | null) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
   const expiringVendors = (vendors ?? []).filter((v) => { const c = daysUntil(v.coi_expiry_date); const l = daysUntil(v.license_expiry_date); return (c !== null && c <= 30) || (l !== null && l <= 30); });
   const overBudgetProjects = allProjects.filter((p) => { const a = actualByProject[p.id] ?? 0; const b = budgetByProject[p.id] ?? 0; return a > b && b > 0; });
+  const overBudgetDetail = overBudgetProjects.map((p) => {
+    const a = actualByProject[p.id] ?? 0;
+    const b = budgetByProject[p.id] ?? 0;
+    return { id: p.id, name: p.name, delta: a - b, pct: b > 0 ? Math.round((a / b) * 100) : 0 };
+  });
+  const expiringVendorNames = expiringVendors.slice(0, 3).map((v) => v.name).join(", ");
 
   // Counter only — detail list lives on /notifications
   const delayedProjectCount = allProjects.filter((p) => getDelayedStageDays(p.id) !== null).length;
@@ -194,8 +221,8 @@ export default async function DashboardPage() {
   for (const p of allProjects) projectNames[p.id] = p.name;
 
   function cardProps(p: (typeof allProjects)[0]) {
-    const strip = getStageStripData(p.id);
-    return { project: p, currentStage: getCurrentStage(p.id), nextStage: getNextStage(p.id), progress: getStageProgress(p.id), budget: budgetByProject[p.id] ?? 0, spent: actualByProject[p.id] ?? 0, todoCount: todosByProject[p.id] ?? 0, extStages: strip.ext, intStages: strip.int, delayedCount: strip.delayed };
+    const strip = getStageStripData(p.id, p.project_type);
+    return { project: p, currentStage: getCurrentStage(p.id), nextStage: getNextStage(p.id), progress: getStageProgress(p.id), budget: budgetByProject[p.id] ?? 0, spent: actualByProject[p.id] ?? 0, todoCount: todosByProject[p.id] ?? 0, extStages: strip.ext, intStages: strip.int, workStages: strip.work, delayedCount: strip.delayed };
   }
 
   return (
@@ -203,47 +230,158 @@ export default async function DashboardPage() {
       <Header title="Dashboard" />
       <main className="flex-1 p-4 lg:p-8 overflow-auto">
 
-        {/* ── Slim metrics row + actions ── */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
-            <span><span className="font-semibold text-gray-900">{activeCount}</span> active</span>
-            <span className="text-gray-300">·</span>
-            <span><span className="font-semibold text-gray-900">{fmt(inFlightTotal)}</span> in flight</span>
-            <span className="text-gray-300">·</span>
-            <span><span className="font-semibold text-gray-900">{fmt(apThisWeek)}</span> AP this week</span>
-            <span className="text-gray-300">·</span>
-            <span><span className="font-semibold text-gray-900">{fmt(outstandingAP)}</span> AP outstanding</span>
-            {pendingDraws > 0 && (
-              <>
-                <span className="text-gray-300">·</span>
-                <span><span className="font-semibold text-gray-900">{pendingDraws}</span> draw{pendingDraws !== 1 ? "s" : ""} pending</span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/projects/new"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 border border-[color:var(--card-border)] rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Plus size={13} /> New Project
-            </Link>
-            {attention.length > 0 && (
-              <Link
-                href="/notifications"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{
-                  backgroundColor: "rgb(239 68 68 / 0.1)",
-                  color: "var(--status-over)",
-                }}
+        {/* ── Needs Attention hero ── */}
+        {attention.length > 0 && (
+          <div
+            className="rounded-xl px-5 py-4 mb-6 text-white"
+            style={{ backgroundColor: "#0F172A" }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={13} style={{ color: "var(--status-warning)" }} />
+              <span
+                className="text-[10px] font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--status-warning)" }}
               >
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: "var(--status-over)" }}
-                />
-                {attention.length} need attention
-              </Link>
-            )}
+                Needs Attention · {attention.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+              {pastDueInvoices.length > 0 && (
+                <Link
+                  href="/invoices"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-over)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {pastDueInvoices.length} past-due invoice{pastDueInvoices.length !== 1 ? "s" : ""}
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pastDueAmount)}</p>
+                  </div>
+                </Link>
+              )}
+              {overBudgetDetail.length > 0 && (
+                <Link
+                  href={`/projects/${overBudgetDetail[0]!.id}`}
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-over)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">
+                      {overBudgetDetail.length === 1
+                        ? `${overBudgetDetail[0]!.name} over budget`
+                        : `${overBudgetDetail.length} projects over budget`}
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">
+                      +{fmt(overBudgetDetail[0]!.delta)} ({overBudgetDetail[0]!.pct}%)
+                      {overBudgetDetail.length > 1 && (
+                        <span className="text-slate-500"> · +{overBudgetDetail.length - 1} more</span>
+                      )}
+                    </p>
+                  </div>
+                </Link>
+              )}
+              {expiringVendors.length > 0 && (
+                <Link
+                  href="/vendors"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-warning)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {expiringVendors.length} COI{expiringVendors.length !== 1 ? "s" : ""} expire &lt;30d
+                    </p>
+                    <p className="text-[11px] text-slate-400 truncate">{expiringVendorNames}</p>
+                  </div>
+                </Link>
+              )}
+              {pendingInvoices.length > 0 && (
+                <Link
+                  href="/invoices"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-warning)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {pendingInvoices.length} invoice{pendingInvoices.length !== 1 ? "s" : ""} to review
+                    </p>
+                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pendingReviewAmount)}</p>
+                  </div>
+                </Link>
+              )}
+              {delayedProjectCount > 0 && (
+                <Link
+                  href="/reports/stage-progress"
+                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{ backgroundColor: "var(--status-delayed)" }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {delayedProjectCount} project{delayedProjectCount !== 1 ? "s" : ""} delayed
+                    </p>
+                    <p className="text-[11px] text-slate-400">Stage deadline missed</p>
+                  </div>
+                </Link>
+              )}
+            </div>
           </div>
+        )}
+
+        {/* ── Inline secondary metrics strip ── */}
+        <div className="flex flex-wrap items-baseline justify-between gap-3 pb-4 mb-6 border-b border-gray-200">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 tabular-nums">
+            <div>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Active</p>
+              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{activeCount}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AP out</p>
+              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(outstandingAP)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AP this week</p>
+              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(apThisWeek)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">In flight</p>
+              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(inFlightTotal)}</p>
+            </div>
+            {pendingDraws > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Draws pending</p>
+                <p className="text-lg font-bold text-gray-900 leading-none mt-1">{pendingDraws}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">This week</p>
+              <p className="text-sm font-semibold text-gray-700 leading-none mt-1.5">
+                {thisWeekStages.filter((s) => s.actual_start_date && s.actual_start_date >= today && s.actual_start_date <= weekStr).length} start
+                {" · "}
+                {thisWeekStages.filter((s) => s.actual_end_date && s.actual_end_date >= today && s.actual_end_date <= weekStr).length} complete
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/projects/new"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 border border-[color:var(--card-border)] rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Plus size={13} /> New Project
+          </Link>
         </div>
 
         {/* ── Main Grid ── */}

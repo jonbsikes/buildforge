@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle, Trash2, ClipboardList, Camera, Upload, X } from "lucide-react";
 import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto } from "@/app/actions/field-logs";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 import type { Database } from "@/types/database";
 
 type FieldLog = Database["public"]["Tables"]["field_logs"]["Row"];
@@ -11,10 +12,10 @@ type FieldTodo = Database["public"]["Tables"]["field_todos"]["Row"];
 
 type ProjectRef = { id: string; name: string };
 
-const PRIORITY_COLORS = {
-  low: "bg-gray-100 text-gray-500",
-  normal: "bg-blue-50 text-blue-700",
-  urgent: "bg-red-50 text-red-700",
+const PRIORITY_KIND: Record<string, StatusKind> = {
+  low: "neutral",
+  normal: "active",
+  urgent: "over",
 };
 
 const TODO_STATUS_ICONS = {
@@ -293,9 +294,9 @@ function LogCard({
                     <span className={`flex-1 text-sm ${todo.status === "done" ? "line-through text-gray-400" : "text-gray-800"}`}>
                       {todo.description}
                     </span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${PRIORITY_COLORS[todo.priority as keyof typeof PRIORITY_COLORS] ?? ""}`}>
+                    <StatusBadge status={PRIORITY_KIND[todo.priority] ?? "neutral"} size="sm">
                       {todo.priority}
-                    </span>
+                    </StatusBadge>
                     {todo.due_date && (
                       <span className="text-xs text-gray-400">{todo.due_date}</span>
                     )}
@@ -386,9 +387,9 @@ export default function FieldLogsClient({
                   {TODO_STATUS_ICONS[todo.status as keyof typeof TODO_STATUS_ICONS]}
                   <span className="flex-1 text-sm text-gray-800">{todo.description}</span>
                   {projectName && <span className="text-xs text-gray-400">{projectName}</span>}
-                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${PRIORITY_COLORS[todo.priority as keyof typeof PRIORITY_COLORS] ?? ""}`}>
+                  <StatusBadge status={PRIORITY_KIND[todo.priority] ?? "neutral"} size="sm">
                     {todo.priority}
-                  </span>
+                  </StatusBadge>
                 </div>
               );
             })}

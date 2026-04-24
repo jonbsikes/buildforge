@@ -10,6 +10,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { CheckCircle2, Clock } from "lucide-react";
+import StatusBadge from "@/components/ui/StatusBadge";
 import MarkVendorPaidForm from "./MarkVendorPaidForm";
 import AdjustVendorAmountForm from "./AdjustVendorAmountForm";
 import DeleteAdjustmentButton from "./DeleteAdjustmentButton";
@@ -121,15 +122,9 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
             GL entries post automatically.
           </p>
         </div>
-        <span
-          className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-            paidCount === total
-              ? "bg-green-100 text-green-700"
-              : "bg-amber-100 text-amber-700"
-          }`}
-        >
+        <StatusBadge status={paidCount === total ? "complete" : "warning"} size="sm">
           {paidCount} / {total} paid
-        </span>
+        </StatusBadge>
       </div>
 
       {/* Vendor rows */}

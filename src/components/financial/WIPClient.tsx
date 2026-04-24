@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -229,14 +230,17 @@ export default function WIPClient() {
                       {r.type === "home_construction" ? "Home" : "Land Dev"}
                     </td>
                     <td className="px-5 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                        r.status === "active" ? "bg-green-100 text-green-700" :
-                        r.status === "planning" ? "bg-gray-100 text-gray-600" :
-                        r.status === "on_hold" ? "bg-amber-100 text-amber-700" :
-                        "bg-blue-100 text-blue-700"
-                      }`}>
+                      <StatusBadge
+                        status={
+                          (r.status === "active" ? "active" :
+                           r.status === "planning" ? "planned" :
+                           r.status === "on_hold" ? "warning" :
+                           "complete") as StatusKind
+                        }
+                        size="sm"
+                      >
                         {r.status.replace(/_/g, " ")}
-                      </span>
+                      </StatusBadge>
                     </td>
                     <td className="px-5 py-3 text-right text-gray-700">{r.budget > 0 ? fmt(r.budget) : "—"}</td>
                     <td className="px-5 py-3 text-right text-amber-700">{r.committed > 0 ? fmt(r.committed) : "—"}</td>

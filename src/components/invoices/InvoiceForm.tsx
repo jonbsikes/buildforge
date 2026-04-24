@@ -15,6 +15,7 @@ import {
 import { saveInvoice } from "@/app/actions/invoices";
 import type { ExtractedInvoiceData, ExtractedInvoiceResponse } from "@/app/api/invoices/extract/route";
 import { createClient } from "@/lib/supabase/client";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 interface Vendor {
   id: string;
@@ -467,17 +468,12 @@ export default function InvoiceForm({ vendors, projects, costCodes }: Props) {
               <span className="text-xs text-gray-400">Extracting…</span>
             )}
             {!isExtracting && aiConfidence && (
-              <span
-                className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  aiConfidence === "high"
-                    ? "bg-green-100 text-green-700"
-                    : aiConfidence === "medium"
-                    ? "bg-blue-100 text-blue-700"
-                    : "bg-amber-100 text-amber-700"
-                }`}
+              <StatusBadge
+                status={aiConfidence === "high" ? "complete" : aiConfidence === "medium" ? "active" : "warning"}
+                size="sm"
               >
                 {aiConfidence} confidence
-              </span>
+              </StatusBadge>
             )}
             <button
               onClick={() => {

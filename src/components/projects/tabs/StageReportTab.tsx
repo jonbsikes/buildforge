@@ -4,6 +4,8 @@ import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X, RotateCcw, Check, AlertTriangle, ChevronDown, ChevronRight, Play, Settings2 } from "lucide-react";
 import { updateStage, resetSchedule } from "@/app/actions/stages";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 export interface StageRow {
   id: string;
@@ -35,13 +37,13 @@ const STATUS_OPTIONS = [
   { value: "skipped",     label: "Skipped" },
 ];
 
-const STATUS_STYLES: Record<string, string> = {
-  not_started: "bg-gray-100 text-gray-600",
-  in_progress: "bg-blue-100 text-blue-700",
-  complete:    "bg-green-100 text-green-700",
-  completed:   "bg-green-100 text-green-700",
-  delayed:     "bg-red-100 text-red-600",
-  skipped:     "bg-orange-50 text-orange-400 line-through",
+const STAGE_STATUS_KIND: Record<string, StatusKind> = {
+  not_started: "planned",
+  in_progress: "active",
+  complete: "complete",
+  completed: "complete",
+  delayed: "over",
+  skipped: "neutral",
 };
 
 const TRACK_STYLES: Record<string, string> = {
@@ -359,7 +361,7 @@ function EditStagesModal({ stages, projectId, onClose }: { stages: StageRow[]; p
                     className="w-4 h-4 rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]/30 disabled:opacity-50" />
                   <span className="text-xs text-gray-400 font-mono w-6">{s.stage_number}</span>
                   <span className={`text-sm ${complete ? "text-green-700" : "text-gray-800"}`}>{s.stage_name}</span>
-                  {s.track && (<span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ml-auto ${TRACK_STYLES[s.track] ?? "bg-gray-100 text-gray-600"}`}>{s.track}</span>)}
+                  {s.track && (<MetadataChip className="ml-auto">{s.track}</MetadataChip>)}
                   {complete && (<span className="text-[10px] text-green-600 font-medium ml-auto">Done</span>)}
                 </label>
               );
@@ -411,15 +413,17 @@ function MobileStageCard({
                 {stage.stage_name}
               </span>
               {stage.track && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${TRACK_STYLES[stage.track] ?? "bg-gray-100 text-gray-600"}`}>
-                  {stage.track}
-                </span>
+                <MetadataChip className="shrink-0">{stage.track}</MetadataChip>
               )}
             </div>
           </div>
-          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold shrink-0 ${STATUS_STYLES[stage.status] ?? "bg-gray-100 text-gray-600"}`}>
+          <StatusBadge
+            status={delayed ? "over" : STAGE_STATUS_KIND[stage.status] ?? "neutral"}
+            size="sm"
+            className="shrink-0"
+          >
             {delayed ? "Overdue" : stage.status.replace(/_/g, " ")}
-          </span>
+          </StatusBadge>
         </div>
 
         {(stage.actual_start_date || stage.actual_end_date) && (
@@ -640,14 +644,14 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
                     {isHome && (
                       <td className="px-3 py-2.5">
                         {stage.track ? (
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TRACK_STYLES[stage.track] ?? "bg-gray-100 text-gray-600"}`}>{stage.track}</span>
+                          <MetadataChip>{stage.track}</MetadataChip>
                         ) : <span className="text-xs text-gray-400">&mdash;</span>}
                       </td>
                     )}
                     <td className="px-3 py-2.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[stage.status] ?? "bg-gray-100 text-gray-600"}`}>
+                      <StatusBadge status={STAGE_STATUS_KIND[stage.status] ?? "neutral"} size="sm">
                         {stage.status.replace(/_/g, " ")}
-                      </span>
+                      </StatusBadge>
                       {stageDelayed && <span className="ml-1.5 text-xs text-amber-600 font-medium">Delayed</span>}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-gray-600">{fmtDate(stage.planned_start_date)}</td>

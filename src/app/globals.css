@@ -85,6 +85,27 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Typography helpers — splits the overloaded `text-xs` into two pinned utilities.
+   - `.t-eyebrow`: 11px uppercase tracked label used for section kickers, stage track labels, eyebrow text.
+   - `.t-caption`: 12px secondary body used for muted captions, metadata, subtitles.
+   Per UI Review § 05: "grep for text-xs in the codebase. You'll find it doing
+   double duty as both 'tiny label' (11px) and 'secondary body' (12px) — split
+   these into two Tailwind utilities." */
+.t-eyebrow {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.t-caption {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* Hide scrollbar for horizontal scroll areas */
 .no-scrollbar {
   scrollbar-width: none;

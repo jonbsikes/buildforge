@@ -34,8 +34,8 @@ export const navSections: NavSection[] = [
     href: "/projects",
     matchPaths: ["/projects", "/reports", "/todos", "/field-logs"],
     subNav: [
-      { label: "All projects", href: "/projects" },
-      { label: "Projects hub", href: "/projects/hub" },
+      { label: "Projects hub", href: "/projects" },
+      { label: "All projects", href: "/projects/tree" },
       { label: "Reports", href: "/reports" },
       { label: "Field logs", href: "/field-logs" },
       { label: "To-dos", href: "/todos" },

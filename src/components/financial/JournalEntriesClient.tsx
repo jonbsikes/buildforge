@@ -6,6 +6,7 @@ import { Plus, BookOpen, Trash2, ChevronDown, ChevronRight, AlertCircle, Info, H
 import { createJournalEntry, voidJournalEntry, reverseJournalEntry, type JournalLineInput } from "@/app/actions/journal-entries";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 import StatusBadge from "@/components/ui/StatusBadge";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 type Account  = { id: string; account_number: string; name: string; type: string; subtype: string | null };
 type CostCode = { id: string; code: number; description: string; category: string };
@@ -791,9 +792,9 @@ export default function JournalEntriesClient() {
                       <td className="px-2 py-3 text-gray-800 font-medium">
                         {entry.description}
                         {entry.loan && (
-                          <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 text-[10px] font-medium">
-                            <Landmark size={9} /> #{entry.loan.loan_number}
-                          </span>
+                          <MetadataChip icon={<Landmark />} className="ml-2">
+                            #{entry.loan.loan_number}
+                          </MetadataChip>
                         )}
                       </td>
                       <td className="px-2 py-3 text-gray-400 text-xs capitalize">{entry.source_type ?? "manual"}</td>

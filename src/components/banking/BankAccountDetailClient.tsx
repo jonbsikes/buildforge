@@ -18,6 +18,8 @@ import {
   type BankTransactionRow,
 } from "@/app/actions/bank-transactions";
 import CSVImportDialog from "./CSVImportDialog";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 interface BankAccount {
   id: string;
@@ -51,20 +53,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-const CATEGORY_COLORS: Record<string, string> = {
-  check: "bg-blue-50 text-blue-700",
-  loan_advance: "bg-green-50 text-green-700",
-  interest_payment: "bg-purple-50 text-purple-700",
-  ach_payment: "bg-gray-100 text-gray-700",
-  wire: "bg-orange-50 text-orange-700",
-  deposit: "bg-emerald-50 text-emerald-700",
-  other: "bg-gray-50 text-gray-500",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  matched: "bg-green-100 text-green-700",
-  unmatched: "bg-amber-100 text-amber-700",
-  ignored: "bg-gray-100 text-gray-500",
+const STATUS_KIND: Record<string, StatusKind> = {
+  matched: "complete",
+  unmatched: "warning",
+  ignored: "planned",
 };
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
@@ -283,14 +275,14 @@ export default function BankAccountDetailClient({
                     {txn.balance != null ? `$${fmt(txn.balance)}` : "—"}
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded font-medium ${CATEGORY_COLORS[txn.category ?? ""] ?? CATEGORY_COLORS.other}`}>
+                    <MetadataChip>
                       {CATEGORY_LABELS[txn.category ?? ""] ?? txn.category}
-                    </span>
+                    </MetadataChip>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[txn.match_status] ?? ""}`}>
+                    <StatusBadge status={STATUS_KIND[txn.match_status] ?? "neutral"} size="sm">
                       {txn.match_status}
-                    </span>
+                    </StatusBadge>
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 max-w-[180px]">
                     {txn.matched_invoice ? (

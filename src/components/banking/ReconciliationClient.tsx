@@ -17,6 +17,7 @@ import {
   ignoreTransaction,
   type BankTransactionRow,
 } from "@/app/actions/bank-transactions";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 interface BankAccount {
   id: string;
@@ -49,10 +50,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  matched: "bg-green-100 text-green-700",
-  unmatched: "bg-amber-100 text-amber-700",
-  ignored: "bg-gray-100 text-gray-500",
+const STATUS_KIND: Record<string, StatusKind> = {
+  matched: "complete",
+  unmatched: "warning",
+  ignored: "planned",
 };
 
 function fmt(n: number): string {
@@ -240,9 +241,9 @@ export default function ReconciliationClient({
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[txn.match_status] ?? ""}`}>
+                    <StatusBadge status={STATUS_KIND[txn.match_status] ?? "neutral"} size="sm">
                       {txn.match_status}
-                    </span>
+                    </StatusBadge>
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 max-w-[180px] truncate" title={txn.notes ?? ""}>
                     {txn.matched_invoice ? (

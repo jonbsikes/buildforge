@@ -10,6 +10,7 @@ import {
   type BankAccountInput,
 } from "@/app/actions/banking";
 import CSVImportDialog from "./CSVImportDialog";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 interface BankAccount {
   id: string;
@@ -43,20 +44,6 @@ function ic(err = false) {
   return `w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] focus:border-transparent ${err ? "border-red-400" : "border-gray-300"}`;
 }
 
-function getAccountTypeBadgeClasses(type: string | null) {
-  switch (type) {
-    case "checking":
-      return "bg-blue-100 text-blue-700";
-    case "savings":
-      return "bg-green-100 text-green-700";
-    case "money_market":
-      return "bg-purple-100 text-purple-700";
-    case "line_of_credit":
-      return "bg-amber-100 text-amber-700";
-    default:
-      return "bg-gray-100 text-gray-600";
-  }
-}
 
 function AccountForm({
   initial,
@@ -269,9 +256,9 @@ export default function BankAccountsClient({ initialAccounts }: Props) {
                 </div>
 
                 <div className="flex items-center gap-2 mb-3">
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${getAccountTypeBadgeClasses(acct.account_type)}`}>
+                  <MetadataChip>
                     {ACCOUNT_TYPES.find((t) => t.value === acct.account_type)?.label ?? acct.account_type}
-                  </span>
+                  </MetadataChip>
                 </div>
 
                 {acct.notes && (

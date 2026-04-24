@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
-import StatusBadge from "@/components/ui/StatusBadge";
+import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
 interface Stage {
   stage_number: number;
@@ -23,12 +23,12 @@ interface Project {
   stages: Stage[];
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  planning:  "bg-gray-100 text-gray-600",
-  active:    "bg-green-100 text-green-700",
-  on_hold:   "bg-amber-100 text-amber-700",
-  completed: "bg-blue-100 text-blue-700",
-  cancelled: "bg-red-100 text-red-600",
+const STATUS_KIND: Record<string, StatusKind> = {
+  planning: "planned",
+  active: "active",
+  on_hold: "warning",
+  completed: "complete",
+  cancelled: "over",
 };
 
 export default function StageProgressReportClient() {
@@ -121,9 +121,13 @@ export default function StageProgressReportClient() {
                       {p.project_type === "home_construction" ? "Home Construction" : "Land Development"}
                     </p>
                   </div>
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${STATUS_COLORS[p.status] ?? "bg-gray-100 text-gray-600"}`}>
+                  <StatusBadge
+                    status={STATUS_KIND[p.status] ?? "neutral"}
+                    size="sm"
+                    className="flex-shrink-0"
+                  >
                     {p.status.replace(/_/g, " ")}
-                  </span>
+                  </StatusBadge>
                 </div>
 
                 {/* Progress bar */}

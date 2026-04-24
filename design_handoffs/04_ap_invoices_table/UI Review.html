@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>BuildForge — UI Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F7F5;
+    --paper:#FFFFFF;
+    --ink:#0E1116;
+    --ink-2:#3A4049;
+    --ink-3:#6B7280;
+    --line:#E6E4DE;
+    --line-2:#EFEDE7;
+    --brand:#4272EF;
+    --brand-2:#2E5BD8;
+    --ok:#10B981;
+    --warn:#F59E0B;
+    --err:#EF4444;
+    --delay:#F97316;
+    --slate:#64748B;
+    --accent:#C2410C; /* for editorial annotations */
+    --mute-bg:#F1EFE9;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;font-feature-settings:"ss01","cv11"}
+  a{color:inherit}
+  .wrap{max-width:1200px;margin:0 auto;padding:72px 48px 160px}
+  .tabular{font-variant-numeric:tabular-nums}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+
+  /* Masthead */
+  .masthead{display:flex;align-items:flex-end;justify-content:space-between;gap:40px;padding-bottom:28px;border-bottom:1px solid var(--ink);margin-bottom:56px}
+  .mast-kicker{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3)}
+  .mast-title{font-size:64px;line-height:.98;letter-spacing:-.035em;font-weight:700;margin:10px 0 0}
+  .mast-title em{font-style:normal;color:var(--accent)}
+  .mast-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3);text-align:right;line-height:1.6}
+
+  /* TOC */
+  .toc{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--ink);border:1px solid var(--ink);margin-bottom:96px}
+  .toc a{background:var(--paper);padding:18px 20px;display:block;text-decoration:none}
+  .toc a:hover{background:#FAF8F3}
+  .toc-num{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent)}
+  .toc-label{font-size:16px;font-weight:600;margin-top:2px}
+  .toc-sub{font-size:12px;color:var(--ink-3);margin-top:2px}
+
+  /* Section shell */
+  section{margin-bottom:120px;scroll-margin-top:24px}
+  .sec-head{display:flex;align-items:baseline;gap:20px;margin-bottom:8px}
+  .sec-num{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:.12em}
+  .sec-title{font-size:40px;letter-spacing:-.02em;font-weight:700;margin:0;line-height:1.05}
+  .sec-lede{font-size:17px;line-height:1.55;color:var(--ink-2);max-width:780px;margin:16px 0 36px;text-wrap:pretty}
+
+  /* Verdict block */
+  .verdict{display:grid;grid-template-columns:120px 1fr;gap:24px;padding:20px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:40px}
+  .verdict .k{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+  .verdict .v{font-size:15px;line-height:1.55;color:var(--ink)}
+  .grade{display:inline-block;padding:2px 8px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.05em}
+  .grade-a{background:#D1FAE5;color:#065F46}
+  .grade-b{background:#DBEAFE;color:#1E40AF}
+  .grade-c{background:#FEF3C7;color:#92400E}
+  .grade-d{background:#FEE2E2;color:#991B1B}
+
+  /* Point list */
+  .points{list-style:none;padding:0;margin:0;counter-reset:pt}
+  .points li{counter-increment:pt;display:grid;grid-template-columns:44px 1fr;gap:12px;padding:18px 0;border-bottom:1px dashed var(--line)}
+  .points li:last-child{border-bottom:none}
+  .points li::before{content:counter(pt,decimal-leading-zero);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);padding-top:3px}
+  .pt-title{font-size:16px;font-weight:600;margin:0 0 4px}
+  .pt-body{font-size:14px;line-height:1.55;color:var(--ink-2);margin:0;text-wrap:pretty}
+  .pt-tag{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.08em;padding:1px 6px;border-radius:3px;margin-left:8px;vertical-align:1px}
+  .tag-crit{background:#FEE2E2;color:#991B1B}
+  .tag-maj{background:#FEF3C7;color:#92400E}
+  .tag-min{background:#EFEDE7;color:var(--ink-2)}
+  .tag-win{background:#D1FAE5;color:#065F46}
+
+  /* Compare frames */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:32px 0}
+  .frame{background:var(--paper);border:1px solid var(--line);border-radius:10px;overflow:hidden;position:relative}
+  .frame-lbl{position:absolute;top:12px;left:12px;z-index:2;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;padding:3px 7px;border-radius:3px;background:var(--ink);color:white}
+  .frame-lbl.after{background:var(--accent)}
+  .frame-body{padding:52px 20px 20px}
+  .frame-note{padding:12px 16px;border-top:1px solid var(--line-2);background:#FAF8F3;font-size:12px;color:var(--ink-2);line-height:1.5}
+
+  /* Annotated overlay variant */
+  .anno{position:relative}
+  .anno-pin{position:absolute;width:22px;height:22px;border-radius:50%;background:var(--accent);color:white;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px rgba(194,65,12,.18);z-index:3}
+  .anno-legend{margin-top:16px;border-top:1px solid var(--line);padding-top:16px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px 24px}
+  .anno-item{display:grid;grid-template-columns:22px 1fr;gap:10px;font-size:13px;line-height:1.45;color:var(--ink-2)}
+  .anno-item .n{width:22px;height:22px;border-radius:50%;background:var(--accent);color:white;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center}
+
+  /* --- BuildForge-style mock primitives --- */
+  .bf{font-family:'Inter',sans-serif}
+  .card{background:white;border:1px solid #E5E7EB;border-radius:12px}
+  .card-sm{background:white;border:1px solid #E5E7EB;border-radius:10px}
+  .shadow-sm{box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  .muted{color:#6B7280}
+  .h-row{display:flex;align-items:center;gap:8px}
+  .pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.01em}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;font-size:13px;font-weight:500;border:1px solid #E5E7EB;background:white;color:#374151;cursor:pointer}
+  .btn.primary{background:#4272EF;border-color:#4272EF;color:white}
+  .btn.ghost{border:none;background:transparent}
+
+  /* simple SVG icon style */
+  .ico{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+  /* Nav rail mock */
+  .rail{width:68px;background:#0F172A;border-radius:10px;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:4px}
+  .rail .logo{width:40px;height:40px;border-radius:10px;background:white;display:flex;align-items:center;justify-content:center;font-weight:700;color:#0F172A;font-size:12px;margin-bottom:10px}
+  .rail .item{width:48px;height:48px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94A3B8;font-size:9px;font-weight:500;gap:2px;position:relative}
+  .rail .item.active{background:rgba(66,114,239,.18);color:#8BA7F5}
+  .rail .item:hover{color:white}
+
+  /* Mini dashboard */
+  .kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .kpi .cell{background:white;border:1px solid #E5E7EB;border-radius:10px;padding:12px}
+  .kpi .icon{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center}
+  .kpi .num{font-size:18px;font-weight:700;margin-top:6px;letter-spacing:-.01em}
+  .kpi .lbl{font-size:10px;color:#6B7280;margin-top:1px;letter-spacing:.02em}
+
+  /* Project card */
+  .proj{background:white;border:1px solid #E5E7EB;border-radius:12px;padding:14px}
+  .proj .title{font-weight:600;font-size:14px;margin:0}
+  .proj .addr{font-size:11px;color:#9CA3AF;margin-top:1px}
+  .ring{width:42px;height:42px;position:relative}
+  .ring svg{transform:rotate(-90deg)}
+  .ring .pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+  .bud{height:6px;background:#F1F5F9;border-radius:3px;overflow:hidden;margin-top:10px}
+  .bud > span{display:block;height:100%;background:#4272EF}
+  .bud.over > span{background:#EF4444}
+
+  /* Table */
+  .tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .tbl th{text-align:left;font-weight:500;font-size:10px;letter-spacing:.05em;color:#9CA3AF;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid #EEF0F3;background:#FCFCFD}
+  .tbl td{padding:10px;border-bottom:1px solid #F3F4F6;vertical-align:top}
+  .tbl tr:hover td{background:#FAFBFD}
+
+  /* Swatch grid */
+  .swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .sw{aspect-ratio:1.4/1;padding:10px;display:flex;flex-direction:column;justify-content:flex-end;border-right:1px solid rgba(0,0,0,.06)}
+  .sw:last-child{border-right:none}
+  .sw .name{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.04em}
+  .sw .hex{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.7;margin-top:2px}
+
+  /* Type specimen */
+  .type-row{display:grid;grid-template-columns:160px 1fr 1fr;gap:16px;align-items:baseline;padding:14px 0;border-bottom:1px dashed var(--line)}
+  .type-row:last-child{border-bottom:none}
+  .type-k{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)}
+  .type-specimen{color:var(--ink)}
+  .type-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3);text-align:right}
+
+  /* Priority matrix */
+  .matrix{display:grid;grid-template-columns:repeat(2,1fr);gap:2px;background:var(--ink);border:1px solid var(--ink);border-radius:10px;overflow:hidden}
+  .mx{background:white;padding:20px}
+  .mx h4{margin:0 0 12px;font-size:12px;letter-spacing:.12em;font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:600}
+  .mx ol{padding-left:18px;margin:0;font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+  .mx ol li{margin-bottom:6px}
+
+  footer{border-top:1px solid var(--ink);padding-top:28px;margin-top:80px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3);display:flex;justify-content:space-between}
+
+  @media(max-width:900px){
+    .wrap{padding:40px 24px 80px}
+    .compare{grid-template-columns:1fr}
+    .toc{grid-template-columns:1fr}
+    .mast-title{font-size:44px}
+    .sec-title{font-size:30px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- MASTHEAD -->
+  <header class="masthead">
+    <div>
+      <div class="mast-kicker">UI Review · April 2026</div>
+      <h1 class="mast-title">BuildForge &mdash;<br>where to go <em>next</em>.</h1>
+    </div>
+    <div class="mast-meta">
+      Scope: shell, dashboard, AP table,<br>
+      project card, type &amp; color.<br>
+      Reviewed from source (no screenshots).<br>
+      — Design crit, not redesign.
+    </div>
+  </header>
+
+  <!-- TOC -->
+  <nav class="toc">
+    <a href="#summary"><div class="toc-num">00</div><div class="toc-label">Summary &amp; verdict</div><div class="toc-sub">What's working, what to fix first.</div></a>
+    <a href="#shell"><div class="toc-num">01</div><div class="toc-label">App shell &amp; navigation</div><div class="toc-sub">The spec vs. the shipped rail.</div></a>
+    <a href="#shell-mobile"><div class="toc-num">01b</div><div class="toc-label">Mobile nav pattern</div><div class="toc-sub">How flyout translates to thumb-reach.</div></a>
+    <a href="#dashboard"><div class="toc-num">02</div><div class="toc-label">Dashboard</div><div class="toc-sub">Too many cards, not enough signal.</div></a>
+    <a href="#ap"><div class="toc-num">03</div><div class="toc-label">AP / invoices table</div><div class="toc-sub">Density, filters, action discoverability.</div></a>
+    <a href="#cards"><div class="toc-num">04</div><div class="toc-label">Project cards</div><div class="toc-sub">Progress, budget, stage strip.</div></a>
+    <a href="#projects-index"><div class="toc-num">04b</div><div class="toc-label">Projects index &amp; drilldown</div><div class="toc-sub">Beyond the two-level accordion.</div></a>
+    <a href="#system"><div class="toc-num">05</div><div class="toc-label">Color, type, density</div><div class="toc-sub">Tightening the visual system.</div></a>
+    <a href="#priorities"><div class="toc-num">06</div><div class="toc-label">Priority matrix</div><div class="toc-sub">What to do Monday morning.</div></a>
+    <a href="#closing"><div class="toc-num">07</div><div class="toc-label">Closing</div><div class="toc-sub">A note on discipline.</div></a>
+    <a href="#method" style="opacity:.65"><div class="toc-num">—</div><div class="toc-label">Method</div><div class="toc-sub">Files read, ground rules.</div></a>
+  </nav>
+
+  <!-- 00 SUMMARY -->
+  <section id="summary">
+    <div class="sec-head"><span class="sec-num">§ 00</span><h2 class="sec-title">Summary &amp; verdict</h2></div>
+    <p class="sec-lede">Your <strong>DESIGN-SPEC.md</strong> is genuinely strong — it makes the right structural call (field app + office app in one shell), commits to a palette, and pins tabular figures for financials. The shipped code follows most of it. The gap between "good" and "great" is <em>editing</em>: the UI tries to show everything at once, loses visual hierarchy in the middle of pages, and uses too many pastel surface tints instead of typography to establish rank.</p>
+
+    <div class="verdict">
+      <div class="k">Overall</div>
+      <div class="v"><span class="grade grade-b">B &mdash; solid bones, under-edited surface</span></div>
+    </div>
+    <div class="verdict">
+      <div class="k">Biggest wins</div>
+      <div class="v">Real mobile-first thinking (bottom tabs + FAB), tabular-nums discipline, good status color mapping, the two-track stage strip idea on project cards.</div>
+    </div>
+    <div class="verdict">
+      <div class="k">Biggest drags</div>
+      <div class="v">Dashboard cognitive load (5 competing blocks above the fold), AP filter bar fights the table, pastel-chip badge fatigue, and the desktop nav rail <em>is</em> the rail from the spec but lost the 280px flyout — so mid-level nav collapsed to a single icon with no preview.</div>
+    </div>
+    <div class="verdict">
+      <div class="k">Fix first</div>
+      <div class="v">(1) Dashboard hierarchy — one hero block, not four peers. (2) AP density + inline primary action. (3) Replace pastel pill badges with dot+label. (4) Ship the flyout the spec promised.</div>
+    </div>
+  </section>
+
+  <!-- 01 SHELL -->
+  <section id="shell">
+    <div class="sec-head"><span class="sec-num">§ 01</span><h2 class="sec-title">App shell &amp; navigation</h2></div>
+    <p class="sec-lede">The spec says <em>icon rail + 280px flyout</em>. The code ships just the 64px rail — the flyout never shows up. So "Projects" means one click away from a hub page, and users get no <em>preview</em> of what's inside a section. This is the single biggest missed layup in the app.</p>
+
+    <div class="compare">
+      <div class="frame">
+        <div class="frame-lbl">NOW</div>
+        <div class="frame-body">
+          <div class="anno" style="display:flex;gap:16px;height:280px">
+            <div class="rail">
+              <div class="logo">BF</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Home</div>
+              <div class="item active"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 6V4h8v2"/></svg>Projects</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6"/></svg>Financial</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Manage</div>
+            </div>
+            <div style="flex:1;background:#F8FAFC;border-radius:8px;padding:16px">
+              <div style="font-size:18px;font-weight:700">Projects hub</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:4px">user has to load a whole page to see what's inside</div>
+              <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="card-sm" style="padding:10px;height:60px"></div>
+                <div class="card-sm" style="padding:10px;height:60px"></div>
+                <div class="card-sm" style="padding:10px;height:60px"></div>
+                <div class="card-sm" style="padding:10px;height:60px"></div>
+              </div>
+            </div>
+            <div class="anno-pin" style="top:60px;left:55px">1</div>
+            <div class="anno-pin" style="top:82px;left:200px">2</div>
+          </div>
+        </div>
+        <div class="frame-note">Rail-only. Navigation = page loads. No preview. The 9px labels under icons are the <em>only</em> way to tell items apart at a glance.</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-lbl after">NEXT</div>
+        <div class="frame-body">
+          <div class="anno" style="display:flex;gap:0;height:280px">
+            <div class="rail" style="border-top-right-radius:0;border-bottom-right-radius:0">
+              <div class="logo">BF</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Home</div>
+              <div class="item active"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 6V4h8v2"/></svg>Projects</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6"/></svg>Financial</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Manage</div>
+            </div>
+            <div style="width:230px;background:#1E293B;color:#E2E8F0;padding:16px 14px;border-top-left-radius:0;border-bottom-left-radius:0">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#64748B;letter-spacing:.12em;text-transform:uppercase">Projects</div>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:2px;font-size:13px">
+                <div style="padding:7px 10px;border-radius:6px;background:rgba(66,114,239,.18);color:#BFD1FD">All projects</div>
+                <div style="padding:7px 10px;color:#CBD5E1">Gantt</div>
+                <div style="padding:7px 10px;color:#CBD5E1">Reports</div>
+                <div style="padding:7px 10px;color:#CBD5E1">Field logs</div>
+                <div style="padding:7px 10px;color:#CBD5E1">To-dos</div>
+              </div>
+              <div style="margin-top:14px;border-top:1px solid #334155;padding-top:12px;font-size:11px;color:#64748B">
+                <div style="color:#94A3B8;margin-bottom:4px">Pinned</div>
+                <div style="color:#CBD5E1;font-size:12px">Lot 12 – Prairie Heights</div>
+                <div style="color:#CBD5E1;font-size:12px">Lot 08 – Ridgeview</div>
+              </div>
+            </div>
+            <div style="flex:1;background:#F8FAFC;padding:16px;border-radius:0 8px 8px 0"></div>
+            <div class="anno-pin" style="top:60px;left:90px">3</div>
+            <div class="anno-pin" style="top:150px;left:200px">4</div>
+          </div>
+        </div>
+        <div class="frame-note">Flyout on hover/click reveals sub-nav <em>and</em> pinned items. The spec's original intent.</div>
+      </div>
+    </div>
+
+    <div class="anno-legend">
+      <div class="anno-item"><div class="n">1</div><div>9px labels under the 20px icons are the entire wayfinding. Push the font size up, or drop the label and rely on hover tooltips + the flyout.</div></div>
+      <div class="anno-item"><div class="n">2</div><div>Active state is a <code style="font-family:'JetBrains Mono',monospace;font-size:11px">#4272EF / 20% opacity</code> on a near-black rail — contrast is fine but the shape reads as a translucent ghost. Use a solid 2px left bar + brighter icon instead.</div></div>
+      <div class="anno-item"><div class="n">3</div><div>Hover/click reveals a 220&ndash;280px panel scoped to that section. Keeps the rail slim, adds discoverability.</div></div>
+      <div class="anno-item"><div class="n">4</div><div>Pin recent/favorite projects here — this is the #1 request from any multi-job builder.</div></div>
+    </div>
+
+    <ul class="points">
+      <li><div><p class="pt-title">Ship the flyout. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">The current rail fails a first-time user: they cannot see what lives inside "Manage" without clicking. 280px flyout on hover (desktop) + click-to-pin is the standard pattern the spec already committed to.</p></div></li>
+      <li><div><p class="pt-title">Pin recent projects in the flyout. <span class="pt-tag tag-win">QUICK WIN</span></p><p class="pt-body">Builders work on 3–8 active jobs; the flyout should show the last-touched 5 projects as a shortcut. Pull from <code class="mono">projects.updated_at desc limit 5</code>.</p></div></li>
+      <li><div><p class="pt-title">Mobile top bar is underused. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body"><code class="mono">AppShell.tsx</code> shows just a hamburger + "BuildForge" text. On a page like AP, that bar should show <em>page title + filter chip state + overflow menu</em>. Right now users have to scroll to see context.</p></div></li>
+      <li><div><p class="pt-title">Sign-out at the rail bottom is a mini-target on mobile. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">Move to avatar menu; the rail should be pure navigation. Also applies to the desktop rail — nobody signs out often enough to deserve a permanent slot.</p></div></li>
+    </ul>
+  </section>
+
+  <!-- 01b MOBILE NAV -->
+  <section id="shell-mobile">
+    <div class="sec-head"><span class="sec-num">§ 01b</span><h2 class="sec-title">Mobile nav pattern</h2></div>
+    <p class="sec-lede">Good catch — you can't hover-flyout from a bottom tab bar, and you shouldn't try. Desktop and mobile share the same <em>information architecture</em> (Home / Projects / Financial / Manage) but need different <em>mechanics</em> for revealing sub-navigation. Here's the pairing I'd ship.</p>
+
+    <div class="verdict">
+      <div class="k">Principle</div>
+      <div class="v">One IA, two affordances. On desktop, hover reveals; on mobile, tap reveals — but the reveal surface is different. Desktop flyout grows <em>rightward</em> from the rail; mobile "flyout" grows <em>upward</em> from the tab bar as a bottom sheet.</div>
+    </div>
+
+    <div class="compare">
+      <!-- MOBILE: tap-up sheet -->
+      <div class="frame">
+        <div class="frame-lbl after">MOBILE · DOUBLE-TAP OR LONG-PRESS</div>
+        <div class="frame-body">
+          <div style="margin:0 auto;width:260px;height:420px;background:#F8FAFC;border-radius:22px;border:1px solid #E5E7EB;position:relative;overflow:hidden">
+            <!-- status bar -->
+            <div style="height:28px;background:white;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:10px;font-weight:600">9:41<span>● ● ●</span></div>
+            <!-- content dim -->
+            <div style="position:absolute;top:28px;left:0;right:0;bottom:120px;background:rgba(15,23,42,.35)"></div>
+            <!-- bottom sheet -->
+            <div style="position:absolute;left:0;right:0;bottom:58px;background:white;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.12);padding:10px 14px 14px">
+              <div style="width:36px;height:4px;background:#CBD5E1;border-radius:2px;margin:0 auto 10px"></div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#94A3B8;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">Projects</div>
+              <div style="display:flex;flex-direction:column;gap:1px;font-size:13px">
+                <div style="padding:9px 10px;border-radius:6px;background:rgba(66,114,239,.1);color:#2E5BD8;font-weight:500">All projects</div>
+                <div style="padding:9px 10px;color:#334155">Gantt</div>
+                <div style="padding:9px 10px;color:#334155">Reports</div>
+                <div style="padding:9px 10px;color:#334155">Field logs</div>
+                <div style="padding:9px 10px;color:#334155">To-dos</div>
+              </div>
+              <div style="border-top:1px solid #E5E7EB;margin-top:8px;padding-top:8px">
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#94A3B8;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px">Pinned</div>
+                <div style="font-size:12px;color:#334155;padding:6px 10px">Lot 12 – Prairie Heights</div>
+                <div style="font-size:12px;color:#334155;padding:6px 10px">Lot 08 – Ridgeview</div>
+              </div>
+            </div>
+            <!-- bottom tab bar -->
+            <div style="position:absolute;left:0;right:0;bottom:0;height:58px;background:white;border-top:1px solid #E5E7EB;display:grid;grid-template-columns:repeat(5,1fr);align-items:center">
+              <div style="text-align:center;color:#94A3B8;font-size:9px"><div style="font-size:16px">⌂</div>Home</div>
+              <div style="text-align:center;color:#4272EF;font-size:9px;font-weight:600;position:relative"><div style="font-size:16px">▣</div>Projects<div style="position:absolute;left:50%;transform:translateX(-50%);top:-2px;width:22px;height:2px;background:#4272EF;border-radius:2px"></div></div>
+              <div style="text-align:center"><div style="width:42px;height:42px;border-radius:50%;background:#4272EF;color:white;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:20px;font-weight:400;box-shadow:0 4px 10px rgba(66,114,239,.35)">+</div></div>
+              <div style="text-align:center;color:#94A3B8;font-size:9px"><div style="font-size:16px">$</div>Financial</div>
+              <div style="text-align:center;color:#94A3B8;font-size:9px"><div style="font-size:16px">☰</div>More</div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Tapping an <em>already-active</em> tab (or long-pressing any tab) slides a bottom sheet up from the tab bar with the same sub-nav + pinned items the desktop flyout shows. Single tap on a non-active tab still navigates directly to the section's default page — fast is preserved.</div>
+      </div>
+
+      <!-- DESKTOP: side flyout -->
+      <div class="frame">
+        <div class="frame-lbl after">DESKTOP · HOVER OR CLICK</div>
+        <div class="frame-body">
+          <div style="display:flex;gap:0;height:420px">
+            <div class="rail" style="border-radius:10px 0 0 10px;height:100%">
+              <div class="logo">BF</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>Home</div>
+              <div class="item active"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/></svg>Projects</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 10h6"/></svg>Financial</div>
+              <div class="item"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Manage</div>
+            </div>
+            <div style="width:220px;background:#1E293B;color:#E2E8F0;padding:16px 14px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#64748B;letter-spacing:.12em;text-transform:uppercase">Projects</div>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:2px;font-size:13px">
+                <div style="padding:7px 10px;border-radius:6px;background:rgba(66,114,239,.22);color:#BFD1FD">All projects</div>
+                <div style="padding:7px 10px;color:#CBD5E1">Gantt</div>
+                <div style="padding:7px 10px;color:#CBD5E1">Reports</div>
+                <div style="padding:7px 10px;color:#CBD5E1">Field logs</div>
+                <div style="padding:7px 10px;color:#CBD5E1">To-dos</div>
+              </div>
+              <div style="margin-top:14px;border-top:1px solid #334155;padding-top:10px">
+                <div style="color:#64748B;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px">Pinned</div>
+                <div style="color:#CBD5E1;font-size:12px;padding:4px 0">Lot 12 – Prairie Heights</div>
+                <div style="color:#CBD5E1;font-size:12px;padding:4px 0">Lot 08 – Ridgeview</div>
+              </div>
+            </div>
+            <div style="flex:1;background:#F8FAFC;border-radius:0 10px 10px 0;padding:16px">
+              <div style="font-size:14px;font-weight:600">Projects hub</div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Hover reveals, click pins (so it stays open while you navigate), outside-click dismisses. Same content as the mobile sheet — just rotated 90°.</div>
+      </div>
+    </div>
+
+    <ul class="points">
+      <li><div><p class="pt-title">Tap-active-tab-again → sheet up. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">This is the iOS/Procore pattern and it's what thumbs already do. First tap navigates to the section's default page; second tap on the <em>same</em> tab opens the sub-nav sheet. Long-press works as a power-user shortcut. Importantly: <strong>the center "+" FAB stays exactly where it is</strong> — it's the universal quick-add and never gets hijacked by navigation.</p></div></li>
+      <li><div><p class="pt-title">Same data, same sort order, same labels across breakpoints. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">The mental model ("Projects has a Gantt sub-section and some pinned jobs") should be identical on phone and desktop. Only the reveal gesture differs. This is the cheapest way to make the app feel coherent across devices.</p></div></li>
+      <li><div><p class="pt-title">Keep single-tap-to-navigate fast. <span class="pt-tag tag-win">QUICK WIN</span></p><p class="pt-body">Don't make users open the sheet to reach a section — tapping "Money" on the tab bar should still load the Financial hub page immediately. The sheet is a shortcut, not a gate.</p></div></li>
+      <li><div><p class="pt-title">What about tablet (640–1024px)? <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">At tablet width, use the desktop rail + flyout (touch flyout = tap-to-open, outside-tap to dismiss). The bottom tab bar is for <em>one-handed phone</em> posture; on a tablet held with both hands the top-left rail is actually easier to reach.</p></div></li>
+      <li><div><p class="pt-title">Alternate: "More" tab opens the full nav tree. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">Your current spec puts Vendors/Contacts/Documents/Settings behind "More" already. Keep that — it's the right place for the long tail. The double-tap sheet handles sub-nav for the four primary sections only.</p></div></li>
+    </ul>
+  </section>
+
+  <!-- 02 DASHBOARD -->
+  <section id="dashboard">
+    <div class="sec-head"><span class="sec-num">§ 02</span><h2 class="sec-title">Dashboard</h2></div>
+    <p class="sec-lede">Right now the dashboard has a KPI strip, a mobile quick-actions row, a project grid grouped by subdivision, a "This Week" list, a "Needs Attention" list, "Recent Field Logs", and a "Navigate" card. That's <strong>seven blocks</strong>, all styled the same way (white card, 12px radius, small shadow, bold title). Everything is a peer; nothing is the hero.</p>
+
+    <div class="compare">
+      <div class="frame">
+        <div class="frame-lbl">NOW</div>
+        <div class="frame-body">
+          <div style="background:#F8FAFC;padding:12px;border-radius:8px">
+            <!-- KPI strip -->
+            <div class="kpi">
+              <div class="cell"><div class="icon" style="background:#EFF6FF"><svg class="ico" style="color:#4272EF" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/></svg></div><div class="num tabular">6</div><div class="lbl">Active projects</div></div>
+              <div class="cell"><div class="icon" style="background:#F5F3FF"><svg class="ico" style="color:#7C3AED" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div><div class="num tabular">23</div><div class="lbl">Open to-dos</div></div>
+              <div class="cell"><div class="icon" style="background:#FEF3C7"><svg class="ico" style="color:#D97706" viewBox="0 0 24 24"><path d="M12 2L2 21h20L12 2zM12 10v4M12 18h.01"/></svg></div><div class="num tabular">8</div><div class="lbl">Needs attention</div></div>
+              <div class="cell"><div class="icon" style="background:#F3F4F6"><svg class="ico" style="color:#4B5563" viewBox="0 0 24 24"><path d="M3 7h18v10H3zM3 11h18"/></svg></div><div class="num tabular">$248k</div><div class="lbl">AP outstanding</div></div>
+            </div>
+            <!-- Projects grid -->
+            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 12 – Prairie Heights</div><div style="font-size:10px;color:#9CA3AF">1204 Birch Ln</div><div class="bud" style="margin-top:8px"><span style="width:62%"></span></div></div>
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 08 – Ridgeview</div><div style="font-size:10px;color:#9CA3AF">807 Ridge Ct</div><div class="bud over" style="margin-top:8px"><span style="width:108%"></span></div></div>
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 03 – Creekside</div><div style="font-size:10px;color:#9CA3AF">312 Willow Dr</div><div class="bud" style="margin-top:8px"><span style="width:22%"></span></div></div>
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 15 – Prairie Heights</div><div style="font-size:10px;color:#9CA3AF">1421 Birch Ln</div><div class="bud" style="margin-top:8px"><span style="width:80%"></span></div></div>
+            </div>
+            <!-- Right rail mini -->
+            <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="card-sm" style="padding:10px"><div style="font-size:11px;font-weight:700">This week</div><div style="font-size:10px;color:#9CA3AF">4 stages starting</div></div>
+              <div class="card-sm" style="padding:10px"><div style="font-size:11px;font-weight:700">Needs attention</div><div style="font-size:10px;color:#9CA3AF">8 items</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">All peers, all white, all 12px radius. Lot 08 is over budget (red bar) but you have to scan to find it. "Needs attention" lives in a second card but its <em>items</em> are the thing that matters.</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-lbl after">NEXT</div>
+        <div class="frame-body">
+          <div style="background:#F8FAFC;padding:12px;border-radius:8px">
+            <!-- Hero: needs attention -->
+            <div style="background:#0F172A;color:white;border-radius:10px;padding:14px">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#F59E0B;letter-spacing:.14em">⚠ NEEDS ATTENTION · 8</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+                <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#EF4444"></span><div style="font-size:12px">3 past-due invoices<br><span style="font-size:10px;color:#94A3B8">$14,280</span></div></div>
+                <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#EF4444"></span><div style="font-size:12px">Lot 08 over budget<br><span style="font-size:10px;color:#94A3B8">+$2,410 (108%)</span></div></div>
+                <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#F59E0B"></span><div style="font-size:12px">2 COIs expire &lt;30d<br><span style="font-size:10px;color:#94A3B8">Ace Framing, J.D. Concrete</span></div></div>
+                <div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:#F59E0B"></span><div style="font-size:12px">5 invoices to review<br><span style="font-size:10px;color:#94A3B8">$8,600</span></div></div>
+              </div>
+            </div>
+            <!-- Secondary KPIs: inline metrics, no cards -->
+            <div style="display:flex;gap:24px;padding:14px 4px 10px;border-bottom:1px solid #E5E7EB;margin-top:14px">
+              <div><div style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Active</div><div style="font-size:18px;font-weight:700" class="tabular">6</div></div>
+              <div><div style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Open to-dos</div><div style="font-size:18px;font-weight:700" class="tabular">23</div></div>
+              <div><div style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">AP out</div><div style="font-size:18px;font-weight:700" class="tabular">$248k</div></div>
+              <div style="margin-left:auto"><div style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">This week</div><div style="font-size:13px;font-weight:600">4 starts · 2 completes</div></div>
+            </div>
+            <!-- Project grid w/ stronger hierarchy -->
+            <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="proj" style="padding:10px;border:1px solid #FEE2E2;background:#FEF2F2"><div style="font-weight:600;font-size:12px">Lot 08 – Ridgeview</div><div style="font-size:10px;color:#991B1B">Over budget · Framing</div><div class="bud over" style="margin-top:8px"><span style="width:100%"></span></div></div>
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 12 – Prairie Heights</div><div style="font-size:10px;color:#9CA3AF">Rough-in · 62% complete</div><div class="bud" style="margin-top:8px"><span style="width:62%"></span></div></div>
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 15 – Prairie Heights</div><div style="font-size:10px;color:#9CA3AF">Finishes · 80% complete</div><div class="bud" style="margin-top:8px"><span style="width:80%"></span></div></div>
+              <div class="proj" style="padding:10px"><div style="font-weight:600;font-size:12px">Lot 03 – Creekside</div><div style="font-size:10px;color:#9CA3AF">Excavation · 22% complete</div><div class="bud" style="margin-top:8px"><span style="width:22%"></span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">One hero (alerts, with content), one secondary metric strip (no boxes), then the project grid. Over-budget project is <em>pre-sorted first</em> and visually tinted.</div>
+      </div>
+    </div>
+
+    <ul class="points">
+      <li><div><p class="pt-title">Make "Needs Attention" the hero, not a sidebar. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">On any given day a builder logs in to find out <em>what's wrong</em>. The mobile layout gets this right (alert banner on top). The desktop layout buries alerts in the right column. Flip it: alerts on top, full width, with the actual items (not just counts).</p></div></li>
+      <li><div><p class="pt-title">Collapse the KPI strip into an inline metric row. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Four equally-weighted cards with colored icon chips is classic SaaS dashboard fluff. The number is the signal — drop the chrome. Inline them under a horizontal rule, use tabular-nums (you already do), and remove the pastel icon backgrounds.</p></div></li>
+      <li><div><p class="pt-title">Sort projects by risk, not by creation date. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Currently projects render in <code class="mono">order by created_at desc</code>. Sort by: over-budget first → delayed → active → pre-construction. An over-budget project hidden in row 3 is a design bug.</p></div></li>
+      <li><div><p class="pt-title">Kill the "Navigate" card. <span class="pt-tag tag-win">QUICK WIN</span></p><p class="pt-body">It duplicates the nav rail. If the rail isn't discoverable enough to skip this card, fix the rail (see §01), don't add a card.</p></div></li>
+      <li><div><p class="pt-title">Greeting bar on mobile. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">The spec calls for <em>"Morning, Jon"</em> at the top. It's warmth at zero cost, and gives a legible page title. The current mobile top bar just says "BuildForge" which is wasted pixels — the user <strong>knows</strong> they're in BuildForge.</p></div></li>
+    </ul>
+  </section>
+
+  <!-- 03 AP -->
+  <section id="ap">
+    <div class="sec-head"><span class="sec-num">§ 03</span><h2 class="sec-title">AP / invoices table</h2></div>
+    <p class="sec-lede">This is the most important table in the app — it's where money decisions happen. It's also the most visually noisy. Five filter pills, a search bar, a project dropdown, a "Clear" button and a "Select" toggle all crammed into one row. Then a 9-column table with hover-reveal inline actions, a checkbox column, and an expand-on-click row. There's a lot to love (the inline approve button, the expand detail, the batch bar), but density is off and the primary action is hidden behind hover.</p>
+
+    <div class="compare">
+      <div class="frame">
+        <div class="frame-lbl">NOW</div>
+        <div class="frame-body">
+          <!-- Summary strip -->
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+            <div class="card-sm" style="padding:10px"><div class="h-row"><span class="dot" style="background:#F59E0B"></span><div><div style="font-size:9px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Pending review</div><div style="font-size:16px;font-weight:700" class="tabular">5</div><div style="font-size:10px;color:#9CA3AF" class="tabular">$8,600</div></div></div></div>
+            <div class="card-sm" style="padding:10px"><div class="h-row"><span class="dot" style="background:#4272EF"></span><div><div style="font-size:9px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Approved</div><div style="font-size:16px;font-weight:700" class="tabular">11</div><div style="font-size:10px;color:#9CA3AF" class="tabular">$42,180</div></div></div></div>
+            <div class="card-sm" style="padding:10px"><div class="h-row"><span class="dot" style="background:#EF4444"></span><div><div style="font-size:9px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Past due</div><div style="font-size:16px;font-weight:700" class="tabular">3</div><div style="font-size:10px;color:#9CA3AF" class="tabular">$14,280</div></div></div></div>
+          </div>
+          <!-- Filter row -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            <span class="pill" style="background:#4272EF;color:white">All</span>
+            <span class="pill" style="background:#F3F4F6;color:#4B5563">Pending (5)</span>
+            <span class="pill" style="background:#F3F4F6;color:#4B5563">Approved (11)</span>
+            <span class="pill" style="background:#F3F4F6;color:#4B5563">Released</span>
+            <span class="pill" style="background:#F3F4F6;color:#4B5563">Cleared</span>
+            <span class="pill" style="background:#F3F4F6;color:#4B5563">Disputed</span>
+            <span style="margin-left:auto;display:flex;gap:6px"><span class="pill" style="background:white;border:1px solid #E5E7EB;color:#9CA3AF">Search...</span><span class="pill" style="background:white;border:1px solid #E5E7EB;color:#9CA3AF">All projects ▾</span><span class="pill" style="background:white;border:1px solid #E5E7EB;color:#4272EF">Select</span></span>
+          </div>
+          <!-- Table -->
+          <table class="tbl">
+            <thead><tr><th>Vendor</th><th>Project</th><th>Code</th><th>Due</th><th style="text-align:right">Amount</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Ace Framing<br><span style="color:#9CA3AF;font-size:10px">INV-2041</span></td><td>Lot 12</td><td>06-100</td><td style="color:#EF4444">4/18<br><span style="font-size:9px">Past due</span></td><td style="text-align:right" class="tabular">$4,280</td><td><span class="pill" style="background:#FEF3C7;color:#92400E">Pending</span></td></tr>
+              <tr><td>Prairie Electric<br><span style="color:#9CA3AF;font-size:10px">INV-331</span></td><td>Lot 08</td><td>16-050</td><td>4/30</td><td style="text-align:right" class="tabular">$2,140</td><td><span class="pill" style="background:#DBEAFE;color:#1E40AF">Approved</span></td></tr>
+              <tr><td>J.D. Concrete<br><span style="color:#9CA3AF;font-size:10px">INV-8812</span></td><td>Lot 15</td><td>03-300</td><td>5/05</td><td style="text-align:right" class="tabular">$11,900</td><td><span class="pill" style="background:#FEF3C7;color:#92400E">Pending</span></td></tr>
+              <tr><td>Ridgeview Supply<br><span style="color:#9CA3AF;font-size:10px">INV-10204</span></td><td>Lot 03</td><td>06-200</td><td>5/08</td><td style="text-align:right" class="tabular">$842</td><td><span class="pill" style="background:#D1FAE5;color:#065F46">Cleared</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="frame-note">Three summary cards, six filter pills, a search, a dropdown, a Select button, a table. The row height (48px) is fine but the <em>primary action</em> (Approve for pending rows) only appears on hover.</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-lbl after">NEXT</div>
+        <div class="frame-body">
+          <!-- Inline summary -->
+          <div style="display:flex;gap:22px;padding:8px 2px 12px;border-bottom:1px solid #E5E7EB;margin-bottom:10px">
+            <div><span style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Pending </span><span style="font-weight:700" class="tabular">5 · $8,600</span></div>
+            <div><span style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase">Approved </span><span style="font-weight:700" class="tabular">11 · $42.2k</span></div>
+            <div><span style="font-size:10px;color:#6B7280;letter-spacing:.08em;text-transform:uppercase;color:#991B1B">Past due </span><span style="font-weight:700;color:#991B1B" class="tabular">3 · $14,280</span></div>
+            <div style="margin-left:auto;display:flex;gap:6px"><span class="pill" style="background:white;border:1px solid #E5E7EB;color:#9CA3AF;padding:4px 10px">🔍 Search</span><span class="pill" style="background:white;border:1px solid #E5E7EB;color:#4B5563;padding:4px 10px">Project ▾</span></div>
+          </div>
+          <!-- Segmented status -->
+          <div style="display:inline-flex;background:#F1EFE9;border-radius:8px;padding:2px;margin-bottom:8px">
+            <span style="padding:5px 12px;border-radius:6px;background:white;font-size:12px;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.04)">All · 19</span>
+            <span style="padding:5px 12px;font-size:12px;color:#6B7280">Pending · 5</span>
+            <span style="padding:5px 12px;font-size:12px;color:#6B7280">Approved · 11</span>
+            <span style="padding:5px 12px;font-size:12px;color:#6B7280">Past due · 3</span>
+          </div>
+          <!-- Denser table -->
+          <table class="tbl" style="font-size:12px">
+            <thead><tr><th></th><th>Vendor · Inv</th><th>Project</th><th>Cost code</th><th>Due</th><th style="text-align:right">Amount</th><th style="text-align:right">Action</th></tr></thead>
+            <tbody>
+              <tr style="background:#FEF2F2"><td><span class="dot" style="background:#EF4444"></span></td><td><strong>Ace Framing</strong> <span style="color:#9CA3AF">INV-2041</span><br><span style="font-size:10px;color:#991B1B">Past due · 5d</span></td><td>Lot 12</td><td>Rough Framing <span style="color:#CBD5E1;font-size:10px">06-100</span></td><td style="color:#991B1B">4/18</td><td style="text-align:right;font-weight:600" class="tabular">$4,280</td><td style="text-align:right"><button class="btn primary" style="padding:4px 10px;font-size:11px">Approve</button></td></tr>
+              <tr><td><span class="dot" style="background:#F59E0B"></span></td><td><strong>J.D. Concrete</strong> <span style="color:#9CA3AF">INV-8812</span></td><td>Lot 15</td><td>Foundation <span style="color:#CBD5E1;font-size:10px">03-300</span></td><td>5/05</td><td style="text-align:right;font-weight:600" class="tabular">$11,900</td><td style="text-align:right"><button class="btn primary" style="padding:4px 10px;font-size:11px">Approve</button></td></tr>
+              <tr><td><span class="dot" style="background:#4272EF"></span></td><td><strong>Prairie Electric</strong> <span style="color:#9CA3AF">INV-331</span></td><td>Lot 08</td><td>Electrical <span style="color:#CBD5E1;font-size:10px">16-050</span></td><td>4/30</td><td style="text-align:right;font-weight:600" class="tabular">$2,140</td><td style="text-align:right"><button class="btn" style="padding:4px 10px;font-size:11px">Pay ▾</button></td></tr>
+              <tr><td><span class="dot" style="background:#10B981"></span></td><td>Ridgeview Supply <span style="color:#9CA3AF">INV-10204</span></td><td>Lot 03</td><td>Lumber <span style="color:#CBD5E1;font-size:10px">06-200</span></td><td>5/08</td><td style="text-align:right" class="tabular">$842</td><td style="text-align:right"><span style="color:#9CA3AF;font-size:11px">Cleared</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="frame-note">Status = dot (not pastel chip). Primary action is always-visible in its own column. <strong>Cost code shows the human name first</strong> (e.g. "Rough Framing") with the numeric code demoted to tiny grey type — the name is what AP staff recognize; the code is a disambiguator, not the label.</div>
+      </div>
+    </div>
+
+    <ul class="points">
+      <li><div><p class="pt-title">Show the primary action. Don't hide it on hover. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">Every row with <code class="mono">pending_review</code> status wants the same answer: approve or dispute. Hiding "Approve" until hover is fine on a marketing site, not on a power-user table. Give it a dedicated right-aligned column so it's visible, keyboard-reachable, and touch-usable on a tablet.</p></div></li>
+      <li><div><p class="pt-title">Replace pastel status pills with status dot + text. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">You already have <code class="mono">StatusDot</code>. The pastel backgrounds (amber, blue, purple, green) create visual noise across 20+ rows and undermine the rest of the table. Dot + monochrome label is enough; rely on the dot's hue.</p></div></li>
+      <li><div><p class="pt-title">Consolidate the filter row. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Segmented control (All / Pending / Approved / Past due) + a single search + a single project dropdown. Move "Select" into a right-side overflow, or enter selection mode by shift-click on a row (drop the explicit toggle).</p></div></li>
+      <li><div><p class="pt-title">Left-rail status color on past-due rows. <span class="pt-tag tag-win">QUICK WIN</span></p><p class="pt-body">Currently past-due rows get <code class="mono">bg-red-50/30</code>. Add a 3px <code class="mono">border-left: #EF4444</code> so the entire left edge of the table has a visible scan pattern — user can see at a glance where the fires are.</p></div></li>
+      <li><div><p class="pt-title">Cell affordances on links. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">Today almost every <code class="mono">&lt;td&gt;</code> wraps a <code class="mono">Link</code> to the invoice. Good idea, but it fights the inline action buttons — clicking "Pay" often requires careful aim. Let the row itself be the link (via JS nav on row click with a data-href), and let the action column stop propagation.</p></div></li>
+      <li><div><p class="pt-title">Row height at 48px feels roomy for finance work. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">Drop to 36–40px on desktop (spec says 36 — you're closer to 44). More rows on screen = fewer paginate/scroll loops for an accountant closing a month.</p></div></li>
+      <li><div><p class="pt-title">Cost code: name first, number second. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Current table renders <code class="mono">inv.cost_codes.code</code> (e.g. "06-100") as the cell body and puts the name in a <code class="mono">title=</code> tooltip. Flip it: show <strong>"Rough Framing"</strong> as the primary label and demote "06-100" to small grey type beside/below it. Names are what people <em>speak</em> about in a job-walk; numbers are what they <em>look up</em>. Tooltips are not a navigation surface — nobody hovers to read labels.</p></div></li>
+    </ul>
+  </section>
+
+  <!-- 04 CARDS -->
+  <section id="cards">
+    <div class="sec-head"><span class="sec-num">§ 04</span><h2 class="sec-title">Project cards</h2></div>
+    <p class="sec-lede">The <code class="mono">ProjectCard</code> does a lot of work: name, address, progress ring, current stage badge, budget bar, to-do count, exterior/interior stage strips. That's <em>seven facts</em>. On mobile it fills the width, which is fine. On desktop at 2-col it starts fighting itself — the stage strip rows wrap, the progress ring competes with the budget bar for attention, and the to-do count pill gets lost.</p>
+
+    <div class="compare">
+      <div class="frame">
+        <div class="frame-lbl">NOW</div>
+        <div class="frame-body">
+          <div class="proj" style="padding:14px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <div>
+                <div style="font-weight:600;font-size:14px">Lot 08 – Ridgeview</div>
+                <div style="font-size:11px;color:#9CA3AF">807 Ridge Ct · Block 2, Lot 8</div>
+                <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+                  <span class="pill" style="background:#FEF3C7;color:#92400E">Delayed</span>
+                  <span class="pill" style="background:#F3F4F6;color:#4B5563">3 to-dos</span>
+                </div>
+              </div>
+              <div class="ring">
+                <svg width="42" height="42"><circle cx="21" cy="21" r="17" fill="none" stroke="#F1F5F9" stroke-width="4"/><circle cx="21" cy="21" r="17" fill="none" stroke="#4272EF" stroke-width="4" stroke-dasharray="64 107"/></svg>
+                <div class="pct">60%</div>
+              </div>
+            </div>
+            <!-- stage strips -->
+            <div style="margin-top:10px;display:grid;grid-template-columns:auto 1fr;gap:8px;font-size:10px;align-items:center">
+              <span style="color:#6B7280">EXT</span>
+              <div style="display:flex;gap:4px"><span class="pill" style="background:#D1FAE5;color:#065F46">Framing ✓</span><span class="pill" style="background:#FEF3C7;color:#92400E">Roofing</span><span class="pill" style="background:#F3F4F6;color:#9CA3AF">Siding</span></div>
+              <span style="color:#6B7280">INT</span>
+              <div style="display:flex;gap:4px"><span class="pill" style="background:#D1FAE5;color:#065F46">Rough ✓</span><span class="pill" style="background:#DBEAFE;color:#1E40AF">Drywall</span><span class="pill" style="background:#F3F4F6;color:#9CA3AF">Paint</span></div>
+            </div>
+            <div class="bud over" style="margin-top:10px"><span style="width:100%"></span></div>
+            <div style="font-size:10px;color:#EF4444;margin-top:3px" class="tabular">$287,410 / $265,000 · 108%</div>
+          </div>
+        </div>
+        <div class="frame-note">Seven facts, all visible. A lot of little pastel pills. Progress ring and budget bar compete for "where is this project, really?"</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-lbl after">NEXT</div>
+        <div class="frame-body">
+          <div class="proj" style="padding:14px;border-left:3px solid #EF4444">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+              <div>
+                <div style="font-weight:600;font-size:14px">Lot 08 – Ridgeview</div>
+                <div style="font-size:11px;color:#9CA3AF">807 Ridge Ct</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:18px;font-weight:700" class="tabular">60%</div>
+                <div style="font-size:10px;color:#9CA3AF;letter-spacing:.04em;text-transform:uppercase">Stage 12 of 20</div>
+              </div>
+            </div>
+            <!-- Two-track stage strip: EXT + INT -->
+            <div style="margin-top:10px;display:grid;grid-template-columns:36px 1fr;gap:8px 10px;align-items:center">
+              <!-- EXTERIOR row -->
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6B7280;letter-spacing:.08em">EXT</div>
+              <div>
+                <div style="display:flex;align-items:center;gap:4px">
+                  <span style="width:14px;height:5px;background:#10B981;border-radius:2px"></span>
+                  <span style="width:14px;height:5px;background:#10B981;border-radius:2px"></span>
+                  <span style="width:14px;height:5px;background:#10B981;border-radius:2px"></span>
+                  <span style="width:22px;height:6px;background:#F97316;border-radius:2px;box-shadow:0 0 0 2px rgba(249,115,22,.18)"></span>
+                  <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+                  <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+                  <span style="font-size:11px;font-weight:600;color:#111827;margin-left:6px">Roofing</span>
+                  <span style="font-size:10px;color:#F97316;font-weight:500;margin-left:4px">● Delayed 3d</span>
+                </div>
+              </div>
+              <!-- INTERIOR row -->
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6B7280;letter-spacing:.08em">INT</div>
+              <div>
+                <div style="display:flex;align-items:center;gap:4px">
+                  <span style="width:14px;height:5px;background:#10B981;border-radius:2px"></span>
+                  <span style="width:22px;height:6px;background:#4272EF;border-radius:2px;box-shadow:0 0 0 2px rgba(66,114,239,.18)"></span>
+                  <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+                  <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+                  <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+                  <span style="font-size:11px;font-weight:600;color:#111827;margin-left:6px">Drywall</span>
+                  <span style="font-size:10px;color:#6B7280;margin-left:4px">· Next: Paint May 12</span>
+                </div>
+              </div>
+            </div>
+            <!-- Budget: one line of truth -->
+            <div style="margin-top:10px">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:#6B7280;margin-bottom:3px"><span>Budget</span><span class="tabular" style="color:#EF4444;font-weight:600">$287.4k / $265k · +8%</span></div>
+              <div class="bud over"><span style="width:100%"></span></div>
+            </div>
+            <!-- Footer: actions -->
+            <div style="margin-top:10px;padding-top:8px;border-top:1px solid #F3F4F6;display:flex;gap:10px;font-size:11px;color:#4272EF;font-weight:500">
+              <span>3 to-dos</span><span style="color:#9CA3AF">·</span><span>2 open logs</span><span style="margin-left:auto;color:#9CA3AF">→</span>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Same facts, ranked. Big % up top, <strong>both Exterior and Interior tracks</strong> shown as dot-bars (complete / current / remaining) with the current stage name called out. Budget gets one truthful line. Red left bar = over budget.</div>
+      </div>
+    </div>
+
+    <ul class="points">
+      <li><div><p class="pt-title">Rank the facts, don't just pile them. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Hero = project progress. Middle = current stage + next. Bottom = budget health. Footer = actions. Right now every element has equal visual weight and the eye has no path.</p></div></li>
+      <li><div><p class="pt-title">Show both Exterior and Interior, always. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Home construction runs two tracks in parallel — framing/roofing/siding on the outside while rough-in/drywall/finishes happen inside. A card that only shows one track hides half the schedule. Two rows, labelled <code class="mono">EXT</code> / <code class="mono">INT</code>, each a compact bar-of-segments: complete (green) · current (wider + brand/delay color with soft glow) · remaining (grey). Name of the current stage sits right of the bar. Land-development projects hide the INT row.</p></div></li>
+      <li><div><p class="pt-title">Bar-of-segments &gt; pastel pills. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Three pastel pills per row is a lot. The two-track bar replaces both pill groups with a single visual rhythm the eye can scan across a grid of cards — you can tell at a glance which projects are bottlenecked on exterior vs interior.</p></div></li>
+      <li><div><p class="pt-title">Colored left border for state. <span class="pt-tag tag-win">QUICK WIN</span></p><p class="pt-body">3px left border: red (over budget), orange (delayed), slate (normal). One visual channel, reads from the grid at a glance.</p></div></li>
+      <li><div><p class="pt-title">Progress ring vs % number. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">On a 14px project name the 42px ring is larger than the title. Either shrink the ring to 28px and move it beside the title, or drop it entirely and use a big right-aligned number. Both work; they shouldn't co-exist.</p></div></li>
+    </ul>
+  </section>
+
+  <!-- 04b PROJECTS INDEX -->
+  <section id="projects-index">
+    <div class="sec-head"><span class="sec-num">§ 04b</span><h2 class="sec-title">Projects index &amp; drilldown</h2></div>
+    <p class="sec-lede">Looking at the shipped page today: there are two top-level sections — <strong>Home Construction</strong> (6 homes under "Prairie Sky") and <strong>Land Development</strong> (one "Prairie Sky" entry with Phase 1 at 15 lots · 8 sold and Phase 2 at 17 lots). <em>These describe the same physical subdivision</em>, but the UI presents them as unrelated siblings. That's the core IA bug. It's also why there's nowhere for a user to drill in — the hierarchy is flat because the two halves of the same project aren't connected.</p>
+    <p class="sec-lede" style="margin-top:-16px">The fix is to make <strong>Subdivision</strong> the unifying top-level node — and underneath it, show <em>both</em> the land-development phases (lots for sale) and the home-construction lots (homes being built), because those are two views of the same ground. Then every row at every level needs to be a <strong>live rollup</strong> of its children: no stored counters, no stale cards.</p>
+
+    <div class="verdict">
+      <div class="k">Core principle</div>
+      <div class="v">Every row is a <em>live summary</em> of its children. If a lot is over-budget, its phase is flagged; if a phase is flagged, its subdivision is flagged; if any subdivision is red, the org-level header shows red. Numbers on a parent are always <em>computed from</em> children, never stored or cached stale.</div>
+    </div>
+
+    <div class="verdict">
+      <div class="k">Two project kinds, one tree</div>
+      <div class="v">A Subdivision owns two parallel work streams that live <em>inside it</em> as children, not as cousins elsewhere: <strong>Land Development</strong> (horizontal work — surveying, utilities, roads, platting, erosion control; organized by Phase) and <strong>Home Construction</strong> (vertical work — individual homes on platted lots). A subdivision may have either, both, or both-at-different-phases. A <strong>land-only</strong> subdivision (you develop + sell lots, someone else builds) simply has no Home Construction branch — the lots under each Phase are for-sale products, not construction projects.</div>
+    </div>
+
+    <div class="verdict">
+      <div class="k">What's there today</div>
+      <div class="v">Two sibling sections ("Home Construction" + "Land Development") that share a subdivision name but don't share a row. Inside Home Construction, a single accordion → 6 lot tiles. Inside Land Development, a card with Phase 1 / Phase 2 pills. <em>A user can't see</em> that the 6 homes in Home Construction are Phase 1 lots of the same Prairie Sky subdivision shown below. Every lot tile repeats the same long Guthrie address, the same "Started 12/30/2025", the same "✓ Final grade → Landscape/Irrigation - Rough" — redundant data flattens into noise.</div>
+    </div>
+
+    <div class="verdict">
+      <div class="k">What to ship</div>
+      <div class="v">Five-level drilldown: <strong>Org</strong> → <strong>Subdivision</strong> → <strong>(Land Development | Home Construction)</strong> → <strong>Phase</strong> → <strong>Lot</strong>. Land Development and Home Construction are explicit child branches of a subdivision — drillable, each with their own columns and detail page. A lot carries whichever facets apply (for-sale / under-construction / both / neither-yet). Same row component at every level.</div>
+    </div>
+
+    <!-- NEW: Tree shape diagram -->
+    <div style="background:white;border:1px solid var(--line);border-radius:10px;padding:22px 26px;margin:28px 0 8px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;margin-bottom:14px">Tree shape · three realistic cases</div>
+      <div class="mono" style="font-size:12.5px;line-height:1.75;color:var(--ink-2);white-space:pre">
+<span style="color:var(--ink);font-weight:600">A · Prairie Sky</span>  (you develop AND build)
+├─ <span style="color:#C2410C">Land Development</span>    rollup: 32 lots planned · 8 sold · $1.4M recognized
+│   ├─ Phase 1 (15 lots · 8 sold · roads + utilities complete)
+│   └─ Phase 2 (17 lots · grading in progress · 62% horizontal complete)
+└─ <span style="color:#2E5BD8">Home Construction</span>   rollup: 6 homes active · 0 at risk · 54% weighted
+    └─ Phase 1 lots
+        ├─ Lot 02 · 7281 S. Douglas · <span style="color:#10B981">sold</span> + <span style="color:#4272EF">building</span> · 62%
+        ├─ Lot 23 · 7181 S. Douglas · <span style="color:#10B981">sold</span> + <span style="color:#4272EF">building</span> · 48%
+        └─ …
+
+<span style="color:var(--ink);font-weight:600">B · Northfield Acres</span>  (land-only — you don't build)
+└─ <span style="color:#C2410C">Land Development</span>    rollup: 40 lots planned · 12 sold to 3rd-party builders
+    ├─ Phase 1 (12 lots · all sold · closed)
+    ├─ Phase 2 (14 lots · 0 sold · grading)
+    └─ Phase 3 (14 lots · planning)
+  <span style="color:var(--ink-3)">(no Home Construction branch — lots are for-sale products)</span>
+
+<span style="color:var(--ink);font-weight:600">C · Single spec home</span>  (no subdivision, no land-dev)
+└─ <span style="color:#2E5BD8">Home Construction</span>
+    └─ Lot 1 · 412 Elm St · 38% · owner-occupied build
+  <span style="color:var(--ink-3)">(no Phase, no Land Development)</span>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--ink-3);margin-top:4px;margin-bottom:32px">Same tree skeleton, different branches populated per project. A <strong>Land Development node is itself a full project</strong> with its own detail page — you click into it the same way you click into a Home Construction lot.</p>
+
+    <!-- DRILLDOWN MOCK -->
+    <h3 style="font-size:18px;margin:40px 0 14px;letter-spacing:-.01em">Proposed hierarchy &mdash; one component, four depths</h3>
+
+    <div class="frame" style="margin-bottom:24px">
+      <div class="frame-lbl after">NEXT · FULLY EXPANDED SAMPLE</div>
+      <div class="frame-body" style="padding:52px 0 0">
+        <!-- breadcrumb + filters bar -->
+        <div style="padding:0 22px 14px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #EEF0F3">
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px">
+            <span style="font-weight:600">All projects</span>
+            <span style="color:#CBD5E1">/</span>
+            <span style="color:#6B7280">Prairie Heights</span>
+            <span style="color:#CBD5E1">/</span>
+            <span style="color:#6B7280">Phase 2</span>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <span class="pill" style="background:white;border:1px solid #E5E7EB;color:#4B5563;padding:4px 10px;font-weight:500">🔍 Search</span>
+            <span class="pill" style="background:white;border:1px solid #E5E7EB;color:#4B5563;padding:4px 10px;font-weight:500">Status ▾</span>
+            <span class="pill" style="background:white;border:1px solid #E5E7EB;color:#4B5563;padding:4px 10px;font-weight:500">Sort: Risk ▾</span>
+            <span class="pill" style="background:#0F172A;color:white;padding:4px 10px;font-weight:500">Expand all</span>
+          </div>
+        </div>
+
+        <!-- header strip -->
+        <div style="padding:8px 22px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.1em;color:#9CA3AF;text-transform:uppercase;border-bottom:1px solid #EEF0F3;background:#FCFCFD">
+          <div></div><div>Name</div><div style="text-align:right">Active</div><div style="text-align:right">At risk</div><div style="text-align:right">Progress</div><div style="text-align:right">Budget</div><div></div>
+        </div>
+
+        <!-- LEVEL 1: ORG (all projects rollup) -->
+        <div style="padding:12px 22px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;background:#0F172A;color:white">
+          <div style="color:#94A3B8">▾</div>
+          <div><div style="font-weight:600;font-size:14px">All projects</div><div style="font-size:10px;color:#94A3B8">3 subdivisions · 1 land-dev · 28 lots</div></div>
+          <div style="text-align:right;font-weight:700" class="tabular">22</div>
+          <div style="text-align:right;color:#F97316;font-weight:700" class="tabular">4</div>
+          <div style="text-align:right" class="tabular"><span style="font-weight:600">64%</span><div style="font-size:9px;color:#94A3B8">weighted</div></div>
+          <div style="text-align:right" class="tabular"><span style="font-weight:600">$2.4M</span><div style="font-size:9px;color:#EF4444">+$18k over</div></div>
+          <div></div>
+        </div>
+
+        <!-- LEVEL 2: SUBDIVISION (expanded) -->
+        <div style="padding:12px 22px 12px 32px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;border-left:3px solid #EF4444;background:#FEF2F2">
+          <div style="color:#6B7280">▾</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Prairie Heights <span style="font-size:10px;color:#9CA3AF;font-weight:400;margin-left:4px">4 phases · 14 lots</span></div>
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <span style="width:6px;height:6px;border-radius:50%;background:#10B981" title="sold"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#10B981"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#EF4444"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#F97316"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+            </div>
+          </div>
+          <div style="text-align:right;font-weight:600" class="tabular">10</div>
+          <div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">2</div>
+          <div style="text-align:right" class="tabular">58%</div>
+          <div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">+$14k</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">Open →</div>
+        </div>
+
+        <!-- LEVEL 3: PHASE 1 (collapsed rollup only) -->
+        <div style="padding:10px 22px 10px 52px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:13px">
+          <div style="color:#CBD5E1">▸</div>
+          <div><strong>Phase 1</strong> <span style="color:#9CA3AF;font-size:11px;margin-left:4px">4 lots · all sold</span></div>
+          <div style="text-align:right" class="tabular">0</div>
+          <div style="text-align:right;color:#CBD5E1" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">100%</div>
+          <div style="text-align:right;color:#6B7280" class="tabular">$820k</div>
+          <div></div>
+        </div>
+
+        <!-- LEVEL 3: PHASE 2 (expanded) -->
+        <div style="padding:10px 22px 10px 52px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:13px;background:#FFFBFB;border-left:3px solid #EF4444">
+          <div style="color:#6B7280">▾</div>
+          <div><strong>Phase 2</strong> <span style="color:#9CA3AF;font-size:11px;margin-left:4px">4 lots active</span></div>
+          <div style="text-align:right;font-weight:600" class="tabular">4</div>
+          <div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">2</div>
+          <div style="text-align:right" class="tabular">62%</div>
+          <div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">+$14k</div>
+          <div></div>
+        </div>
+
+        <!-- LEVEL 4: LOT rows -->
+        <div style="padding:10px 22px 10px 82px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:12px;border-left:3px solid #EF4444;background:#FEF2F2">
+          <div><span class="dot" style="background:#EF4444"></span></div>
+          <div>
+            <strong>Lot 08 &mdash; Ridgeview plan</strong>
+            <div style="font-size:10px;color:#991B1B">807 Ridge Ct · Block 2 · over budget · Roofing delayed 3d</div>
+          </div>
+          <div></div>
+          <div></div>
+          <div style="text-align:right" class="tabular">60%</div>
+          <div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">+8%</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">→</div>
+        </div>
+        <div style="padding:10px 22px 10px 82px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:12px">
+          <div><span class="dot" style="background:#F97316"></span></div>
+          <div>
+            <strong>Lot 12 &mdash; Birch plan</strong>
+            <div style="font-size:10px;color:#9CA3AF">1204 Birch Ln · Block 2 · Rough-in · on schedule</div>
+          </div>
+          <div></div><div></div>
+          <div style="text-align:right" class="tabular">62%</div>
+          <div style="text-align:right;color:#6B7280" class="tabular">$268k / $265k</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">→</div>
+        </div>
+        <div style="padding:10px 22px 10px 82px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:12px">
+          <div><span class="dot" style="background:#4272EF"></span></div>
+          <div>
+            <strong>Lot 15 &mdash; Ridgeview plan</strong>
+            <div style="font-size:10px;color:#9CA3AF">1421 Birch Ln · Block 2 · Finishes</div>
+          </div>
+          <div></div><div></div>
+          <div style="text-align:right" class="tabular">80%</div>
+          <div style="text-align:right;color:#10B981" class="tabular">-$2.1k</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">→</div>
+        </div>
+        <div style="padding:10px 22px 10px 82px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:12px">
+          <div><span class="dot" style="background:#4272EF"></span></div>
+          <div>
+            <strong>Lot 03 &mdash; Creekside plan</strong>
+            <div style="font-size:10px;color:#9CA3AF">312 Willow Dr · Block 2 · Excavation</div>
+          </div>
+          <div></div><div></div>
+          <div style="text-align:right" class="tabular">22%</div>
+          <div style="text-align:right;color:#6B7280" class="tabular">on plan</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">→</div>
+        </div>
+
+        <!-- LEVEL 3: PHASE 3 & 4 collapsed -->
+        <div style="padding:10px 22px 10px 52px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:13px">
+          <div style="color:#CBD5E1">▸</div>
+          <div><strong>Phase 3</strong> <span style="color:#9CA3AF;font-size:11px;margin-left:4px">3 lots · pre-construction</span></div>
+          <div style="text-align:right" class="tabular">3</div>
+          <div style="text-align:right;color:#CBD5E1" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">8%</div>
+          <div style="text-align:right;color:#6B7280" class="tabular">$0 / $720k</div>
+          <div></div>
+        </div>
+        <div style="padding:10px 22px 10px 52px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;font-size:13px;color:#9CA3AF">
+          <div style="color:#CBD5E1">▸</div>
+          <div><strong style="color:#6B7280">Phase 4</strong> <span style="font-size:11px;margin-left:4px">3 lots · planning</span></div>
+          <div style="text-align:right" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">$640k est.</div>
+          <div></div>
+        </div>
+
+        <!-- LEVEL 2: OTHER SUBDIVISIONS COLLAPSED -->
+        <div style="padding:12px 22px 12px 32px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6">
+          <div style="color:#CBD5E1">▸</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Ridgeview <span style="font-size:10px;color:#9CA3AF;font-weight:400;margin-left:4px">2 phases · 8 lots</span></div>
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <span style="width:6px;height:6px;border-radius:50%;background:#10B981"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+            </div>
+          </div>
+          <div style="text-align:right;font-weight:600" class="tabular">3</div>
+          <div style="text-align:right;color:#CBD5E1" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">48%</div>
+          <div style="text-align:right;color:#10B981" class="tabular">-$3k</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">Open →</div>
+        </div>
+        <div style="padding:12px 22px 12px 32px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6">
+          <div style="color:#CBD5E1">▸</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Creekside <span style="font-size:10px;color:#9CA3AF;font-weight:400;margin-left:4px">1 phase · 6 lots</span></div>
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <span style="width:6px;height:6px;border-radius:50%;background:#F97316"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#4272EF"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+              <span style="width:6px;height:6px;border-radius:50%;background:#CBD5E1"></span>
+            </div>
+          </div>
+          <div style="text-align:right;font-weight:600" class="tabular">3</div>
+          <div style="text-align:right;color:#F97316;font-weight:600" class="tabular">1</div>
+          <div style="text-align:right" class="tabular">34%</div>
+          <div style="text-align:right;color:#6B7280" class="tabular">on plan</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">Open →</div>
+        </div>
+        <!-- Land dev has its own phase tree -->
+        <div style="padding:12px 22px 12px 32px;display:grid;grid-template-columns:22px 1fr 90px 90px 90px 100px 60px;gap:8px;align-items:center;border-bottom:1px solid #F3F4F6;background:#FFFBF5">
+          <div style="color:#CBD5E1">▸</div>
+          <div>
+            <div style="font-weight:600;font-size:13px">Northfield Land Dev <span style="font-size:10px;color:#9CA3AF;font-weight:400;margin-left:4px">3 phases · 40 lots planned · 12 sold</span></div>
+            <div style="display:flex;gap:3px;margin-top:4px;align-items:center">
+              <span style="font-size:9px;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-right:4px">PH 1</span>
+              <span style="padding:1px 5px;background:#D1FAE5;color:#065F46;font-size:9px;border-radius:3px;font-weight:600">12/12 sold</span>
+              <span style="font-size:9px;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-left:6px">PH 2</span>
+              <span style="padding:1px 5px;background:#DBEAFE;color:#1E40AF;font-size:9px;border-radius:3px;font-weight:600">0/14 sold</span>
+              <span style="font-size:9px;color:#9CA3AF;font-family:'JetBrains Mono',monospace;margin-left:6px">PH 3</span>
+              <span style="padding:1px 5px;background:#F3F4F6;color:#6B7280;font-size:9px;border-radius:3px;font-weight:600">0/14 planned</span>
+            </div>
+          </div>
+          <div style="text-align:right;font-weight:600" class="tabular">2</div>
+          <div style="text-align:right;color:#CBD5E1" class="tabular">—</div>
+          <div style="text-align:right" class="tabular">40%</div>
+          <div style="text-align:right;color:#6B7280" class="tabular">—</div>
+          <div style="text-align:right;color:#4272EF;font-size:11px">Open →</div>
+        </div>
+      </div>
+      <div class="frame-note">Four depths, one component. Every parent row carries a <strong>rollup</strong> of its children: active count, at-risk count, weighted progress, and budget delta. Indent = depth. Left-border color = worst state of any descendant. Breadcrumb at the top means you can also jump straight to a subdivision or phase as its own page — same component, different root.</div>
+    </div>
+
+    <!-- Land-dev project detail -->
+    <h3 style="font-size:18px;margin:40px 0 14px;letter-spacing:-.01em">Land Development has its own project page &mdash; same shell as a home</h3>
+    <div class="frame" style="margin-bottom:24px">
+      <div class="frame-lbl after">NEXT · LAND DEV DETAIL · /projects/prairie-sky/land-development</div>
+      <div class="frame-body" style="padding:52px 20px 20px">
+        <div style="font-size:11px;color:#6B7280;margin-bottom:4px">All projects <span style="color:#CBD5E1">/</span> Prairie Sky <span style="color:#CBD5E1">/</span> <strong style="color:#111827">Land Development</strong></div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid #E5E7EB;margin-bottom:14px">
+          <div>
+            <h2 style="font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0">Prairie Sky &mdash; Land Development</h2>
+            <div style="font-size:12px;color:#6B7280;margin-top:2px">Guthrie, OK · 32 lots total · 3 phases</div>
+          </div>
+          <div style="display:flex;gap:20px;font-size:12px" class="tabular">
+            <div><div style="color:#6B7280;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Sold</div><div style="font-size:16px;font-weight:700">8 <span style="color:#10B981;font-size:12px">· $1.4M</span></div></div>
+            <div><div style="color:#6B7280;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Horizontal</div><div style="font-size:16px;font-weight:700">58%</div></div>
+            <div><div style="color:#6B7280;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Budget</div><div style="font-size:16px;font-weight:700;color:#10B981">&minus;$12k</div></div>
+          </div>
+        </div>
+        <!-- Phase rows as full drillable cards -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="card-sm" style="padding:14px;border-left:3px solid #10B981">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><div><strong style="font-size:13px">Phase 1</strong> <span style="color:#9CA3AF;font-size:11px">15 lots · platted 3/2025</span></div><span class="pill" style="background:#D1FAE5;color:#065F46">complete</span></div>
+            <div style="font-size:11px;color:#6B7280;margin-top:6px">Grading ✓ · Utilities ✓ · Roads ✓ · Platting ✓ · Erosion ctrl ✓ · Final inspection ✓</div>
+            <div style="font-size:11px;margin-top:6px"><strong>8 of 15 sold</strong> <span style="color:#6B7280">(6 to BuildForge homes, 2 to 3rd-party builders)</span></div>
+          </div>
+          <div class="card-sm" style="padding:14px;border-left:3px solid #4272EF">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><div><strong style="font-size:13px">Phase 2</strong> <span style="color:#9CA3AF;font-size:11px">17 lots</span></div><span class="pill" style="background:#DBEAFE;color:#1E40AF">in progress · 62%</span></div>
+            <!-- Stage strip for land dev -->
+            <div style="display:flex;align-items:center;gap:4px;margin-top:8px">
+              <span style="width:14px;height:5px;background:#10B981;border-radius:2px"></span>
+              <span style="width:14px;height:5px;background:#10B981;border-radius:2px"></span>
+              <span style="width:22px;height:6px;background:#4272EF;border-radius:2px;box-shadow:0 0 0 2px rgba(66,114,239,.18)"></span>
+              <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+              <span style="width:14px;height:5px;background:#E5E7EB;border-radius:2px"></span>
+              <span style="font-size:11px;font-weight:600;margin-left:6px">Utilities &mdash; water &amp; sewer</span>
+              <span style="font-size:10px;color:#6B7280;margin-left:4px">· Next: Road base &middot; May 8</span>
+            </div>
+            <div style="font-size:11px;color:#6B7280;margin-top:6px">Grading ✓ · Erosion ctrl ✓ · Utilities in progress · Roads pending · Platting pending</div>
+          </div>
+          <div class="card-sm" style="padding:14px;border-left:3px solid #CBD5E1">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><div><strong style="font-size:13px;color:#6B7280">Phase 3</strong> <span style="color:#9CA3AF;font-size:11px">14 lots · planning</span></div><span class="pill" style="background:#F3F4F6;color:#6B7280">planned</span></div>
+            <div style="font-size:11px;color:#9CA3AF;margin-top:6px">Design in review · Entitlements pending city council 6/12</div>
+          </div>
+        </div>
+        <!-- Side context tabs -->
+        <div style="margin-top:16px;display:flex;gap:16px;font-size:11px;color:#6B7280;border-top:1px solid #F3F4F6;padding-top:12px">
+          <span style="color:#4272EF;font-weight:600;border-bottom:2px solid #4272EF;padding-bottom:4px">Phases</span>
+          <span>Budget &amp; costs</span>
+          <span>Permits &amp; approvals</span>
+          <span>Documents</span>
+          <span>Vendors</span>
+          <span>Field logs</span>
+          <span>To-dos <span class="pill" style="background:#FEF3C7;color:#92400E;padding:1px 5px;font-size:9px;margin-left:2px">3</span></span>
+        </div>
+      </div>
+      <div class="frame-note">A Land Development node is a first-class project page. Same shell as <code class="mono">/projects/[id]</code> you already ship for homes — same sidebar tabs (Budget, Permits, Documents, Vendors, Field logs, To-dos), same detail/edit patterns. <strong>Stage track</strong> for horizontal work replaces the EXT/INT tracks a home has: Grading → Erosion Control → Utilities → Roads → Platting → Final Inspection. Phases are cards that expand to lot-level detail.</div>
+    </div>
+    <h3 style="font-size:18px;margin:40px 0 14px;letter-spacing:-.01em">What every row must compute &mdash; live, from children</h3>
+
+    <div style="background:white;border:1px solid var(--line);border-radius:10px;padding:22px 26px;margin-bottom:24px">
+      <div style="display:grid;grid-template-columns:180px 1fr;gap:12px 24px;font-size:13.5px;line-height:1.55">
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">Active count</div>
+        <div style="color:var(--ink-2)"><code class="mono">count(children where status in ('active','pre_construction'))</code>. On org row, sum across subdivisions. On subdivision, sum across phases. Never stored.</div>
+
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">At-risk count</div>
+        <div style="color:var(--ink-2)"><code class="mono">count(descendants where over_budget OR has_delayed_stage OR has_expiring_coi)</code>. This is the number that makes the row turn red and earns a left-border accent. Clicking it filters the children to just the at-risk ones.</div>
+
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">Progress</div>
+        <div style="color:var(--ink-2)"><strong>Weighted</strong>, not averaged. <code class="mono">sum(stage_value × child_progress) / sum(stage_value)</code>. A subdivision where one big lot is 90% done and four small ones are 10% isn't "50%" — the dollars tell the truth.</div>
+
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">Budget delta</div>
+        <div style="color:var(--ink-2)"><code class="mono">sum(actual_cost) - sum(budget)</code> across descendants. Show as <code class="mono">+$14k over</code> or <code class="mono">-$3k under</code>, never just a percent. Signs matter — under and over are read opposite by a CFO.</div>
+
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">Status dot / border</div>
+        <div style="color:var(--ink-2)"><strong>Worst of children.</strong> Red if any descendant over-budget. Orange if any delayed. Green if all clear. The parent takes on the color of its most urgent child — so a user scanning the org level sees fire locations without expanding.</div>
+
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">Dot-row scan strip</div>
+        <div style="color:var(--ink-2)">The 6×6 dot grid under each subdivision (you already ship this) is kept, but colors map to <em>lot state</em>, not just sold/unsold: green (sold/complete), blue (active), orange (delayed), red (over-budget), grey (planned). Hovering a dot shows the lot name + state.</div>
+
+        <div class="mono" style="color:var(--ink-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding-top:4px">Refresh cadence</div>
+        <div style="color:var(--ink-2)">Derived on page load from a single query that joins projects → phases → lots → stages → costs. No materialized views. If a row ever shows stale data, that's a bug — not a performance trade-off. For org scale beyond ~500 lots, cache the derived row <em>keyed by the latest <code class="mono">updated_at</code> across descendants</em> so the cache auto-busts.</div>
+      </div>
+    </div>
+
+    <!-- Three drilldown states -->
+    <h3 style="font-size:18px;margin:40px 0 14px;letter-spacing:-.01em">Three useful viewing states &mdash; all the same component</h3>
+
+    <div class="compare">
+      <div class="frame">
+        <div class="frame-lbl after">ROLLUP · collapse all</div>
+        <div class="frame-body">
+          <div style="padding:8px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.08em;color:#9CA3AF;text-transform:uppercase;border-bottom:1px solid #EEF0F3"><div></div><div>Subdivision</div><div style="text-align:right">Lots</div><div style="text-align:right">At risk</div><div style="text-align:right">Progress</div></div>
+          <div style="padding:10px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;align-items:center;font-size:13px;border-left:3px solid #EF4444;background:#FEF2F2;border-bottom:1px solid #F3F4F6">
+            <div style="color:#CBD5E1">▸</div><div><strong>Prairie Heights</strong><div style="font-size:10px;color:#991B1B">2 over budget</div></div>
+            <div style="text-align:right" class="tabular">14</div><div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">2</div><div style="text-align:right" class="tabular">58%</div>
+          </div>
+          <div style="padding:10px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;align-items:center;font-size:13px;border-bottom:1px solid #F3F4F6">
+            <div style="color:#CBD5E1">▸</div><div><strong>Ridgeview</strong></div>
+            <div style="text-align:right" class="tabular">8</div><div style="text-align:right;color:#CBD5E1" class="tabular">—</div><div style="text-align:right" class="tabular">48%</div>
+          </div>
+          <div style="padding:10px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;align-items:center;font-size:13px;border-left:3px solid #F97316;background:#FFFBF5;border-bottom:1px solid #F3F4F6">
+            <div style="color:#CBD5E1">▸</div><div><strong>Creekside</strong><div style="font-size:10px;color:#9A3412">1 delayed</div></div>
+            <div style="text-align:right" class="tabular">6</div><div style="text-align:right;color:#F97316;font-weight:600" class="tabular">1</div><div style="text-align:right" class="tabular">34%</div>
+          </div>
+        </div>
+        <div class="frame-note">Compare subdivisions. One row per subdivision, red/orange border on the ones needing attention. CFO view — no detail, just signal.</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-lbl after">FOCUS · one subdivision as root</div>
+        <div class="frame-body">
+          <div style="padding:8px 12px;font-size:12px"><strong>All projects</strong> / <strong style="color:#111827">Prairie Heights</strong></div>
+          <div style="padding:10px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;align-items:center;font-size:13px;border-bottom:1px solid #F3F4F6">
+            <div style="color:#CBD5E1">▸</div><div><strong>Phase 1</strong> <span style="color:#9CA3AF;font-size:11px">all sold</span></div>
+            <div style="text-align:right" class="tabular">4</div><div style="text-align:right;color:#CBD5E1" class="tabular">—</div><div style="text-align:right" class="tabular">100%</div>
+          </div>
+          <div style="padding:10px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;align-items:center;font-size:13px;border-left:3px solid #EF4444;background:#FEF2F2;border-bottom:1px solid #F3F4F6">
+            <div style="color:#6B7280">▾</div><div><strong>Phase 2</strong></div>
+            <div style="text-align:right" class="tabular">4</div><div style="text-align:right;color:#EF4444;font-weight:600" class="tabular">2</div><div style="text-align:right" class="tabular">62%</div>
+          </div>
+          <div style="padding:8px 12px 8px 34px;font-size:12px;color:#6B7280;border-bottom:1px solid #F3F4F6"><span class="dot" style="background:#EF4444"></span> Lot 08 · <span style="color:#991B1B">over budget</span></div>
+          <div style="padding:8px 12px 8px 34px;font-size:12px;color:#6B7280;border-bottom:1px solid #F3F4F6"><span class="dot" style="background:#F97316"></span> Lot 12 · <span style="color:#9A3412">delayed 3d</span></div>
+          <div style="padding:8px 12px 8px 34px;font-size:12px;color:#6B7280;border-bottom:1px solid #F3F4F6"><span class="dot" style="background:#4272EF"></span> Lot 15 · finishes</div>
+          <div style="padding:8px 12px 8px 34px;font-size:12px;color:#6B7280;border-bottom:1px solid #F3F4F6"><span class="dot" style="background:#4272EF"></span> Lot 03 · excavation</div>
+          <div style="padding:10px 12px;display:grid;grid-template-columns:18px 1fr 60px 60px 60px;gap:6px;align-items:center;font-size:13px;border-bottom:1px solid #F3F4F6">
+            <div style="color:#CBD5E1">▸</div><div><strong>Phase 3</strong></div>
+            <div style="text-align:right" class="tabular">3</div><div style="text-align:right;color:#CBD5E1" class="tabular">—</div><div style="text-align:right" class="tabular">8%</div>
+          </div>
+        </div>
+        <div class="frame-note">Click "Prairie Heights" in the full tree and the breadcrumb makes it the root. PM view — one neighborhood, all its phases and lots.</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-lbl after">FLAT · "Show me everything at risk"</div>
+        <div class="frame-body">
+          <div style="padding:8px 12px;font-size:11px;color:#6B7280;display:flex;align-items:center;gap:8px">
+            <span class="pill" style="background:#FEE2E2;color:#991B1B">At risk · 4</span>
+            <span style="color:#9CA3AF">across 3 subdivisions</span>
+          </div>
+          <div style="padding:10px 12px;font-size:12px;border-left:3px solid #EF4444;background:#FEF2F2;border-bottom:1px solid #F3F4F6">
+            <strong>Lot 08 · Prairie Heights / Phase 2</strong>
+            <div style="font-size:10px;color:#991B1B">Over budget +$22k · Roofing delayed 3d</div>
+          </div>
+          <div style="padding:10px 12px;font-size:12px;border-left:3px solid #EF4444;background:#FEF2F2;border-bottom:1px solid #F3F4F6">
+            <strong>Lot 22 · Prairie Heights / Phase 2</strong>
+            <div style="font-size:10px;color:#991B1B">Over budget +$4k</div>
+          </div>
+          <div style="padding:10px 12px;font-size:12px;border-left:3px solid #F97316;background:#FFFBF5;border-bottom:1px solid #F3F4F6">
+            <strong>Lot 12 · Prairie Heights / Phase 2</strong>
+            <div style="font-size:10px;color:#9A3412">Roofing delayed 3d</div>
+          </div>
+          <div style="padding:10px 12px;font-size:12px;border-left:3px solid #F97316;background:#FFFBF5">
+            <strong>Lot 41 · Creekside / Phase 1</strong>
+            <div style="font-size:10px;color:#9A3412">Framing delayed 1d · COI expires 12d</div>
+          </div>
+        </div>
+        <div class="frame-note">Filter by at-risk across the whole tree — flat list with breadcrumb on each row. Superintendent view — "what do I need to put out today?"</div>
+      </div>
+    </div>
+
+    <ul class="points">
+      <li><div><p class="pt-title">Make Land Development and Home Construction <em>children</em> of a Subdivision, not siblings. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">Today's page splits these into two top-level buckets, but your live data has one Prairie Sky subdivision appearing in both. Fold them into one tree where a subdivision has up to two named children: a Land Development project (horizontal work) and a Home Construction branch (individual homes). Some subdivisions have only one or the other — a <strong>land-only development</strong> has just the Land Development child; a <strong>spec home on a one-off lot</strong> has just Home Construction with no subdivision at all. The tree handles all three cases with the same component.</p></div></li>
+      <li><div><p class="pt-title">Land Development is a first-class project with its own detail page. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">A Land Development node isn't just a container for phase pills — it's a project in its own right, with its own budget, permits, vendors, stage track (Grading → Erosion → Utilities → Roads → Platting → Final Inspection), field logs, and to-dos. Click into it and you land on <code class="mono">/projects/&lt;sub&gt;/land-development</code> using the same project shell you use for a home. Phases are the sub-rows inside it, each drillable to lot-level detail.</p></div></li>
+      <li><div><p class="pt-title">Phase 1 / Phase 2 should be drillable nodes, not decorative pills. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">Today's Land Development card shows "Ph 1 · 15 lots · 8 sold" and "Ph 2 · 17 lots" as chips. Click them — nothing happens. These are the nodes the user most wants to drill into. Make each phase an expandable row revealing lots (sold / under-construction / planned state per lot).</p></div></li>
+      <li><div><p class="pt-title">Each lot's full street address, 7× in a row, is noise. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Every home row in Home Construction shows "7081 S. Douglas Blvd. &middot; 7081 S. Douglas Blvd. Guthrie, OK 73034" — the address twice, then the city/state/zip once per row. Since they're all in the same subdivision, hoist the shared address suffix up to the subdivision header ("Prairie Sky · Guthrie, OK") and show only the lot-unique part per row: "Lot 2 · 7281 S. Douglas".</p></div></li>
+      <li><div><p class="pt-title">"Started 11/21/2025 · 153d under construction" is redundant. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Pick one. If start date matters for compliance, show it in the lot detail page; on the list, just show "153d". Every piece of text in a list view costs the user a scan cycle.</p></div></li>
+      <li><div><p class="pt-title">Stage rows duplicate information. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Today: "EXT ✓ Final grade → Landscape/Irrigation - Rough (4/23/2026)" and "INT ✓ HVAC - Final → Flooring Install (4/25/2026)". This is 5 facts per row (last complete, next, date) × 2 tracks = 10 facts of small text. Use the bar-of-segments from §04 — the eye catches the <em>current</em> and <em>delayed</em> ones; the full list belongs in the lot detail.</p></div></li>
+      <li><div><p class="pt-title">Four depths, one component, one data source. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">Stop thinking of "Projects" as a list page and start thinking of it as a <em>tree view</em>. Org → Subdivision → Phase → Lot. Same row component with different depth/indent. The shipped subdivision-accordion is step one of this; finish it by (a) adding a parent row with org-level rollups, (b) adding a phase-group row between subdivision and lot, and (c) merging the land-dev and home-construction trees into the same lot node.</p></div></li>
+      <li><div><p class="pt-title">Every parent row is a live rollup. Nothing is stored. <span class="pt-tag tag-crit">CRITICAL</span></p><p class="pt-body">"Should not be stale cards in dashboards." Every counter on a parent row — active count, at-risk count, weighted progress, budget delta, lots sold — is computed from the subset of <code class="mono">projects/phases/lots</code> it contains, in the same query that hydrates the page. If you want to cache for scale, key the cache by <code class="mono">max(updated_at)</code> across descendants so it auto-busts.</p></div></li>
+      <li><div><p class="pt-title">"Worst-of-children" propagates up. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">If Lot 08 is over budget, the Phase 2 row is red, the Prairie Sky row is red, the org-level header shows a red at-risk count. This is how a builder sees there's a fire <em>before</em> expanding anything. The shipped page has no red anywhere — even though it almost certainly has at-risk lots.</p></div></li>
+      <li><div><p class="pt-title">Breadcrumb = URL. Every level is linkable. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body"><code class="mono">/projects</code> shows the full tree. <code class="mono">/projects/prairie-sky</code> scopes the component to that subdivision. <code class="mono">/projects/prairie-sky/phase-2</code> scopes further. Same UI, different root — bookmark any depth, share links, browser back walks up the tree.</p></div></li>
+      <li><div><p class="pt-title">Weighted progress, never averaged. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">A subdivision with one $600k lot at 90% and five $80k lots at 20% isn't "32%" (average) — it's ~60% by dollars. Use construction value (or stage-count as a proxy) to weight the rollup. Averaged progress on a parent row is <em>always</em> misleading when lot sizes differ.</p></div></li>
+      <li><div><p class="pt-title">Sort by <strong>Risk</strong> by default, not alpha or start date. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">All 6 homes in the shipped screenshot are indistinguishable at a glance — same "Started X" / "Xd under construction" / "✓ Final grade" pattern. Sort by at-risk count desc → budget delta desc → progress asc. If nothing's at risk today, the sort collapses to stage progression and still reads useful. Expose the sort axis in the filter bar.</p></div></li>
+      <li><div><p class="pt-title">"Expand all" / "Collapse all" + memory. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">Remember which nodes are open across navigation. <code class="mono">localStorage["projects.open"] = [...]</code>. A PM who expanded Phase 2 yesterday expects to land on it open today.</p></div></li>
+      <li><div><p class="pt-title">Keep the dot-scan strip, recolor it. <span class="pt-tag tag-win">QUICK WIN</span></p><p class="pt-body">The 6 green dots next to "Prairie Sky · 6 homes, 6 active" is the best idea on the current page. Keep it. Map colors to lot <em>state</em>: green sold/complete, blue active, orange delayed, red over-budget, grey planned. Hover for lot name + status. Six green dots when one lot is actually over-budget is exactly the "stale" problem — the dots need to reflect truth, not just "active vs. not".</p></div></li>
+      <li><div><p class="pt-title">Land-dev rollup needs its own columns. <span class="pt-tag tag-maj">MAJOR</span></p><p class="pt-body">For a Land Development subdivision row, replace the "Active / At risk / Progress / Budget" columns with "Lots total / Sold / Remaining / $ recognized". Same component, different facet — decide per row based on whether the subdivision has homes under construction, lots for sale, or both.</p></div></li>
+      <li><div><p class="pt-title">Keyboard: arrow keys walk the tree. <span class="pt-tag tag-min">MINOR</span></p><p class="pt-body">↓/↑ move between visible rows; → expands; ← collapses or jumps to parent; Enter opens the focused row as a page. Power users will quietly love this; nobody will ask for it.</p></div></li>
+    </ul>
+  </section>
+
+  <!-- 05 SYSTEM -->
+  <section id="system">
+    <div class="sec-head"><span class="sec-num">§ 05</span><h2 class="sec-title">Color, type, density</h2></div>
+    <p class="sec-lede">The token layer in <code class="mono">globals.css</code> is clean. The issue is <em>consumption</em>: components reach for Tailwind's pastel palette (amber-100, blue-100, purple-100, emerald-50) as backgrounds too often, and the design spec's semantic intent gets diluted.</p>
+
+    <h3 style="font-size:18px;margin:0 0 14px;letter-spacing:-.01em">Status palette — shipped</h3>
+    <div class="swatches">
+      <div class="sw" style="background:#10B981;color:white"><div class="name">Complete</div><div class="hex">#10B981</div></div>
+      <div class="sw" style="background:#4272EF;color:white"><div class="name">In progress</div><div class="hex">#4272EF</div></div>
+      <div class="sw" style="background:#F59E0B;color:white"><div class="name">Warning</div><div class="hex">#F59E0B</div></div>
+      <div class="sw" style="background:#F97316;color:white"><div class="name">Delayed</div><div class="hex">#F97316</div></div>
+      <div class="sw" style="background:#EF4444;color:white"><div class="name">Overdue</div><div class="hex">#EF4444</div></div>
+      <div class="sw" style="background:#64748B;color:white"><div class="name">Neutral</div><div class="hex">#64748B</div></div>
+    </div>
+    <p style="font-size:13px;color:var(--ink-3);margin-top:10px">Good set. Only complaint: <strong>warning</strong> and <strong>delayed</strong> are close in hue. Reserve orange strictly for schedule delay; use amber for <em>anything review-related</em> — don't cross them.</p>
+
+    <h3 style="font-size:18px;margin:40px 0 14px;letter-spacing:-.01em">Badge treatment — shipped vs. proposed</h3>
+    <div class="compare" style="margin-top:0">
+      <div class="frame">
+        <div class="frame-lbl">NOW</div>
+        <div class="frame-body" style="display:flex;flex-wrap:wrap;gap:6px">
+          <span class="pill" style="background:#FEF3C7;color:#92400E">Pending</span>
+          <span class="pill" style="background:#DBEAFE;color:#1E40AF">Approved</span>
+          <span class="pill" style="background:#EDE9FE;color:#5B21B6">Released</span>
+          <span class="pill" style="background:#D1FAE5;color:#065F46">Cleared</span>
+          <span class="pill" style="background:#FEE2E2;color:#991B1B">Disputed</span>
+          <span class="pill" style="background:#F3F4F6;color:#6B7280">Void</span>
+          <span class="pill" style="background:#FED7AA;color:#9A3412">Delayed</span>
+          <span class="pill" style="background:#FEF3C7;color:#92400E">3 to-dos</span>
+          <span class="pill" style="background:#DBEAFE;color:#1E40AF">On draw</span>
+        </div>
+        <div class="frame-note">Nine pastel chips across the app. Users see all of them together in a list view and the table becomes a rainbow.</div>
+      </div>
+      <div class="frame">
+        <div class="frame-lbl after">NEXT</div>
+        <div class="frame-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <span style="font-size:12px;color:#4B5563"><span class="dot" style="background:#F59E0B"></span> Pending</span>
+          <span style="font-size:12px;color:#4B5563"><span class="dot" style="background:#4272EF"></span> Approved</span>
+          <span style="font-size:12px;color:#4B5563"><span class="dot" style="background:#7C3AED"></span> Released</span>
+          <span style="font-size:12px;color:#4B5563"><span class="dot" style="background:#10B981"></span> Cleared</span>
+          <span style="font-size:12px;color:#4B5563"><span class="dot" style="background:#EF4444"></span> Disputed</span>
+          <span style="font-size:12px;color:#9CA3AF"><span class="dot" style="background:#CBD5E1"></span> Void</span>
+          <span style="font-size:12px;color:#4B5563"><span class="dot" style="background:#F97316"></span> Delayed</span>
+          <span style="font-size:12px;color:#4B5563;border:1px solid #E5E7EB;padding:2px 6px;border-radius:4px">3 to-dos</span>
+          <span style="font-size:12px;color:#4B5563;border:1px solid #E5E7EB;padding:2px 6px;border-radius:4px">On draw</span>
+        </div>
+        <div class="frame-note">Two badge types total. <strong>Status</strong> = dot + neutral label. <strong>Metadata</strong> = outlined chip. Everything else is decoration.</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:18px;margin:40px 0 14px;letter-spacing:-.01em">Typography — the spec is right, enforce it</h3>
+    <div style="background:white;border:1px solid var(--line);border-radius:10px;padding:6px 22px">
+      <div class="type-row"><div class="type-k">Page title · desktop</div><div class="type-specimen" style="font-size:24px;font-weight:700;letter-spacing:-.01em">Accounts payable</div><div class="type-meta">24 / 32 · 700</div></div>
+      <div class="type-row"><div class="type-k">Section header</div><div class="type-specimen" style="font-size:16px;font-weight:600">Pending review</div><div class="type-meta">16 / 24 · 600</div></div>
+      <div class="type-row"><div class="type-k">Body / table</div><div class="type-specimen" style="font-size:14px">Ace Framing &middot; INV-2041</div><div class="type-meta">14 / 20 · 400</div></div>
+      <div class="type-row"><div class="type-k">Financial figure</div><div class="type-specimen tabular" style="font-size:18px;font-weight:600">$287,410.00</div><div class="type-meta">14&ndash;24 · 600 · tnum</div></div>
+      <div class="type-row"><div class="type-k">Label / caption</div><div class="type-specimen" style="font-size:12px;font-weight:500;color:var(--ink-3)">Due date</div><div class="type-meta">12 / 16 · 500</div></div>
+      <div class="type-row"><div class="type-k">Tiny · eyebrow</div><div class="type-specimen" style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)">Needs Attention</div><div class="type-meta">11 / 14 · 600 · +8%</div></div>
+    </div>
+    <p style="font-size:13px;color:var(--ink-3);margin-top:12px">One audit action: grep for <code class="mono">text-xs</code> in the codebase. You'll find it doing double duty as both "tiny label" (11px) and "secondary body" (12px) — split these into two Tailwind utilities or pin them to a helper class. Mixing the two is the biggest source of visual inconsistency.</p>
+  </section>
+
+  <!-- 06 PRIORITIES -->
+  <section id="priorities">
+    <div class="sec-head"><span class="sec-num">§ 06</span><h2 class="sec-title">Priority matrix</h2></div>
+    <p class="sec-lede">If you have one design sprint, do quadrant 1. If you have a week, do 1 &amp; 2. Everything in quadrant 4 can wait a release.</p>
+
+    <div class="matrix">
+      <div class="mx">
+        <h4>1 · HIGH IMPACT · LOW EFFORT</h4>
+        <ol>
+          <li>Replace pastel status pills with <code class="mono">StatusDot</code> + monochrome label everywhere.</li>
+          <li>Kill the "Navigate" card on dashboard.</li>
+          <li>Sort project grid by risk (over-budget → delayed → active).</li>
+          <li>Red left border on past-due invoice rows.</li>
+          <li>Pin last-touched 5 projects somewhere accessible.</li>
+        </ol>
+      </div>
+      <div class="mx">
+        <h4>2 · HIGH IMPACT · HIGHER EFFORT</h4>
+        <ol>
+          <li>Ship the 280px flyout the desktop nav spec promised.</li>
+          <li>Re-rank dashboard: alerts as hero, inline KPI row, then projects.</li>
+          <li>Re-layout <code class="mono">ProjectCard</code>: progress hero → current stage → budget line → footer actions.</li>
+          <li>Always-visible primary action column on AP table.</li>
+          <li>Consolidate AP filter row to segmented + search + project dropdown.</li>
+        </ol>
+      </div>
+      <div class="mx">
+        <h4>3 · LOW IMPACT · LOW EFFORT</h4>
+        <ol>
+          <li>Move sign-out from desktop rail to avatar menu.</li>
+          <li>Mobile top bar: page title + context, not just "BuildForge".</li>
+          <li>Drop AP table row height to 36–40px on desktop.</li>
+          <li>"Morning, &lt;name&gt;" on mobile dashboard.</li>
+        </ol>
+      </div>
+      <div class="mx">
+        <h4>4 · PARKING LOT</h4>
+        <ol>
+          <li>Swipe actions on mobile project cards (the spec mentions them; they add complexity for low ROI vs. tap-and-sheet).</li>
+          <li>Pinch-to-zoom Gantt — confirm real users ask for it before building.</li>
+          <li>Dark mode polish — tokens exist, but ship light first.</li>
+          <li>Drag-and-drop draw assembly — great when it works, painful on touch. Keep the current table pattern until users complain.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 CLOSING -->
+  <section id="closing">
+    <div class="sec-head"><span class="sec-num">§ 07</span><h2 class="sec-title">Closing note</h2></div>
+    <p class="sec-lede">BuildForge already does the hardest thing well: it's opinionated. It picks a user (a small builder juggling 3–8 active jobs), picks a split (field vs. office), and commits. The remaining work isn't about adding — it's about <strong>editing</strong>. Fewer pastel chips. Ranked hierarchy. One hero per screen. Always-visible primary actions. Your spec already says all of this; the shipped UI just needs a pass with a ruler and an eraser.</p>
+    <p class="sec-lede" style="color:var(--ink);font-style:italic;border-left:3px solid var(--accent);padding-left:18px;margin-top:30px">
+      "Good design is as little design as possible." — the boring but correct maxim. Every card you remove makes the next one louder.
+    </p>
+  </section>
+
+  <!-- METHOD -->
+  <section id="method" style="opacity:.75">
+    <div class="sec-head"><span class="sec-num">§ —</span><h2 class="sec-title" style="font-size:24px">Method</h2></div>
+    <p style="font-size:13px;line-height:1.55;color:var(--ink-2);max-width:720px">Review based on reading: <code class="mono">DESIGN-SPEC.md</code>, <code class="mono">src/app/globals.css</code>, <code class="mono">src/app/(app)/dashboard/page.tsx</code>, <code class="mono">src/components/layout/AppShell.tsx</code>, <code class="mono">src/components/layout/DesktopNavRail.tsx</code>, <code class="mono">src/components/invoices/InvoicesTable.tsx</code>, and directory structure. Mocks in this document are original illustrations of your patterns — not screenshots, not a redesign deliverable. They exist to show the critique at a glance. For pixel-perfect reworks of any single screen, I'd want to see the live app and iterate in a separate pass.</p>
+  </section>
+
+  <footer>
+    <span>BuildForge · UI Review · April 2026</span>
+    <span>—</span>
+  </footer>
+
+</div>
+</body>
+</html>

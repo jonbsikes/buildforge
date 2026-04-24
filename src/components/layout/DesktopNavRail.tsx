@@ -142,14 +142,32 @@ export default function DesktopNavRail() {
               href={section.href}
               onMouseEnter={() => handleEnter(section.key)}
               onClick={() => handleClick(section.key)}
-              className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${
-                active || isHover
-                  ? "bg-[color:var(--brand-blue)]/20 text-[color:var(--brand-blue)]"
+              className={`relative w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-colors ${
+                active
+                  ? "text-white"
+                  : isHover
+                  ? "text-[color:var(--brand-blue)] bg-white/5"
                   : "text-gray-400 hover:text-white hover:bg-white/5"
               }`}
             >
-              <Icon size={20} strokeWidth={active ? 2.2 : 1.8} />
-              <span className="text-[9px] font-medium leading-tight">{section.label}</span>
+              {active && (
+                <span
+                  aria-hidden
+                  className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-sm"
+                  style={{ backgroundColor: "var(--brand-blue)" }}
+                />
+              )}
+              <Icon
+                size={20}
+                strokeWidth={active ? 2.4 : 1.8}
+                className={active ? "text-[color:var(--brand-blue)]" : undefined}
+              />
+              <span
+                className="text-[9px] font-medium leading-tight"
+                style={active ? { color: "var(--brand-blue)" } : undefined}
+              >
+                {section.label}
+              </span>
             </Link>
           );
         })}

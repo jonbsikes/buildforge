@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { HardHat, TreePine, ClipboardList, AlertTriangle } from "lucide-react";
-import ProgressRing from "@/components/ui/ProgressRing";
 import StageStrip, { type StageStripStage } from "@/components/ui/StageStrip";
 import type { StatusKind } from "@/components/ui/StatusBadge";
 
@@ -27,6 +26,17 @@ function fmtShortCurrency(n: number, signed = false): string {
         ? `$${(abs / 1_000).toFixed(0)}k`
         : `$${abs.toFixed(0)}`;
   return `${sign}${display}`;
+}
+
+export type ProjectCardVariant = "default" | "compact" | "expanded";
+
+/** Lot roll-up row rendered in the `expanded` variant's sub-table. */
+export interface ProjectCardLot {
+  id: string;
+  label: string;
+  status: "complete" | "active" | "delayed" | "over" | "warning" | "planned";
+  progressPct: number;
+  currentStage?: string | null;
 }
 
 export interface ProjectCardProps {
@@ -59,7 +69,11 @@ export interface ProjectCardProps {
   todoCount: number;
   extStages?: StageStripStage[];
   intStages?: StageStripStage[];
+  workStages?: StageStripStage[];
   delayedCount?: number;
+  variant?: ProjectCardVariant;
+  /** Only used by `expanded`. Rendered as a lot/child rollup sub-table. */
+  lots?: ProjectCardLot[];
 }
 
 function accentForState(opts: {
@@ -84,7 +98,10 @@ export default function ProjectCard({
   todoCount,
   extStages = [],
   intStages = [],
+  workStages = [],
   delayedCount = 0,
+  variant = "default",
+  lots = [],
 }: ProjectCardProps) {
   const daysUnder = project.start_date ? daysAgo(project.start_date) : null;
   const isHome = project.project_type === "home_construction";
@@ -120,6 +137,64 @@ export default function ProjectCard({
 
   const hasTertiary = delayedCount > 0 || isOverBudget;
 
+  if (variant === "compact") {
+    return (
+      <Link
+        href={`/projects/${project.id}`}
+        data-variant="compact"
+        className="group flex items-center gap-3 bg-[color:var(--card-bg)] rounded-[var(--card-radius)] border border-[color:var(--card-border)] pl-3 pr-4 hover:shadow-sm hover:bg-gray-50/40 transition-all"
+        style={{
+          borderLeft: `3px solid ${accent.color}`,
+          height: 52,
+        }}
+      >
+        {isHome ? (
+          <HardHat size={14} className="shrink-0" style={{ color: "var(--brand-blue)" }} />
+        ) : (
+          <TreePine size={14} className="shrink-0" style={{ color: "var(--status-complete)" }} />
+        )}
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-[color:var(--brand-blue)] transition-colors">
+              {project.name}
+            </span>
+            {project.subdivision && (
+              <span className="text-[11px] text-gray-400 truncate hidden md:inline">
+                {project.subdivision}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {currentStage && (
+          <span className="hidden md:inline-flex items-center gap-1.5 text-[11px] text-gray-600 min-w-0">
+            <span
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: accent.color }}
+            />
+            <span className="truncate max-w-[140px]">{currentStage.stage_name}</span>
+          </span>
+        )}
+
+        <span className="text-[11px] font-semibold text-gray-900 tabular-nums w-10 text-right">
+          {progress}%
+        </span>
+
+        {budget > 0 && Math.abs(delta) > 0.5 ? (
+          <span
+            className="text-[11px] font-medium tabular-nums w-20 text-right"
+            style={{ color: delta > 0 ? "var(--status-over)" : "var(--status-complete)" }}
+          >
+            {fmtShortCurrency(delta, true)}
+          </span>
+        ) : (
+          <span className="text-[11px] text-gray-300 tabular-nums w-20 text-right">—</span>
+        )}
+      </Link>
+    );
+  }
+
   return (
     <Link
       href={`/projects/${project.id}`}
@@ -154,7 +229,10 @@ export default function ProjectCard({
             <p className="text-xs text-gray-400 truncate">{subtitle}</p>
           )}
         </div>
-        <ProgressRing progress={progress} size={48} strokeWidth={4} />
+        <div className="text-right shrink-0">
+          <div className="text-lg font-bold text-gray-900 tabular-nums leading-none">{progress}%</div>
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-1">Progress</div>
+        </div>
       </div>
 
       {/* Current stage chip */}
@@ -173,13 +251,15 @@ export default function ProjectCard({
         </div>
       )}
 
-      {/* Stage strip — the two-track EXT/INT view */}
-      {extStages.length > 0 && (
+      {/* Stage strip — EXT/INT for Home Construction, single WORK track for Land Development */}
+      {(extStages.length > 0 || workStages.length > 0) && (
         <div className="mb-3 py-2 px-2.5 bg-gray-50 rounded-lg">
           <StageStrip
             extStages={extStages}
             intStages={intStages}
+            workStages={workStages}
             delayedCount={delayedCount}
+            projectHref={`/projects/${project.id}`}
           />
         </div>
       )}
@@ -252,6 +332,52 @@ export default function ProjectCard({
               Over budget
             </span>
           )}
+        </div>
+      )}
+
+      {variant === "expanded" && lots.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-[color:var(--border-hair)]">
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Lots · {lots.length}</span>
+            <span className="text-[10px] text-gray-400">
+              {lots.filter((l) => l.status === "complete").length} complete
+              {" · "}
+              {lots.filter((l) => l.status === "delayed" || l.status === "over").length} at risk
+            </span>
+          </div>
+          <div className="rounded-md border border-[color:var(--border-hair)] overflow-hidden">
+            <table className="w-full text-[11px]">
+              <tbody className="divide-y divide-[color:var(--border-hair)]">
+                {lots.map((l) => (
+                  <tr key={l.id} className="hover:bg-gray-50/60">
+                    <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor:
+                              l.status === "complete" ? "var(--status-complete)"
+                              : l.status === "over" ? "var(--status-over)"
+                              : l.status === "delayed" ? "var(--status-delayed)"
+                              : l.status === "warning" ? "var(--status-warning)"
+                              : l.status === "active" ? "var(--status-active)"
+                              : "var(--status-planned)",
+                          }}
+                        />
+                        <span className="font-medium text-gray-800">{l.label}</span>
+                      </span>
+                    </td>
+                    <td className="px-2.5 py-1.5 text-gray-500 truncate max-w-[160px]">
+                      {l.currentStage ?? "—"}
+                    </td>
+                    <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-gray-900 w-12">
+                      {l.progressPct}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </Link>

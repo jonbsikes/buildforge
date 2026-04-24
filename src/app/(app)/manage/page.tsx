@@ -76,7 +76,6 @@ export default async function ManageHubPage() {
       color: "text-[#4272EF]",
       bg: "bg-blue-50",
       badge: expiredVendors.length > 0 ? `${expiredVendors.length}` : null,
-      badgeColor: "bg-red-100 text-red-700",
     },
     {
       href: "/contacts",
@@ -86,7 +85,6 @@ export default async function ManageHubPage() {
       color: "text-emerald-600",
       bg: "bg-emerald-50",
       badge: null,
-      badgeColor: "",
     },
     {
       href: "/documents",
@@ -96,7 +94,6 @@ export default async function ManageHubPage() {
       color: "text-purple-600",
       bg: "bg-purple-50",
       badge: null,
-      badgeColor: "",
     },
   ];
 
@@ -169,7 +166,12 @@ export default async function ManageHubPage() {
                           <Icon size={20} className={card.color} />
                         </div>
                         {card.badge && (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${card.badgeColor}`}>{card.badge}</span>
+                          <span
+                            className="text-xs font-bold px-2 py-0.5 rounded-full"
+                            style={{ backgroundColor: "var(--tint-over)", color: "var(--status-over)" }}
+                          >
+                            {card.badge}
+                          </span>
                         )}
                       </div>
                       <p className="font-semibold text-gray-900 mb-0.5 group-hover:text-[#4272EF] transition-colors">{card.label}</p>
