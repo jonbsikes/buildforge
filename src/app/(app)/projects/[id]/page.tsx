@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import ProjectTabs from "@/components/projects/ProjectTabs";
 import DeleteProjectButton from "@/components/projects/DeleteProjectButton";
+import PinProjectButton from "@/components/dashboard/PinProjectButton";
 import ProgressRing from "@/components/ui/ProgressRing";
 import StatusBadge from "@/components/ui/StatusBadge";
 import StageStrip, { type StageStripStage } from "@/components/ui/StageStrip";
@@ -370,6 +371,7 @@ export default async function ProjectDetailPage({ params }: Props) {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  <PinProjectButton projectId={id} />
                   <StatusBadge status={project.status} />
 
                   <Link href={`/projects/${id}/edit`} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-[#4272EF] hover:bg-blue-50 border border-gray-200 rounded-lg transition-colors">
