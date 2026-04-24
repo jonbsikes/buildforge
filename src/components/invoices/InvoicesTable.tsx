@@ -64,6 +64,10 @@ const STATUS_DOT_COLOR: Record<string, string> = {
   void: "var(--status-planned)",
 };
 
+// Once a check is cut (released) the AP obligation is no longer "past due" —
+// the vendor has been paid from AP's perspective. cleared/void are also done.
+const PAID_STATUSES = new Set(["released", "cleared", "void"]);
+
 
 type InvoiceRow = {
   id: string;
@@ -259,8 +263,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
       const effectiveStatus = statusOverrides[r.id] ?? r.status;
       if (filters.statuses.length > 0 && !filters.statuses.includes(effectiveStatus)) return false;
       if (pastDueOnly) {
-        const isPaid = effectiveStatus === "cleared" || effectiveStatus === "void";
-        if (isPaid || !r.due_date || r.due_date >= today) return false;
+        if (PAID_STATUSES.has(effectiveStatus) || !r.due_date || r.due_date >= today) return false;
       }
       if (filters.projects.length > 0) {
         const proj = r.projects?.name ?? "G&A";
@@ -363,7 +366,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
 
     for (const inv of sortedRows) {
       const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
-      const isPaid = effectiveStatus === "cleared";
+      const isPaid = PAID_STATUSES.has(effectiveStatus);
       const isPastDue = inv.due_date && !isPaid && inv.due_date < today;
 
       if (effectiveStatus === "pending_review") {
@@ -542,7 +545,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
           sortedRows.map((inv) => {
             const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
             const isLowConf = inv.ai_confidence === "low" && effectiveStatus === "pending_review";
-            const isPaid = effectiveStatus === "cleared";
+            const isPaid = PAID_STATUSES.has(effectiveStatus);
             const todayStr = new Date().toISOString().split("T")[0]!;
             const isPastDue = !!inv.due_date && !isPaid && inv.due_date < todayStr;
             const pastDueDays = isPastDue && inv.due_date
@@ -676,7 +679,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                 const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
                 const isLowConf = inv.ai_confidence === "low" && effectiveStatus === "pending_review";
                 const isSelected = selected.has(inv.id);
-                const isPaid = effectiveStatus === "cleared";
+                const isPaid = PAID_STATUSES.has(effectiveStatus);
                 const todayStr = new Date().toISOString().split("T")[0]!;
                 const isPastDue = !!inv.due_date && !isPaid && inv.due_date < todayStr;
                 const isFocused = focusedIndex === rowIdx;

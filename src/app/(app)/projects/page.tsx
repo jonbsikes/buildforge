@@ -303,12 +303,12 @@ export default async function ProjectsHubPage() {
               <p className="text-lg font-bold text-gray-900 leading-none mt-1">{landCount}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Delayed stages</p>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Delayed projects</p>
               <p
                 className="text-lg font-bold leading-none mt-1"
-                style={{ color: delayedStages > 0 ? "var(--status-delayed)" : undefined }}
+                style={{ color: delayedProjectCount > 0 ? "var(--status-delayed)" : undefined }}
               >
-                {delayedStages}
+                {delayedProjectCount}
               </p>
             </div>
             <div>

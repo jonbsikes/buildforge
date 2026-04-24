@@ -75,6 +75,53 @@ export async function deleteTodo(id: string) {
   revalidatePath("/field-logs");
 }
 
+export async function updateFieldTodo(
+  id: string,
+  input: { description: string; priority: string; due_date: string | null }
+) {
+  const supabase = await createClient();
+  await supabase
+    .from("field_todos")
+    .update({
+      description: input.description,
+      priority: input.priority,
+      due_date: input.due_date || null,
+    })
+    .eq("id", id);
+  revalidatePath("/field-logs");
+}
+
+export async function updateFieldLog(
+  id: string,
+  input: { log_date: string; notes: string }
+) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("field_logs")
+    .update({ log_date: input.log_date, notes: input.notes })
+    .eq("id", id)
+    .select("project_id")
+    .single();
+  if (error) throw new Error(error.message);
+  revalidatePath("/field-logs");
+  if (data?.project_id) revalidatePath(`/projects/${data.project_id}`);
+}
+
+export async function deleteFieldLog(id: string) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("field_logs")
+    .select("project_id")
+    .eq("id", id)
+    .single();
+  // Remove field_todos referencing this log first (if FK is not set to cascade)
+  await supabase.from("field_todos").delete().eq("field_log_id", id);
+  const { error } = await supabase.from("field_logs").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/field-logs");
+  if (data?.project_id) revalidatePath(`/projects/${data.project_id}`);
+}
+
 // ---------------------------------------------------------------------------
 // Photo upload / delete
 // ---------------------------------------------------------------------------

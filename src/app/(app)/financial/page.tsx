@@ -68,7 +68,7 @@ export default async function FinancialHubPage() {
   const approvedAP = allInvoices.filter((i) => i.status === "approved");
   const outstandingAP = approvedAP.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const pastDueInvoices = allInvoices.filter(
-    (i) => i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today
+    (i) => i.status !== "released" && i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today
   );
   const pastDue = pastDueInvoices.length;
   const pastDueAmount = pastDueInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);

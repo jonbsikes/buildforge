@@ -3,8 +3,10 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { GripVertical, X } from "lucide-react";
 import { navSections, type NavSection } from "./navMap";
+import { usePinnedProjects } from "@/lib/usePinnedProjects";
 
 function isActive(pathname: string, section: NavSection): boolean {
   if (section.key === "home") return pathname === "/dashboard";
@@ -37,9 +39,17 @@ export default function DesktopNavRail() {
     } catch {}
   }, []);
 
-  // Load recently-touched projects (one-shot)
+  const { ids: pinnedIds, toggle: togglePin, reorder: reorderPin } = usePinnedProjects();
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Load projects that match currently-pinned ids
   useEffect(() => {
     let cancel = false;
+    if (pinnedIds.length === 0) {
+      setPinnedProjects([]);
+      return;
+    }
     (async () => {
       try {
         const { createClient } = await import("@/lib/supabase/client");
@@ -47,15 +57,20 @@ export default function DesktopNavRail() {
         const { data } = await supabase
           .from("projects")
           .select("id, name, subdivision")
-          .order("created_at", { ascending: false })
-          .limit(5);
+          .in("id", pinnedIds);
         if (!cancel && data) setPinnedProjects(data as PinnedProject[]);
       } catch {}
     })();
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [pinnedIds]);
+
+  // Order pinned projects by the stored pin order
+  const orderedPinned = useMemo(() => {
+    const byId = new Map(pinnedProjects.map((p) => [p.id, p]));
+    return pinnedIds.map((id) => byId.get(id)).filter((p): p is PinnedProject => !!p);
+  }, [pinnedIds, pinnedProjects]);
 
   // Escape / outside click unpins
   useEffect(() => {
@@ -213,7 +228,7 @@ export default function DesktopNavRail() {
               );
             })}
 
-            {pinnedProjects.length > 0 && (
+            {orderedPinned.length > 0 && (
               <>
                 <div className="mx-4 my-3 h-px bg-[#334155]" />
                 <p
@@ -222,21 +237,77 @@ export default function DesktopNavRail() {
                 >
                   Pinned
                 </p>
-                {pinnedProjects.map((p) => (
-                  <Link
-                    key={p.id}
-                    href={`/projects/${p.id}`}
-                    className="block px-4 py-1.5 text-[13px] hover:bg-white/5"
-                    style={{ color: "#CBD5E1" }}
-                  >
-                    <div className="truncate">{p.name}</div>
-                    {p.subdivision && (
-                      <div className="text-[11px] truncate" style={{ color: "#64748B" }}>
-                        {p.subdivision}
-                      </div>
-                    )}
-                  </Link>
-                ))}
+                {orderedPinned.map((p, idx) => {
+                  const isDragging = dragIndex === idx;
+                  const isOver = dragOverIndex === idx && dragIndex !== null && dragIndex !== idx;
+                  return (
+                    <div
+                      key={p.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragIndex(idx);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (dragOverIndex !== idx) setDragOverIndex(idx);
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverIndex === idx) setDragOverIndex(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (dragIndex !== null && dragIndex !== idx) {
+                          reorderPin(dragIndex, idx);
+                        }
+                        setDragIndex(null);
+                        setDragOverIndex(null);
+                      }}
+                      onDragEnd={() => {
+                        setDragIndex(null);
+                        setDragOverIndex(null);
+                      }}
+                      className="group flex items-start gap-1.5 px-2 py-1.5 hover:bg-white/5"
+                      style={{
+                        opacity: isDragging ? 0.4 : 1,
+                        borderTop: isOver ? "2px solid var(--brand-blue)" : "2px solid transparent",
+                        cursor: "grab",
+                      }}
+                    >
+                      <GripVertical
+                        size={12}
+                        className="mt-0.5 shrink-0 opacity-40 group-hover:opacity-80"
+                        style={{ color: "#CBD5E1" }}
+                      />
+                      <Link
+                        href={`/projects/${p.id}`}
+                        className="flex-1 min-w-0 text-[13px]"
+                        style={{ color: "#CBD5E1" }}
+                      >
+                        <div className="truncate">{p.name}</div>
+                        {p.subdivision && (
+                          <div className="text-[11px] truncate" style={{ color: "#64748B" }}>
+                            {p.subdivision}
+                          </div>
+                        )}
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          togglePin(p.id);
+                        }}
+                        aria-label="Unpin project"
+                        title="Unpin"
+                        className="shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-opacity"
+                      >
+                        <X size={12} style={{ color: "#CBD5E1" }} />
+                      </button>
+                    </div>
+                  );
+                })}
               </>
             )}
           </nav>

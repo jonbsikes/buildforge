@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { createTodo, completeTodo, reopenTodo, deleteTodo } from "@/app/actions/todos";
-import { Plus, Circle, CheckCircle2, Trash2, RotateCcw } from "lucide-react";
+import { createTodo, completeTodo, reopenTodo, deleteTodo, updateTodo } from "@/app/actions/todos";
+import { Plus, Circle, CheckCircle2, Trash2, RotateCcw, Pencil, Check, X } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { StatusKind } from "@/components/ui/StatusBadge";
 
@@ -95,8 +95,38 @@ export default function TodosClient() {
   }
 
   function handleDelete(todo: Todo) {
+    if (!confirm(`Delete "${todo.description}"?`)) return;
     startAdd(async () => {
       await deleteTodo(todo.id, todo.project_id);
+      refreshTodos();
+    });
+  }
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDesc, setEditDesc] = useState("");
+  const [editPriority, setEditPriority] = useState("normal");
+  const [editDue, setEditDue] = useState("");
+
+  function startEdit(todo: Todo) {
+    setEditingId(todo.id);
+    setEditDesc(todo.description);
+    setEditPriority(todo.priority);
+    setEditDue(todo.due_date ?? "");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+  }
+
+  function saveEdit(todo: Todo) {
+    if (!editDesc.trim()) return;
+    startAdd(async () => {
+      await updateTodo(todo.id, todo.project_id, {
+        description: editDesc.trim(),
+        priority: editPriority,
+        due_date: editDue || null,
+      });
+      setEditingId(null);
       refreshTodos();
     });
   }
@@ -191,42 +221,111 @@ export default function TodosClient() {
                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{projectMap[pid] ?? "Unknown"}</span>
               </div>
               <div className="divide-y divide-gray-50">
-                {items.map((t) => (
-                  <div key={t.id} className="flex items-start gap-3 px-4 py-3">
-                    <button
-                      onClick={() => handleComplete(t)}
-                      className="mt-0.5 flex-shrink-0 text-gray-300 hover:text-green-500 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-                      aria-label={`Mark "${t.description}" complete`}
-                      title="Mark complete"
-                    >
-                      <Circle size={18} />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-800">{t.description}</p>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <StatusBadge status={PRIORITY_KIND[t.priority] ?? "neutral"} size="sm">
-                          {t.priority}
-                        </StatusBadge>
-                        {t.due_date && (
-                          <span
-                            className="text-xs"
-                            style={isOverdue(t.due_date) ? { color: "var(--status-over)", fontWeight: 500 } : { color: "var(--text-muted)" }}
+                {items.map((t) => {
+                  const isEditing = editingId === t.id;
+                  return (
+                    <div key={t.id} className="flex items-start gap-3 px-4 py-3">
+                      <button
+                        onClick={() => handleComplete(t)}
+                        disabled={isEditing}
+                        className="mt-0.5 flex-shrink-0 text-gray-300 hover:text-green-500 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center disabled:opacity-30"
+                        aria-label={`Mark "${t.description}" complete`}
+                        title="Mark complete"
+                      >
+                        <Circle size={18} />
+                      </button>
+                      {isEditing ? (
+                        <div className="flex-1 min-w-0 flex flex-col gap-2">
+                          <input
+                            type="text"
+                            value={editDesc}
+                            onChange={(e) => setEditDesc(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveEdit(t);
+                              if (e.key === "Escape") cancelEdit();
+                            }}
+                            autoFocus
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <select
+                              value={editPriority}
+                              onChange={(e) => setEditPriority(e.target.value)}
+                              className="px-2 py-1 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+                            >
+                              <option value="low">Low</option>
+                              <option value="normal">Normal</option>
+                              <option value="urgent">Urgent</option>
+                            </select>
+                            <input
+                              type="date"
+                              value={editDue}
+                              onChange={(e) => setEditDue(e.target.value)}
+                              className="px-2 py-1 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800">{t.description}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <StatusBadge status={PRIORITY_KIND[t.priority] ?? "neutral"} size="sm">
+                              {t.priority}
+                            </StatusBadge>
+                            {t.due_date && (
+                              <span
+                                className="text-xs"
+                                style={isOverdue(t.due_date) ? { color: "var(--status-over)", fontWeight: 500 } : { color: "var(--text-muted)" }}
+                              >
+                                due {t.due_date}{isOverdue(t.due_date) ? " · overdue" : ""}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => saveEdit(t)}
+                            disabled={!editDesc.trim() || isAdding}
+                            className="flex-shrink-0 text-gray-400 hover:text-[#4272EF] transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center disabled:opacity-40"
+                            aria-label="Save changes"
+                            title="Save"
                           >
-                            due {t.due_date}{isOverdue(t.due_date) ? " · overdue" : ""}
-                          </span>
-                        )}
-                      </div>
+                            <Check size={16} />
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            className="flex-shrink-0 text-gray-300 hover:text-gray-600 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                            aria-label="Cancel edit"
+                            title="Cancel"
+                          >
+                            <X size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEdit(t)}
+                            className="flex-shrink-0 text-gray-300 hover:text-[#4272EF] transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                            aria-label={`Edit "${t.description}"`}
+                            title="Edit"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(t)}
+                            className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                            aria-label={`Delete "${t.description}"`}
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
                     </div>
-                    <button
-                      onClick={() => handleDelete(t)}
-                      className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                      aria-label={`Delete "${t.description}"`}
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}

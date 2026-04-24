@@ -158,7 +158,7 @@ export default async function DashboardPage() {
 
   const pendingInvoices = (invoices ?? []).filter((i) => i.status === "pending_review");
   const pendingReviewAmount = pendingInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
-  const pastDueInvoices = (invoices ?? []).filter((i) => i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today);
+  const pastDueInvoices = (invoices ?? []).filter((i) => i.status !== "released" && i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today);
   const pastDueAmount = pastDueInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const outstandingAP = (invoices ?? []).filter((i) => i.status === "approved").reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
 

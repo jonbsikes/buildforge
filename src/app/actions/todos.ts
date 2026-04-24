@@ -61,3 +61,24 @@ export async function deleteTodo(todoId: string, projectId: string): Promise<{ e
   revalidatePath("/projects/" + projectId);
   return {};
 }
+
+export async function updateTodo(
+  todoId: string,
+  projectId: string,
+  input: { description: string; priority: string; due_date: string | null }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("field_todos")
+    .update({
+      description: input.description,
+      priority: input.priority,
+      due_date: input.due_date || null,
+    })
+    .eq("id", todoId);
+  if (error) return { error: error.message };
+  revalidatePath("/todos");
+  revalidatePath("/projects/" + projectId);
+  revalidatePath("/field-logs");
+  return {};
+}

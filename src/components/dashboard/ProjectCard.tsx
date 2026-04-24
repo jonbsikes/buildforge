@@ -2,6 +2,7 @@ import Link from "next/link";
 import { HardHat, TreePine, ClipboardList, AlertTriangle } from "lucide-react";
 import StageStrip, { type StageStripStage } from "@/components/ui/StageStrip";
 import type { StatusKind } from "@/components/ui/StatusBadge";
+import PinProjectButton from "@/components/dashboard/PinProjectButton";
 
 function fmtDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", {
@@ -106,6 +107,7 @@ export default function ProjectCard({
   const daysUnder = project.start_date ? daysAgo(project.start_date) : null;
   const isHome = project.project_type === "home_construction";
   const isActive = (daysUnder ?? -1) >= 0;
+  const pinButton = <PinProjectButton projectId={project.id} />;
 
   const isOverBudget = budget > 0 && spent > budget;
   const delta = spent - budget;
@@ -153,6 +155,8 @@ export default function ProjectCard({
         ) : (
           <TreePine size={14} className="shrink-0" style={{ color: "var(--status-complete)" }} />
         )}
+
+        {pinButton}
 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 min-w-0">
@@ -221,6 +225,7 @@ export default function ProjectCard({
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider truncate">
               {project.subdivision || (isHome ? "Home" : "Land Dev")}
             </span>
+            {pinButton}
           </div>
           <h3 className="text-sm font-bold text-gray-900 truncate group-hover:text-[color:var(--brand-blue)] transition-colors">
             {project.name}
