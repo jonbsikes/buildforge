@@ -362,7 +362,7 @@ async function autoMatchTransactions(bankAccountId: string): Promise<{ matched: 
         const { data: jes } = await supabase
           .from("journal_entries")
           .select("id")
-          .eq("source_type", "draw_funded")
+          .eq("source_type", "loan_draw")
           .eq("loan_id", loan.id)
           .gte("entry_date", txn.transaction_date)
           .lte("entry_date", txn.transaction_date);

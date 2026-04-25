@@ -90,12 +90,10 @@ export async function postJournalEntry(
     .select("id");
 
   if (linesError || !inserted || inserted.length !== rows.length) {
-    await supabase.from("journal_entries").delete().eq("id", entry.id);
-    return {
-      error:
-        linesError?.message ??
-        "Failed to insert all journal entry lines — entry rolled back",
-    };
+    const { error: rollbackErr } = await supabase.from("journal_entries").delete().eq("id", entry.id);
+    const linesMsg = linesError?.message ?? "Failed to insert all journal entry lines";
+    const rollbackMsg = rollbackErr ? ` (rollback also failed: ${rollbackErr.message})` : " — entry rolled back";
+    return { error: linesMsg + rollbackMsg };
   }
 
   return { id: entry.id };

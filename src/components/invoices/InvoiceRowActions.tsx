@@ -20,7 +20,7 @@ export default function InvoiceRowActions({ invoiceId, status, vendorName, invoi
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const isEditable = status !== "paid";
+  const isEditable = !["cleared", "void", "released"].includes(status);
 
   useEffect(() => {
     if (!open) return;

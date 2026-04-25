@@ -2,8 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
+
+const ALLOWED_FOLDERS = ["Plans", "Permits", "Contracts", "Lender", "Inspections", "Photos", "Field Photos", "Other"];
+const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export async function uploadDocument(formData: FormData) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -17,13 +23,18 @@ export async function uploadDocument(formData: FormData) {
   const notes = (formData.get("notes") as string) || null;
 
   if (!file || file.size === 0) throw new Error("No file provided");
+  if (file.size > MAX_FILE_SIZE_BYTES) throw new Error("File exceeds 25 MB limit");
+  if (!ALLOWED_FOLDERS.includes(folder)) throw new Error(`Invalid folder: ${folder}`);
+
+  // Sanitize filename to prevent path traversal
+  const safeName = file.name.replace(/[/\\]/g, "_");
 
   const scope = projectId
     ? `project/${projectId}`
     : vendorId
     ? `vendor/${vendorId}`
     : "company";
-  const storagePath = `${user.id}/${scope}/${folder}/${Date.now()}_${file.name}`;
+  const storagePath = `${user.id}/${scope}/${folder}/${Date.now()}_${safeName}`;
   const { error: uploadError } = await supabase.storage
     .from("documents")
     .upload(storagePath, file, { upsert: false });
@@ -42,7 +53,7 @@ export async function uploadDocument(formData: FormData) {
     vendor_id: vendorId,
     folder,
     file_name: file.name,
-    storage_path: urlData?.publicUrl ?? storagePath,
+    storage_path: storagePath,
     file_size_kb: Math.ceil(file.size / 1024),
     mime_type: file.type,
     notes,
@@ -53,6 +64,8 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(id: string, storagePath: string | null) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },

@@ -44,7 +44,20 @@ export default function NotificationBell() {
   }
 
   useEffect(() => {
-    fetchNotifications();
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabaseRef.current
+        .from("notifications")
+        .select("id, type, message, is_read, created_at, reference_id, reference_type")
+        .eq("is_read", false)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (!cancelled) {
+        setNotifications(data ?? []);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Close on outside click

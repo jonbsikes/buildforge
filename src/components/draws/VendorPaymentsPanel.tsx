@@ -48,7 +48,7 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
       .select(`
         vendor_payment_id,
         invoices (
-          id, invoice_number, invoice_date, amount, cost_codes ( name ), projects ( name )
+          id, invoice_number, invoice_date, amount, cost_codes ( description ), projects ( name )
         )
       `)
       .in("vendor_payment_id", vpIds),
@@ -75,7 +75,7 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
       invoice_number: string | null;
       invoice_date: string | null;
       amount: number | null;
-      cost_codes: { name: string } | null;
+      cost_codes: { description: string } | null;
       projects: { name: string } | null;
     } | null;
     if (!inv) continue;
@@ -87,7 +87,7 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
       invoice_number: inv.invoice_number,
       invoice_date: inv.invoice_date,
       amount: inv.amount,
-      cost_code_name: inv.cost_codes?.name ?? null,
+      cost_code_name: inv.cost_codes?.description ?? null,
       project_name: inv.projects?.name ?? null,
     });
   }

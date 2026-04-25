@@ -59,16 +59,28 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
     project: { id: string; name: string } | null;
   };
 
-  const { data: ledgerLines } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      debit, credit, project_id,
-      account:chart_of_accounts(account_number, name, type, is_active),
-      journal_entry:journal_entries(entry_date, status),
-      project:projects(id, name)
-    `);
+  // Paginate to avoid Supabase's 1000-row default limit
+  const PAGE_SIZE = 1000;
+  let allLines: LedgerRow[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  const allLines = (ledgerLines ?? []) as unknown as LedgerRow[];
+  while (hasMore) {
+    const { data: batch } = await supabase
+      .from("journal_entry_lines")
+      .select(`
+        debit, credit, project_id,
+        account:chart_of_accounts(account_number, name, type, is_active),
+        journal_entry:journal_entries(entry_date, status),
+        project:projects(id, name)
+      `)
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    const rows = (batch ?? []) as unknown as LedgerRow[];
+    allLines = allLines.concat(rows);
+    hasMore = rows.length === PAGE_SIZE;
+    offset += PAGE_SIZE;
+  }
 
   // Filter to posted entries as of date
   const posted = allLines.filter((l) =>

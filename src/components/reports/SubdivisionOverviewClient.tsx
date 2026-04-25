@@ -137,7 +137,7 @@ export default function SubdivisionOverviewClient() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-5">
-      <div className="flex justify-end print:hidden"><ReportExportButtons slug="subdivision-overview" params={{ subdivisionId: filter !== 'all' ? filter : undefined }} /></div>
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="subdivision-overview" params={{ status: filter !== 'all' ? filter : undefined }} /></div>
       {/* Filter */}
       <div className="flex items-center gap-3 print:hidden">
         <select

@@ -184,8 +184,8 @@ export default function JobCostReportClient() {
 
   // Only show rows that have at least one non-zero actual, or show all if nothing has actuals
   const visibleRows = useMemo(() => {
-    const withActuals = rows.filter((r) => r.total > 0);
-    return withActuals.length > 0 ? rows : rows;
+    const withActuals = rows.filter((r) => Math.abs(r.total) > 0.005);
+    return withActuals.length > 0 ? withActuals : rows;
   }, [rows]);
 
   // Project totals
@@ -329,12 +329,12 @@ export default function JobCostReportClient() {
                       const val = r.projectActuals[p.id] ?? 0;
                       return (
                         <td key={p.id} className="px-4 py-2 text-right text-gray-700 tabular-nums">
-                          {val > 0 ? fmt(val) : <span className="text-gray-200">—</span>}
+                          {Math.abs(val) > 0.005 ? fmt(val) : <span className="text-gray-200">—</span>}
                         </td>
                       );
                     })}
                     <td className="px-4 py-2 text-right font-medium text-gray-900 tabular-nums">
-                      {r.total > 0 ? fmt(r.total) : <span className="text-gray-200">—</span>}
+                      {Math.abs(r.total) > 0.005 ? fmt(r.total) : <span className="text-gray-200">—</span>}
                     </td>
                   </tr>
                 ))}

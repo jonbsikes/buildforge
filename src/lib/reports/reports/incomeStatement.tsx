@@ -46,15 +46,29 @@ export async function getData(p: ReportParams): Promise<IncomeStatementData> {
     journal_entry: { entry_date: string; status: string } | null;
   };
 
-  const { data: ledgerLines } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      id, debit, credit, description,
-      account:chart_of_accounts(account_number, name, type),
-      journal_entry:journal_entries(entry_date, status)
-    `);
+  // Paginate to avoid Supabase's 1000-row default limit
+  const PAGE_SIZE = 1000;
+  let allLedger: LedgerRow[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  const posted = ((ledgerLines ?? []) as unknown as LedgerRow[]).filter((l) =>
+  while (hasMore) {
+    const { data: batch } = await supabase
+      .from("journal_entry_lines")
+      .select(`
+        id, debit, credit, description,
+        account:chart_of_accounts(account_number, name, type),
+        journal_entry:journal_entries(entry_date, status)
+      `)
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    const rows = (batch ?? []) as unknown as LedgerRow[];
+    allLedger = allLedger.concat(rows);
+    hasMore = rows.length === PAGE_SIZE;
+    offset += PAGE_SIZE;
+  }
+
+  const posted = allLedger.filter((l) =>
     l.journal_entry?.status === "posted" &&
     (l.journal_entry?.entry_date ?? "") >= start &&
     (l.journal_entry?.entry_date ?? "") <= end

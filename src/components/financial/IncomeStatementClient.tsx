@@ -129,7 +129,9 @@ export default function IncomeStatementClient() {
         date: je?.entry_date ?? "",
         reference: je?.reference ?? null,
         description: line.description ?? je?.description ?? "",
-        amount: acc.type === "revenue" ? Number(line.credit ?? 0) : Number(line.debit ?? 0),
+        amount: acc.type === "revenue"
+          ? Number(line.credit ?? 0) - Number(line.debit ?? 0)
+          : Number(line.debit ?? 0) - Number(line.credit ?? 0),
       });
     }
 
@@ -140,7 +142,7 @@ export default function IncomeStatementClient() {
           account_number: a.account_number,
           account: `${a.account_number} · ${a.name}`,
           total: type === "revenue" ? a.credit - a.debit : a.debit - a.credit,
-          entries: a.entries.filter((e) => e.amount > 0).sort((x, y) => y.date.localeCompare(x.date)),
+          entries: a.entries.filter((e) => Math.abs(e.amount) > 0.005).sort((x, y) => y.date.localeCompare(x.date)),
         }))
         .filter((a) => Math.abs(a.total) > 0.01)
         .sort((a, b) => a.account_number.localeCompare(b.account_number));

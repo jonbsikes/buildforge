@@ -218,10 +218,10 @@ export default function TaxExportClient() {
           if (!acc || !proj) continue;
           const pname = proj.name;
           if (!projectWIP[pname]) projectWIP[pname] = { name: pname, wip: 0, loans: 0 };
-          if (acc.account_number === "1210" || acc.account_number === "1220") {
+          if (acc.account_number === "1210" || acc.account_number === "1220" || acc.account_number === "1230") {
             projectWIP[pname].wip += Number(l.debit ?? 0) - Number(l.credit ?? 0);
           }
-          if (acc.account_number === "2100") {
+          if (acc.account_number >= "2200" && acc.account_number < "2300") {
             projectWIP[pname].loans += Number(l.credit ?? 0) - Number(l.debit ?? 0);
           }
         }

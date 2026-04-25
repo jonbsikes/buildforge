@@ -267,25 +267,31 @@ export async function updateLoan(
   const creditLimit = input.loan_type === "line_of_credit" && input.credit_limit ? parseFloat(input.credit_limit) : null;
   if (creditLimit !== null && isNaN(creditLimit)) return { error: "Credit limit must be a valid number" };
 
-  const currentBalance = input.loan_type === "line_of_credit" && input.current_balance ? parseFloat(input.current_balance) : 0;
-  if (isNaN(currentBalance)) return { error: "Current balance must be a valid number" };
+  // Only allow manual current_balance updates for lines of credit.
+  // For term loans, current_balance is auto-maintained by fundDraw.
+  const updatePayload: Record<string, unknown> = {
+    project_id: input.project_id,
+    lender_id: input.lender_id,
+    loan_number: input.loan_number.trim(),
+    loan_amount: loanAmount,
+    loan_type: input.loan_type || "term_loan",
+    credit_limit: creditLimit,
+    interest_rate: interestRate,
+    origination_date: input.origination_date || null,
+    maturity_date: input.maturity_date || null,
+    status: input.status,
+    notes: input.notes.trim() || null,
+  };
+
+  if (input.loan_type === "line_of_credit" && input.current_balance) {
+    const currentBalance = parseFloat(input.current_balance);
+    if (isNaN(currentBalance)) return { error: "Current balance must be a valid number" };
+    updatePayload.current_balance = currentBalance;
+  }
 
   const { error } = await supabase
     .from("loans")
-    .update({
-      project_id: input.project_id,
-      lender_id: input.lender_id,
-      loan_number: input.loan_number.trim(),
-      loan_amount: loanAmount,
-      loan_type: input.loan_type || "term_loan",
-      credit_limit: creditLimit,
-      current_balance: currentBalance,
-      interest_rate: interestRate,
-      origination_date: input.origination_date || null,
-      maturity_date: input.maturity_date || null,
-      status: input.status,
-      notes: input.notes.trim() || null,
-    })
+    .update(updatePayload)
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/banking/loans");
@@ -300,8 +306,65 @@ export async function deleteLoan(id: string): Promise<{ error?: string }> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  // Safety checks
+  const { data: loan } = await supabase
+    .from("loans")
+    .select("current_balance, coa_account_id")
+    .eq("id", id)
+    .single();
+
+  if (!loan) return { error: "Loan not found" };
+
+  if ((loan.current_balance ?? 0) > 0) {
+    return { error: "Cannot delete a loan with an outstanding balance." };
+  }
+
+  // Check for funded draws
+  const { data: fundedDraws } = await supabase
+    .from("loan_draws")
+    .select("id")
+    .eq("status", "funded")
+    .limit(1);
+
+  // Check if any funded draw references this loan via its invoices/projects
+  // Simple check: look for draws linked to this loan
+  const { data: drawsByLoan } = await supabase
+    .from("loan_draws")
+    .select("id, status")
+    .in("status", ["funded", "submitted"]);
+
+  if ((drawsByLoan ?? []).length > 0) {
+    // Check if any draw references projects tied to this loan
+    const { data: loanProjects } = await supabase
+      .from("loans")
+      .select("project_id")
+      .eq("id", id);
+
+    if (loanProjects && loanProjects.length > 0) {
+      const projectIds = loanProjects.map(l => l.project_id).filter(Boolean);
+      if (projectIds.length > 0) {
+        const { data: linkedDraws } = await supabase
+          .from("loan_draws")
+          .select("id")
+          .in("project_id", projectIds)
+          .in("status", ["funded", "submitted"])
+          .limit(1);
+
+        if (linkedDraws && linkedDraws.length > 0) {
+          return { error: "Cannot delete a loan with funded or submitted draws." };
+        }
+      }
+    }
+  }
+
   const { error } = await supabase.from("loans").delete().eq("id", id);
   if (error) return { error: error.message };
+
+  // Clean up orphaned COA account
+  if (loan.coa_account_id) {
+    await supabase.from("chart_of_accounts").delete().eq("id", loan.coa_account_id);
+  }
+
   revalidatePath("/banking/loans");
   return {};
 }

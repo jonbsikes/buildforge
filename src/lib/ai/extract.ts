@@ -41,7 +41,9 @@ export async function extractStructured<T>({
 
   const first = message.content[0];
   const text = first && first.type === "text" ? first.text : "";
-  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  // Extract content between markdown fences if present, otherwise use raw text
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const cleaned = (fenceMatch ? fenceMatch[1] : text).trim();
 
   let data: T;
   try {

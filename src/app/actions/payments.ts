@@ -526,10 +526,12 @@ export async function clearPayment(
 
   const invoiceIds = (links ?? []).map((l) => l.invoice_id);
   if (invoiceIds.length > 0) {
+    // Only advance invoices currently in 'released' — skip already-cleared ones
     await supabase
       .from("invoices")
       .update({ status: "cleared", payment_date: clearedDate })
-      .in("id", invoiceIds);
+      .in("id", invoiceIds)
+      .eq("status", "released");
   }
 
   // Post GL: DR Checks Outstanding (2050) / CR Cash (1000)
@@ -640,14 +642,20 @@ export async function voidPayment(
   if (updErr) return { error: updErr.message };
 
   if (invoiceIds.length > 0) {
-    // Status-gated revert: only invoices currently in 'released' should be
-    // walked back to 'approved'. Already-approved (e.g. partially-paid in
-    // future) stays put.
+    // Status-gated revert: walk back invoices in 'released' or 'cleared'
+    // to 'approved'. For non-check payments (ACH/wire/auto_draft), invoices
+    // may have been set directly to 'cleared', so we handle both states.
     await supabase
       .from("invoices")
       .update({ status: "approved", payment_date: null, payment_method: null })
       .in("id", invoiceIds)
       .eq("status", "released");
+
+    await supabase
+      .from("invoices")
+      .update({ status: "approved", payment_date: null, payment_method: null })
+      .in("id", invoiceIds)
+      .eq("status", "cleared");
   }
 
   // Reverse original GL entries by posting counter-entries

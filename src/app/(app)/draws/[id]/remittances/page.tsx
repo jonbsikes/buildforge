@@ -61,7 +61,7 @@ export default async function RemittancesPage({ params }: Props) {
       vendor_payment_id,
       invoices (
         id, invoice_number, invoice_date, amount,
-        cost_codes ( name ),
+        cost_codes ( description ),
         projects ( name, address )
       )
     `)
@@ -234,7 +234,7 @@ export default async function RemittancesPage({ params }: Props) {
                           <td>{inv.projects?.address ?? inv.projects?.name ?? "—"}</td>
                           <td>{inv.invoice_number ?? "—"}</td>
                           <td>{fmtDate(inv.invoice_date)}</td>
-                          <td>{inv.cost_codes?.name ?? "—"}</td>
+                          <td>{inv.cost_codes?.description ?? "—"}</td>
                           <td style={{ textAlign: "right" }}>{fmt(inv.amount)}</td>
                         </tr>
                       ))}

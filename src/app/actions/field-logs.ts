@@ -11,6 +11,8 @@ import { requireAdmin } from "@/lib/auth";
 export async function createFieldLog(
   formData: FormData
 ): Promise<{ id: string; project_id: string; log_date: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -38,6 +40,8 @@ export async function createFieldLog(
 }
 
 export async function createFieldTodo(formData: FormData) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -99,24 +103,17 @@ export async function updateFieldTodo(
 }
 
 export async function updateFieldLog(
-  id: string,
-  input: { log_date: string; notes: string }
+  _id: string,
+  _input: { log_date: string; notes: string }
 ) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("field_logs")
-    .update({ log_date: input.log_date, notes: input.notes })
-    .eq("id", id)
-    .select("project_id")
-    .single();
-  if (error) throw new Error(error.message);
-  revalidatePath("/field-logs");
-  if (data?.project_id) revalidatePath(`/projects/${data.project_id}`);
+  // Field logs are read-only once saved (CLAUDE.md business rule).
+  // To-dos are updatable at any time.
+  throw new Error("Field logs are read-only once saved.");
 }
 
 export async function deleteFieldLog(id: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const { data } = await supabase
     .from("field_logs")
@@ -225,6 +222,8 @@ export async function createProjectFieldLog(
   projectId: string,
   formData: FormData
 ): Promise<{ id: string; log_date: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -255,6 +254,8 @@ export async function createProjectFieldTodo(
   logId: string | null,
   formData: FormData
 ) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -278,6 +279,8 @@ export async function updateProjectTodoStatus(
   todoId: string,
   status: string
 ) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const update: Record<string, string | null> = { status };
   if (status === "done") update.resolved_date = new Date().toISOString().split("T")[0];

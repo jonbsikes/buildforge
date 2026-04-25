@@ -192,7 +192,7 @@ export default function ContactsClient({ contacts }: { contacts: Contact[] }) {
           {visibleContacts.map((c) => (
             <div
               key={c.id}
-              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-400 transition-colors"
+              className="group bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-400 transition-colors"
             >
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="min-w-0">

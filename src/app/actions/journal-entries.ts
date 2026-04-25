@@ -69,6 +69,19 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  // Check for existing reversal to prevent double-reversal
+  const { data: existingReversal } = await supabase
+    .from("journal_entries")
+    .select("id")
+    .like("reference", "REV-%")
+    .eq("source_id", id)
+    .eq("status", "posted")
+    .limit(1);
+
+  if (existingReversal && existingReversal.length > 0) {
+    throw new Error("This entry has already been reversed.");
+  }
+
   const { data: original, error: origError } = await supabase
     .from("journal_entries")
     .select("id, entry_date, reference, description, status, source_type, loan_id")
@@ -114,6 +127,12 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
 
   if (result.error || !result.id) throw new Error(result.error ?? "Failed to post reversing entry");
 
+  // Void the original entry now that the reversal is posted
+  await supabase
+    .from("journal_entries")
+    .update({ status: "void" })
+    .eq("id", id);
+
   revalidatePath("/financial/journal-entries");
   return { id: result.id };
 }
@@ -126,12 +145,27 @@ export async function voidJournalEntry(id: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  // Fetch the entry to check source_type before voiding
+  const { data: entry } = await supabase
+    .from("journal_entries")
+    .select("source_type, source_id")
+    .eq("id", id)
+    .single();
+
   const { error } = await supabase
     .from("journal_entries")
     .update({ status: "void" })
     .eq("id", id);
 
   if (error) throw new Error(error.message);
+
+  // If this was an invoice approval JE, reset wip_ap_posted on the source invoice
+  if (entry?.source_type === "invoice_approval" && entry.source_id) {
+    await supabase
+      .from("invoices")
+      .update({ wip_ap_posted: false })
+      .eq("id", entry.source_id);
+  }
 
   revalidatePath("/financial/journal-entries");
   return { success: true };

@@ -20,7 +20,7 @@ export const navSections: NavSection[] = [
     label: "Home",
     icon: Home,
     href: "/dashboard",
-    matchPaths: ["/dashboard"],
+    matchPaths: ["/dashboard", "/notifications"],
     subNav: [
       { label: "Overview", href: "/dashboard" },
       { label: "Notifications", href: "/notifications" },
@@ -50,6 +50,10 @@ export const navSections: NavSection[] = [
     subNav: [
       { label: "Summary", href: "/financial" },
       { label: "Balance sheet", href: "/financial/balance-sheet" },
+      { label: "Income statement", href: "/financial/income-statement" },
+      { label: "Cash flow", href: "/financial/cash-flow" },
+      { label: "AP aging", href: "/financial/ap-aging" },
+      { label: "WIP report", href: "/financial/wip" },
       { label: "Accounts payable", href: "/invoices" },
       { label: "Payment register", href: "/banking/payments" },
       { label: "Banking", href: "/banking/accounts" },

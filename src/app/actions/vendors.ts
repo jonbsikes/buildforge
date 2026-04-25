@@ -31,6 +31,8 @@ export interface VendorFormData {
 export async function createVendor(
   data: VendorFormData
 ): Promise<{ error?: string; vendorId?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const {
     data: { user },
@@ -138,7 +140,10 @@ export async function deactivateVendor(id: string): Promise<{ error?: string }> 
 // dependent invoices/contracts; RLS + FKs will block unsafe deletes.
 // ---------------------------------------------------------------------------
 export async function deleteVendor(id: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

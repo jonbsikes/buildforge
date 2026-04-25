@@ -116,7 +116,7 @@ export default function CashFlowClient() {
         id: l.id,
         entry_date: l.journal_entry?.entry_date ?? "",
         description: l.description || l.journal_entry?.description || "",
-        amount: Number(l.debit || 0) + Number(l.credit || 0),
+        amount: Number(l.debit || 0) - Number(l.credit || 0),
       })).sort((a, b) => b.entry_date.localeCompare(a.entry_date));
 
     // ─── CASH-BASIS APPROACH ─────────────────────────────────────────

@@ -79,7 +79,7 @@ export async function GET(
       `vendor_payment_id,
        invoices (
          id, invoice_number, invoice_date, amount,
-         cost_codes ( name ),
+         cost_codes ( description ),
          projects ( name, address )
        )`
     )

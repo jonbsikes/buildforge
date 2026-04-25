@@ -7,6 +7,8 @@ import { requireAdmin } from "@/lib/auth";
 import type { Database } from "@/types/database";
 
 export async function createCostCode(formData: FormData) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const {
     data: { user },

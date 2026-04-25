@@ -33,14 +33,14 @@ type RawInvoice = {
   amount: number | null;
   file_path: string | null;
   projects: { id: string; name: string; address: string | null } | null;
-  cost_codes: { code: string; name: string } | null;
+  cost_codes: { code: string; description: string } | null;
 };
 
 type LineItem = {
   invoice_id: string;
   amount: number | null;
   project_id: string | null;
-  cost_codes: { name: string } | null;
+  cost_codes: { description: string } | null;
   projects: { id: string; name: string } | null;
 };
 
@@ -80,7 +80,7 @@ export async function fetchDrawSummary(
   if (invoiceIds.length > 0) {
     const { data: lineItems } = await supabase
       .from("invoice_line_items")
-      .select(`invoice_id, amount, project_id, cost_codes ( name ), projects ( id, name )`)
+      .select(`invoice_id, amount, project_id, cost_codes ( description ), projects ( id, name )`)
       .in("invoice_id", invoiceIds);
     for (const li of (lineItems ?? []) as unknown as LineItem[]) {
       if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);
@@ -121,13 +121,13 @@ export async function fetchDrawSummary(
           : headerProj?.id
           ? (loanByProject.get(headerProj.id) ?? "\u2014")
           : "\u2014";
-        const category = li.cost_codes?.name ?? "Uncategorized";
+        const category = li.cost_codes?.description ?? "Uncategorized";
         rows.push({ project, loanNumber, category, vendor, invoiceNumber, amount: li.amount ?? 0 });
       }
     } else {
       const project = headerProj?.name ?? "\u2014";
       const loanNumber = headerProj?.id ? (loanByProject.get(headerProj.id) ?? "\u2014") : "\u2014";
-      const category = inv.cost_codes?.name ?? "\u2014";
+      const category = inv.cost_codes?.description ?? "\u2014";
       rows.push({ project, loanNumber, category, vendor, invoiceNumber, amount: inv.amount ?? 0 });
     }
   }

@@ -107,19 +107,33 @@ export async function createHomeConstructionProject(
     return { error: projectError?.message ?? "Failed to create project" };
   }
 
-  // Insert project_cost_codes
+  // Insert project_cost_codes — filter out G&A codes and validate project type match
   if (input.selected_cost_code_ids.length > 0) {
-    const { error: pccError } = await supabase.from("project_cost_codes").insert(
-      input.selected_cost_code_ids.map((costCodeId) => ({
-        project_id: project.id,
-        cost_code_id: costCodeId,
-        budgeted_amount: 0,
-      }))
-    );
-    if (pccError) {
-      // Rollback: delete orphaned project
-      await supabase.from("projects").delete().eq("id", project.id);
-      return { error: `Failed to assign cost codes: ${pccError.message}` };
+    // Validate selected codes: exclude G&A and codes for wrong project type
+    const { data: validCodes } = await supabase
+      .from("cost_codes")
+      .select("id, project_type")
+      .in("id", input.selected_cost_code_ids)
+      .neq("project_type", "general_admin");
+
+    const validIds = new Set((validCodes ?? [])
+      .filter(c => c.project_type === "home_construction" || c.project_type === null)
+      .map(c => c.id));
+    const filteredIds = input.selected_cost_code_ids.filter(id => validIds.has(id));
+
+    if (filteredIds.length > 0) {
+      const { error: pccError } = await supabase.from("project_cost_codes").insert(
+        filteredIds.map((costCodeId) => ({
+          project_id: project.id,
+          cost_code_id: costCodeId,
+          budgeted_amount: 0,
+        }))
+      );
+      if (pccError) {
+        // Rollback: delete orphaned project
+        await supabase.from("projects").delete().eq("id", project.id);
+        return { error: `Failed to assign cost codes: ${pccError.message}` };
+      }
     }
   }
 
@@ -226,18 +240,31 @@ export async function createLandDevProject(
     return { error: projectError?.message ?? "Failed to create project" };
   }
 
-  // Insert project_cost_codes
+  // Insert project_cost_codes — filter out G&A codes and validate project type match
   if (input.selected_cost_code_ids.length > 0) {
-    const { error: pccError } = await supabase.from("project_cost_codes").insert(
-      input.selected_cost_code_ids.map((costCodeId) => ({
-        project_id: project.id,
-        cost_code_id: costCodeId,
-        budgeted_amount: 0,
-      }))
-    );
-    if (pccError) {
-      await supabase.from("projects").delete().eq("id", project.id);
-      return { error: `Failed to assign cost codes: ${pccError.message}` };
+    const { data: validCodes } = await supabase
+      .from("cost_codes")
+      .select("id, project_type")
+      .in("id", input.selected_cost_code_ids)
+      .neq("project_type", "general_admin");
+
+    const validIds = new Set((validCodes ?? [])
+      .filter(c => c.project_type === "land_development" || c.project_type === null)
+      .map(c => c.id));
+    const filteredIds = input.selected_cost_code_ids.filter(id => validIds.has(id));
+
+    if (filteredIds.length > 0) {
+      const { error: pccError } = await supabase.from("project_cost_codes").insert(
+        filteredIds.map((costCodeId) => ({
+          project_id: project.id,
+          cost_code_id: costCodeId,
+          budgeted_amount: 0,
+        }))
+      );
+      if (pccError) {
+        await supabase.from("projects").delete().eq("id", project.id);
+        return { error: `Failed to assign cost codes: ${pccError.message}` };
+      }
     }
   }
 

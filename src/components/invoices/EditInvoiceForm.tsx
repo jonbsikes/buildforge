@@ -54,7 +54,7 @@ function getCodesForContext(
 ): CostCode[] {
   if (projectType === "home_construction") return allCodes.filter((c) => c.project_type === "home_construction");
   if (projectType === "land_development") return allCodes.filter((c) => c.project_type === "land_development");
-  return allCodes;
+  return allCodes.filter((c) => c.project_type === "general_admin");
 }
 
 function ic(err = false) {
@@ -367,13 +367,17 @@ export default function EditInvoiceForm({ invoiceId, initial, vendors, projects,
             )}
           </Field>
           <Field label="Payment Method">
-            <input
-              type="text"
+            <select
               value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
-              placeholder="e.g. Check, ACH, Wire"
               className={ic()}
-            />
+            >
+              <option value="">— None —</option>
+              <option value="check">Check</option>
+              <option value="ach">ACH</option>
+              <option value="wire">Wire</option>
+              <option value="credit_card">Credit Card</option>
+            </select>
           </Field>
         </div>
 

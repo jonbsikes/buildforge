@@ -20,18 +20,20 @@ interface Project { id: string; name: string }
 
 const STATUS_KIND: Record<string, StatusKind> = {
   pending: "planned",
-  confirmed: "active",
+  selected: "active",
   ordered: "warning",
+  delivered: "neutral",
   installed: "complete",
 };
 const STATUS_DOT: Record<string, string> = {
   pending: "var(--status-planned)",
-  confirmed: "var(--status-active)",
+  selected: "var(--status-active)",
   ordered: "var(--status-warning)",
+  delivered: "var(--status-info, var(--status-warning))",
   installed: "var(--status-complete)",
 };
 
-const STATUSES = ["pending", "confirmed", "ordered", "installed"];
+const STATUSES = ["pending", "selected", "ordered", "delivered", "installed"];
 
 export default function SelectionsReportClient() {
   const [selections, setSelections] = useState<Selection[]>([]);

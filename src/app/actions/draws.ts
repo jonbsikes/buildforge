@@ -325,7 +325,7 @@ export async function createDraw(
 
 // ---------------------------------------------------------------------------
 // removeInvoiceFromDraw
-// Allowed for any draw that is not paid.
+// Allowed only for draft draws.
 // ---------------------------------------------------------------------------
 
 export async function removeInvoiceFromDraw(
@@ -347,6 +347,7 @@ export async function removeInvoiceFromDraw(
 
   if (!draw) return { error: "Draw not found" };
   if (draw.status === "funded" || draw.status === "paid") return { error: "Cannot modify a funded or paid draw" };
+  if (draw.status === "submitted") return { error: "Cannot remove invoices from a submitted draw. Revert the draw to draft first." };
 
   const { error } = await supabase
     .from("draw_invoices")
@@ -757,38 +758,67 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       if (inv.wip_ap_posted) continue;
       needsWipInvoiceIds.push(inv.id);
       newlyPostedInvoiceIds.push(inv.id);
-      totalWip += inv.amount;
     }
 
     // Load line items for invoices that need WIP posting
-    if (needsWipInvoiceIds.length > 0 && totalWip > 0) {
+    if (needsWipInvoiceIds.length > 0) {
       const { data: drawLineItems } = await supabase
         .from("invoice_line_items")
         .select("invoice_id, amount, project_id, projects ( project_type )")
         .in("invoice_id", needsWipInvoiceIds);
 
-      // Build debit lines from line items (per project)
+      // Index line items by invoice_id for fallback detection
+      const lineItemsForWip = new Map<string, typeof drawLineItems>();
       for (const li of drawLineItems ?? []) {
-        if (!li.amount || li.amount <= 0) continue;
-        const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
-        const isLandDev = projType === "land_development";
-        // Look up the invoice's vendor label for the description
-        const parentDi = (drawInvoiceDetails ?? []).find(d => (d.invoices as InvDetail | null)?.id === li.invoice_id);
+        if (!lineItemsForWip.has(li.invoice_id)) lineItemsForWip.set(li.invoice_id, []);
+        lineItemsForWip.get(li.invoice_id)!.push(li);
+      }
+
+      // Build debit lines from line items (per project), with fallback for
+      // invoices that have no line items in invoice_line_items.
+      for (const invId of needsWipInvoiceIds) {
+        const parentDi = (drawInvoiceDetails ?? []).find(d => (d.invoices as InvDetail | null)?.id === invId);
         const parentInv = parentDi?.invoices as InvDetail | null;
         const invLabel = parentInv ? [parentInv.vendor, parentInv.invoice_number].filter(Boolean).join(" — Inv #") : "Construction cost";
 
-        // Determine correct debit account: no project → G&A (6900), land dev → CIP (1230), else → WIP (1210)
-        const debitAcctId = !li.project_id ? (acct6900 ?? acct1210) : (isLandDev ? acct1230 : acct1210);
+        const items = lineItemsForWip.get(invId) ?? [];
+        if (items.length > 0) {
+          // Use line items
+          for (const li of items) {
+            if (!li.amount || li.amount <= 0) continue;
+            const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
+            const isLandDev = projType === "land_development";
+            const debitAcctId = !li.project_id ? (acct6900 ?? acct1210) : (isLandDev ? acct1230 : acct1210);
 
-        wipLines.push({
-          account_id: debitAcctId,
-          project_id: li.project_id ?? null,
-          description: invLabel,
-          debit: li.amount,
-          credit: 0,
-        });
+            wipLines.push({
+              account_id: debitAcctId,
+              project_id: li.project_id ?? null,
+              description: invLabel,
+              debit: li.amount,
+              credit: 0,
+            });
+          }
+        } else if (parentInv && parentInv.amount) {
+          // Fallback: no line items — use header amount/project/type
+          const projType = parentInv.projects?.project_type ?? null;
+          const isLandDev = projType === "land_development";
+          const debitAcctId = !parentInv.project_id
+            ? (acct6900 ?? acct1210)
+            : (isLandDev ? acct1230 : acct1210);
+
+          wipLines.push({
+            account_id: debitAcctId,
+            project_id: parentInv.project_id ?? null,
+            description: invLabel,
+            debit: parentInv.amount,
+            credit: 0,
+          });
+        }
       }
     }
+
+    // Compute totalWip from the actual debit lines to ensure debits = credits
+    totalWip = wipLines.reduce((s, l) => s + l.debit, 0);
 
     if (wipLines.length > 0 && totalWip > 0) {
       const wipResult = await postJournalEntry(
@@ -1098,87 +1128,98 @@ export async function markVendorPaymentPaid(
     ? `Check #${checkNumber.trim()}`
     : `VPmt-${vendorPaymentId.slice(0, 8)}`;
 
-  if (acct2000 && acct2050) {
-    // Primary JE: clear AP and record outstanding check at the NET cash amount.
-    // This mirrors the CLAUDE.md spec exactly: DR AP / CR 2050 for the amount
-    // of cash that actually leaves (or will leave) the bank.
-    const primary = await postJournalEntry(
+  if (!acct2000 || !acct2050) {
+    return { error: "Required GL accounts (2000, 2050) not found. Check chart of accounts." };
+  }
+
+  // Primary JE: clear AP and record outstanding check at the NET cash amount.
+  // This mirrors the CLAUDE.md spec exactly: DR AP / CR 2050 for the amount
+  // of cash that actually leaves (or will leave) the bank.
+  const primary = await postJournalEntry(
+    supabase,
+    {
+      entry_date: paymentDate,
+      reference: checkRef,
+      description: `Check issued — ${vp.vendor_name}`,
+      status: "posted",
+      source_type: "invoice_payment",
+      source_id: vendorPaymentId,
+      user_id: user.id,
+    },
+    [
+      {
+        account_id: acct2000,
+        project_id: null,
+        description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
+        debit: netAmount,
+        credit: 0,
+      },
+      {
+        account_id: acct2050,
+        project_id: null,
+        description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
+        debit: 0,
+        credit: netAmount,
+      },
+    ]
+  );
+  if (primary.error) return { error: `Check JE posting failed: ${primary.error}` };
+
+  // Discount JE (separate, only when a discount was taken): clear the
+  // residual AP (the discount we no longer owe) against WIP/CIP per project
+  // so the capitalized cost reflects the discount. Keeping this as its own
+  // JE with reference `DISC-VP-{id}` produces a clean audit trail.
+  if (totalDiscount > 0 && discountsByWip.length > 0) {
+    const discountLines: Array<{
+      account_id: string;
+      project_id: string | null;
+      description: string;
+      debit: number;
+      credit: number;
+    }> = [
+      {
+        account_id: acct2000,
+        project_id: null,
+        description: `AP reduced for early-pay discount — ${vp.vendor_name}`,
+        debit: totalDiscount,
+        credit: 0,
+      },
+    ];
+    for (const d of discountsByWip) {
+      const wipAcctId = accounts.get(d.accountNumber);
+      if (wipAcctId) {
+        discountLines.push({
+          account_id: wipAcctId,
+          project_id: d.projectId,
+          description: `Early-pay discount — ${vp.vendor_name}`,
+          debit: 0,
+          credit: d.amount,
+        });
+      }
+    }
+
+    const discountResult = await postJournalEntry(
       supabase,
       {
         entry_date: paymentDate,
-        reference: checkRef,
-        description: `Check issued — ${vp.vendor_name}`,
+        reference: `DISC-VP-${vendorPaymentId.slice(0, 8)}`,
+        description: `Early-pay discount $${totalDiscount.toFixed(2)} — ${vp.vendor_name}`,
         status: "posted",
         source_type: "invoice_payment",
         source_id: vendorPaymentId,
         user_id: user.id,
       },
-      [
-        {
-          account_id: acct2000,
-          project_id: null,
-          description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
-          debit: netAmount,
-          credit: 0,
-        },
-        {
-          account_id: acct2050,
-          project_id: null,
-          description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
-          debit: 0,
-          credit: netAmount,
-        },
-      ]
+      discountLines
     );
-    if (primary.error) return { error: `Check JE posting failed: ${primary.error}` };
-
-    // Discount JE (separate, only when a discount was taken): clear the
-    // residual AP (the discount we no longer owe) against WIP/CIP per project
-    // so the capitalized cost reflects the discount. Keeping this as its own
-    // JE with reference `DISC-VP-{id}` produces a clean audit trail.
-    if (totalDiscount > 0 && discountsByWip.length > 0) {
-      const discountLines: Array<{
-        account_id: string;
-        project_id: string | null;
-        description: string;
-        debit: number;
-        credit: number;
-      }> = [
-        {
-          account_id: acct2000,
-          project_id: null,
-          description: `AP reduced for early-pay discount — ${vp.vendor_name}`,
-          debit: totalDiscount,
-          credit: 0,
-        },
-      ];
-      for (const d of discountsByWip) {
-        const wipAcctId = accounts.get(d.accountNumber);
-        if (wipAcctId) {
-          discountLines.push({
-            account_id: wipAcctId,
-            project_id: d.projectId,
-            description: `Early-pay discount — ${vp.vendor_name}`,
-            debit: 0,
-            credit: d.amount,
-          });
-        }
+    if (discountResult.error) {
+      // Roll back the primary JE by voiding it before returning the error
+      if (primary.id) {
+        await supabase
+          .from("journal_entries")
+          .update({ status: "void" })
+          .eq("id", primary.id);
       }
-
-      const discountResult = await postJournalEntry(
-        supabase,
-        {
-          entry_date: paymentDate,
-          reference: `DISC-VP-${vendorPaymentId.slice(0, 8)}`,
-          description: `Early-pay discount $${totalDiscount.toFixed(2)} — ${vp.vendor_name}`,
-          status: "posted",
-          source_type: "invoice_payment",
-          source_id: vendorPaymentId,
-          user_id: user.id,
-        },
-        discountLines
-      );
-      if (discountResult.error) return { error: `Discount JE posting failed: ${discountResult.error}` };
+      return { error: `Discount JE posting failed: ${discountResult.error}` };
     }
   }
 
@@ -1289,13 +1330,15 @@ export async function adjustVendorPaymentAmount(
   }
 
   // Insert the adjustment line item record
-  const { error: adjErr } = await supabase
+  const { data: adjRecord, error: adjErr } = await supabase
     .from("vendor_payment_adjustments")
     .insert({
       vendor_payment_id: vendorPaymentId,
       description: description.trim(),
       amount: adjustment,
-    });
+    })
+    .select("id")
+    .single();
 
   if (adjErr) return { error: adjErr.message };
 
@@ -1340,15 +1383,17 @@ export async function adjustVendorPaymentAmount(
     }
   }
 
-  // Fetch chart of accounts
-  const accounts = await getAccountIdMap(supabase, ["1210", "1230", "2000"]);
+  // Fetch chart of accounts — include 6900 for G&A invoices
+  const accounts = await getAccountIdMap(supabase, ["1210", "1230", "2000", "6900"]);
 
   const acct1210 = accounts.get("1210");
   const acct1230 = accounts.get("1230");
   const acct2000 = accounts.get("2000");
+  const acct6900 = accounts.get("6900");
 
   if (acct1210 && acct1230 && acct2000) {
-    const wipAcctId = isLandDev ? acct1230 : acct1210;
+    // Determine WIP account: no project (G&A) → 6900, land dev → 1230, else → 1210
+    const wipAcctId = !projectId ? (acct6900 ?? acct1210) : (isLandDev ? acct1230 : acct1210);
     const adjustmentAbsolute = Math.abs(adjustment);
 
     let jeLines: {
@@ -1361,7 +1406,7 @@ export async function adjustVendorPaymentAmount(
 
     if (adjustment < 0) {
       // Negative adjustment (credit) — reduces what we owe
-      // DR Accounts Payable (2000), CR WIP (1210 or 1230)
+      // DR Accounts Payable (2000), CR WIP (1210 or 1230) or G&A (6900)
       jeLines = [
         {
           account_id: acct2000,
@@ -1380,7 +1425,7 @@ export async function adjustVendorPaymentAmount(
       ];
     } else {
       // Positive adjustment (additional charge) — increases what we owe
-      // DR WIP (1210 or 1230), CR Accounts Payable (2000)
+      // DR WIP (1210 or 1230) or G&A (6900), CR Accounts Payable (2000)
       jeLines = [
         {
           account_id: wipAcctId,
@@ -1407,7 +1452,7 @@ export async function adjustVendorPaymentAmount(
         description: `Vendor payment adjustment — ${description}`,
         status: "posted",
         source_type: "vendor_adjustment",
-        source_id: vendorPaymentId,
+        source_id: adjRecord?.id ?? vendorPaymentId,
         user_id: user.id,
       },
       jeLines
@@ -1473,6 +1518,21 @@ export async function deleteVendorPaymentAdjustment(
     .eq("id", adj.vendor_payment_id);
 
   if (updErr) return { error: updErr.message };
+
+  // Void any journal entry that was posted for this adjustment
+  const { data: relatedJEs } = await supabase
+    .from("journal_entries")
+    .select("id")
+    .eq("source_id", adjustmentId)
+    .eq("status", "posted");
+
+  if (relatedJEs && relatedJEs.length > 0) {
+    const jeIds = relatedJEs.map((je) => je.id);
+    await supabase
+      .from("journal_entries")
+      .update({ status: "void" })
+      .in("id", jeIds);
+  }
 
   revalidatePath(`/draws/${vp.draw_id}`);
   return {};

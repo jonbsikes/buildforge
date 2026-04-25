@@ -50,7 +50,7 @@ const EMPTY_STEP1: Step1Fields = {
   home_size_sf: "",
   start_date: "",
   lender_id: "",
-  status: "planning",
+  status: "pre_construction",
   loan_number: "",
 };
 
@@ -286,11 +286,10 @@ export default function HomeConstructionForm({ lenders, costCodes }: Props) {
                 onChange={(e) => updateField("status", e.target.value)}
                 className={inputClass(false)}
               >
-                <option value="planning">Planning</option>
+                <option value="pre_construction">Pre-Construction</option>
                 <option value="active">Active</option>
                 <option value="on_hold">On Hold</option>
                 <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
               </select>
             </Field>
 

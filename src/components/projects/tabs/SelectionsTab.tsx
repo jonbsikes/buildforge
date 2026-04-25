@@ -23,19 +23,21 @@ const CATEGORIES = [
   "Appliances", "Fixtures", "Doors & Hardware", "Windows", "Exterior",
 ];
 
-const STATUS_ORDER = ["pending", "confirmed", "ordered", "installed"];
+const STATUS_ORDER = ["pending", "selected", "ordered", "delivered", "installed"];
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; activeBg: string; border: string; dot: string }> = {
   pending:   { bg: "bg-gray-50",    text: "text-gray-600",   activeBg: "active:bg-gray-100",   border: "border-gray-200", dot: "bg-gray-400" },
-  confirmed: { bg: "bg-blue-50",    text: "text-blue-700",   activeBg: "active:bg-blue-100",   border: "border-blue-200", dot: "bg-blue-500" },
+  selected:  { bg: "bg-blue-50",    text: "text-blue-700",   activeBg: "active:bg-blue-100",   border: "border-blue-200", dot: "bg-blue-500" },
   ordered:   { bg: "bg-purple-50",  text: "text-purple-700", activeBg: "active:bg-purple-100", border: "border-purple-200", dot: "bg-purple-500" },
+  delivered: { bg: "bg-amber-50",   text: "text-amber-700",  activeBg: "active:bg-amber-100",  border: "border-amber-200", dot: "bg-amber-500" },
   installed: { bg: "bg-green-50",   text: "text-green-700",  activeBg: "active:bg-green-100",  border: "border-green-200", dot: "bg-green-500" },
 };
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
-  confirmed: "Confirmed",
+  selected: "Selected",
   ordered: "Ordered",
+  delivered: "Delivered",
   installed: "Installed",
 };
 

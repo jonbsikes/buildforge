@@ -64,8 +64,8 @@ function getCodesForContext(
   if (projectType === "land_development") {
     return allCodes.filter((c) => c.project_type === "land_development");
   }
-  // No project selected → show all codes so AI-suggested codes are always visible
-  return allCodes;
+  // No project selected → show only G&A codes
+  return allCodes.filter((c) => c.project_type === "general_admin");
 }
 
 type AiConfidence = "high" | "medium" | "low" | null;

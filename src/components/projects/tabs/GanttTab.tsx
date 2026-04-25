@@ -149,7 +149,7 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
     ro.observe(node);
     measure();
     return () => ro.disconnect();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [totalDays]);
 
   // dayWidth: how many px represents one day
   // Full  → entire timeline area fits all days

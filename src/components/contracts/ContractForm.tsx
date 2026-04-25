@@ -17,11 +17,9 @@ interface Props {
 }
 
 const STATUSES = [
-  { value: "draft",     label: "Draft" },
   { value: "active",    label: "Active" },
-  { value: "signed",    label: "Signed" },
   { value: "completed", label: "Completed" },
-  { value: "voided",    label: "Voided" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 function ic(err = false) {
