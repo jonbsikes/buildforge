@@ -559,10 +559,19 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                 style={isPastDue ? { borderLeft: "3px solid var(--status-over)" } : undefined}
               >
                 <div className="flex items-start gap-2.5">
-                  <span
-                    className="inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
-                    style={{ backgroundColor: STATUS_DOT_COLOR[effectiveStatus] ?? "var(--status-neutral)" }}
-                  />
+                  <div className="flex flex-col items-center gap-1 mt-1.5 flex-shrink-0">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full"
+                      style={{ backgroundColor: STATUS_DOT_COLOR[effectiveStatus] ?? "var(--status-neutral)" }}
+                    />
+                    {inv.in_draw && (
+                      <Landmark
+                        size={12}
+                        className="text-[color:var(--brand-blue)]"
+                        aria-label="In draw request"
+                      />
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">
                       {inv.vendor ?? "—"}
@@ -710,15 +719,31 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                           />
                         </td>
                       )}
-                    {/* Status dot only */}
-                    <td className="w-6 px-2 py-2 align-middle">
-                      <span
-                        className="inline-block w-2 h-2 rounded-full"
-                        style={{
-                          backgroundColor: STATUS_DOT_COLOR[effectiveStatus] ?? "var(--status-neutral)",
-                        }}
-                        title={STATUS_CHIP_LABEL[effectiveStatus] ?? effectiveStatus}
-                      />
+                    {/* Status dot + draw indicator */}
+                    <td className="w-10 px-2 py-2 align-middle">
+                      <div className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: STATUS_DOT_COLOR[effectiveStatus] ?? "var(--status-neutral)",
+                          }}
+                          title={STATUS_CHIP_LABEL[effectiveStatus] ?? effectiveStatus}
+                        />
+                        {inv.in_draw && (
+                          <Link
+                            href={`/draws/${inv.in_draw.id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title={
+                              inv.in_draw.draw_date
+                                ? `In draw request — ${inv.in_draw.draw_date}${inv.in_draw.status ? ` (${inv.in_draw.status})` : ""}`
+                                : "In draw request"
+                            }
+                            className="text-[color:var(--brand-blue)] hover:text-[#3461de] transition-colors flex-shrink-0"
+                          >
+                            <Landmark size={13} />
+                          </Link>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-2">
                       <p className="font-semibold text-gray-900 text-sm">
@@ -776,21 +801,6 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                     </td>
                     <td className="px-3 py-2 relative text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="inline-flex items-center gap-1 justify-end">
-                        {inv.in_draw && (
-                          <Link
-                            href={`/draws/${inv.in_draw.id}`}
-                            onClick={(e) => e.stopPropagation()}
-                            title={
-                              inv.in_draw.draw_date
-                                ? `In draw request — ${inv.in_draw.draw_date}${inv.in_draw.status ? ` (${inv.in_draw.status})` : ""}`
-                                : "In draw request"
-                            }
-                            className="text-[color:var(--brand-blue)] hover:text-[#3461de] transition-colors flex-shrink-0"
-                          >
-                            <Landmark size={14} />
-                          </Link>
-                        )}
-
                         {effectiveStatus === "pending_review" && (
                           <button
                             title={isLowConf && !inv.manually_reviewed ? "Review required before approval" : "Approve invoice (a)"}
@@ -1022,19 +1032,23 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       </div>
                     </td>
                     <td className="px-4 py-2 text-center" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={drawOverrides[inv.id] ?? (inv.pending_draw ?? false)}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          setDrawOverrides((prev) => ({ ...prev, [inv.id]: next }));
-                          startTransition(async () => {
-                            await setPendingDraw(inv.id, next);
-                          });
-                        }}
-                        disabled={isPending}
-                        className="rounded border-gray-300 text-[color:var(--brand-blue)] focus:ring-[color:var(--brand-blue)]"
-                      />
+                      {effectiveStatus === "approved" && !inv.in_draw ? (
+                        <input
+                          type="checkbox"
+                          checked={drawOverrides[inv.id] ?? (inv.pending_draw ?? false)}
+                          onChange={(e) => {
+                            const next = e.target.checked;
+                            setDrawOverrides((prev) => ({ ...prev, [inv.id]: next }));
+                            startTransition(async () => {
+                              await setPendingDraw(inv.id, next);
+                            });
+                          }}
+                          disabled={isPending}
+                          className="rounded border-gray-300 text-[color:var(--brand-blue)] focus:ring-[color:var(--brand-blue)]"
+                        />
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 w-8 text-center" onClick={(e) => e.stopPropagation()}>
                       <ConfirmButton
