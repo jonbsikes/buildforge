@@ -88,7 +88,7 @@ export default async function VendorsPage() {
           </Link>
         </div>
 
-        <VendorsClient vendors={enriched as any[]} />
+        <VendorsClient vendors={enriched as unknown as Parameters<typeof VendorsClient>[0]["vendors"]} />
       </main>
     </>
   );

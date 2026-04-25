@@ -30,10 +30,10 @@ export default function NotificationBell() {
   const [isPending, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
 
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
 
   async function fetchNotifications() {
-    const { data } = await supabase
+    const { data } = await supabaseRef.current
       .from("notifications")
       .select("id, type, message, is_read, created_at, reference_id, reference_type")
       .eq("is_read", false)
@@ -72,17 +72,19 @@ export default function NotificationBell() {
   }, [open]);
 
   async function markRead(id: string) {
-    await supabase.from("notifications").update({ is_read: true }).eq("id", id);
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    const { error } = await supabaseRef.current.from("notifications").update({ is_read: true }).eq("id", id);
+    if (!error) {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    }
   }
 
   async function markAllRead() {
     startTransition(async () => {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } = await supabaseRef.current.auth.getUser();
       if (!user) return;
-      await supabase
+      await supabaseRef.current
         .from("notifications")
         .update({ is_read: true })
         .eq("user_id", user.id)

@@ -137,7 +137,7 @@ export default function APAgingClient() {
           loan_draws ( id, draw_date )
         `)
         .not("check_number", "is", null)
-        .neq("status", "cleared")
+        .eq("status", "paid")
         .order("payment_date", { ascending: true });
 
       const checksMap = new Map<string, OutstandingCheck>();

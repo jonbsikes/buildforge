@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 import type { Database } from "@/types/database";
 
 export async function createCostCode(formData: FormData) {
@@ -30,6 +31,8 @@ export async function createCostCode(formData: FormData) {
 }
 
 export async function toggleCostCode(id: string, isActive: boolean) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const { error } = await supabase
     .from("cost_codes")
@@ -40,6 +43,8 @@ export async function toggleCostCode(id: string, isActive: boolean) {
 }
 
 export async function deleteCostCode(id: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const { error } = await supabase.from("cost_codes").delete().eq("id", id);
   if (error) throw new Error(error.message);

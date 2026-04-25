@@ -153,7 +153,7 @@ export default function JobCostReportClient() {
 
       // Add JE-based actuals (skip invoice-related to avoid double-counting)
       for (const row of jeRes.data ?? []) {
-        const je = row.journal_entry as any;
+        const je = row.journal_entry as { status: string; source_type: string } | null;
         if (!je || je.status !== "posted") continue;
         if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
         if (!row.cost_code_id || !row.project_id) continue;

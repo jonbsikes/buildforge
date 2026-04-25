@@ -1,10 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+function requireEnv(name: string): string {
+  const v = Deno.env.get(name);
+  if (!v) throw new Error(`Missing required env var: ${name}`);
+  return v;
+}
 
-Deno.serve(async (_req: Request) => {
+const supabaseUrl = requireEnv("SUPABASE_URL");
+const supabaseServiceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+Deno.serve(async (req: Request) => {
+  // Auth gate: only allow cron / trusted callers
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  if (cronSecret) {
+    const authHeader = req.headers.get("authorization");
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+  }
+
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -28,16 +43,18 @@ Deno.serve(async (_req: Request) => {
     });
   }
 
-  // Includes read notifications so dismissals stay dismissed — otherwise the cron would
-  // re-create a notification the user just marked read.
-  async function notifExists(userId: string, type: string, referenceId: string): Promise<boolean> {
-    const { count } = await supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("type", type)
-      .eq("reference_id", referenceId);
-    return (count ?? 0) > 0;
+  // Batch-load all existing notifications to avoid N+1 queries per (user, type, reference)
+  const { data: existingNotifs } = await supabase
+    .from("notifications")
+    .select("user_id, type, reference_id");
+  const existingSet = new Set(
+    (existingNotifs ?? []).map((n: { user_id: string; type: string; reference_id: string }) =>
+      `${n.user_id}:${n.type}:${n.reference_id}`
+    )
+  );
+
+  function notifExists(userId: string, type: string, referenceId: string): boolean {
+    return existingSet.has(`${userId}:${type}:${referenceId}`);
   }
 
   async function createNotif(
@@ -47,7 +64,7 @@ Deno.serve(async (_req: Request) => {
     referenceType: string,
     message: string
   ) {
-    if (await notifExists(userId, type, referenceId)) return;
+    if (notifExists(userId, type, referenceId)) return;
     await supabase.from("notifications").insert({
       user_id: userId,
       type,
@@ -56,7 +73,12 @@ Deno.serve(async (_req: Request) => {
       message,
       is_read: false,
     });
+    existingSet.add(`${userId}:${type}:${referenceId}`);
     generated.push(`${type}:${referenceId}`);
+  }
+
+  function fmtUSD(n: number): string {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
   }
 
   const { data: pastDueInvoices } = await supabase
@@ -66,7 +88,7 @@ Deno.serve(async (_req: Request) => {
     .not("status", "in", "(paid,disputed)");
 
   for (const inv of pastDueInvoices ?? []) {
-    const amount = (inv.total_amount ?? inv.amount ?? 0).toLocaleString("en-AU", { style: "currency", currency: "AUD" });
+    const amount = fmtUSD(inv.total_amount ?? inv.amount ?? 0);
     const msg = `Invoice ${inv.invoice_number ?? inv.id} from ${inv.vendor ?? "Unknown Vendor"} (${amount}) was due ${inv.due_date} and is past due.`;
     for (const uid of userIds) {
       await createNotif(uid, "invoice_past_due", inv.id, "invoice", msg);
@@ -79,7 +101,7 @@ Deno.serve(async (_req: Request) => {
     .eq("status", "pending_review");
 
   for (const inv of pendingInvoices ?? []) {
-    const amount = (inv.total_amount ?? inv.amount ?? 0).toLocaleString("en-AU", { style: "currency", currency: "AUD" });
+    const amount = fmtUSD(inv.total_amount ?? inv.amount ?? 0);
     const msg = `Invoice ${inv.invoice_number ?? inv.id} from ${inv.vendor ?? "Unknown Vendor"} (${amount}) is awaiting review and approval.`;
     for (const uid of userIds) {
       await createNotif(uid, "invoice_pending_review", inv.id, "invoice", msg);

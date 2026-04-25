@@ -346,7 +346,7 @@ export async function removeInvoiceFromDraw(
     .single();
 
   if (!draw) return { error: "Draw not found" };
-  if (draw.status === "paid") return { error: "Cannot modify a paid draw" };
+  if (draw.status === "funded" || draw.status === "paid") return { error: "Cannot modify a funded or paid draw" };
 
   const { error } = await supabase
     .from("draw_invoices")
@@ -534,7 +534,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const displayName = drawDisplayName(draw.draw_date);
   const today = new Date().toISOString().split("T")[0];
 
-  const accounts = await getAccountIdMap(supabase, ["1000", "1120", "1210", "1230", "2000", "2060", "2100"]);
+  const accounts = await getAccountIdMap(supabase, ["1000", "1120", "1210", "1230", "2000", "2060", "2100", "6900"]);
 
   const acct1000 = accounts.get("1000");
   const acct1120 = accounts.get("1120");
@@ -542,6 +542,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const acct1230 = accounts.get("1230");
   const acct2000 = accounts.get("2000");
   const acct2060 = accounts.get("2060");
+  const acct6900 = accounts.get("6900");
   const fallbackLoanPayableId = accounts.get("2100");
 
   // Load all invoices in this draw (needed for both WIP/AP and loan balance update)
@@ -771,17 +772,13 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         if (!li.amount || li.amount <= 0) continue;
         const projType = (li.projects as { project_type: string } | null)?.project_type ?? null;
         const isLandDev = projType === "land_development";
-        const wipAcctId = isLandDev ? acct1230 : (!li.project_id ? acct1210 : (isLandDev ? acct1230 : acct1210));
         // Look up the invoice's vendor label for the description
         const parentDi = (drawInvoiceDetails ?? []).find(d => (d.invoices as InvDetail | null)?.id === li.invoice_id);
         const parentInv = parentDi?.invoices as InvDetail | null;
         const invLabel = parentInv ? [parentInv.vendor, parentInv.invoice_number].filter(Boolean).join(" — Inv #") : "Construction cost";
 
-        // Determine correct WIP account from line item project
-        const debitAcctId = !li.project_id ? acct1210 : (isLandDev ? acct1230 : acct1210);
-        // G&A line items (no project) should go to 6900 but that's not loaded here;
-        // however, draw invoices always have a project (draws are project-based),
-        // so this case shouldn't arise. Use acct1210 as fallback.
+        // Determine correct debit account: no project → G&A (6900), land dev → CIP (1230), else → WIP (1210)
+        const debitAcctId = !li.project_id ? (acct6900 ?? acct1210) : (isLandDev ? acct1230 : acct1210);
 
         wipLines.push({
           account_id: debitAcctId,

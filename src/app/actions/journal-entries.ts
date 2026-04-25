@@ -128,7 +128,7 @@ export async function voidJournalEntry(id: string) {
 
   const { error } = await supabase
     .from("journal_entries")
-    .update({ status: "voided" })
+    .update({ status: "void" })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

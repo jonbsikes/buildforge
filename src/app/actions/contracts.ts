@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { requireAdmin } from "@/lib/auth";
 
 export interface ContractInput {
   project_id: string;
@@ -16,6 +17,8 @@ export interface ContractInput {
 }
 
 export async function createContract(input: ContractInput): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase.from("contracts").insert({
     project_id: input.project_id,
@@ -33,6 +36,8 @@ export async function createContract(input: ContractInput): Promise<{ error?: st
 }
 
 export async function updateContract(id: string, input: ContractInput): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("contracts")
@@ -54,6 +59,8 @@ export async function updateContract(id: string, input: ContractInput): Promise<
 }
 
 export async function deleteContract(id: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase.from("contracts").delete().eq("id", id);
   if (error) return { error: error.message };

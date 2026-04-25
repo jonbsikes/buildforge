@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import { createClient } from "@/lib/supabase/server";
 import { extractStructured } from "@/lib/ai/extract";
+import { rateLimit } from "@/lib/rate-limit";
 
 const SYSTEM_PROMPT = `You are a vendor data extraction assistant for a residential construction company.
 
@@ -70,6 +71,10 @@ export async function POST(req: NextRequest) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    if (!rateLimit(user.id, 10, 60_000)) {
+      return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+    }
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;

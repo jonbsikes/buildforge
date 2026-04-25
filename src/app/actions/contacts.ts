@@ -105,6 +105,19 @@ export async function deleteContact(
     };
   }
 
+  // Check if contact is referenced on any draw
+  const { count: drawCount } = await supabase
+    .from("loan_draws")
+    .select("id", { count: "exact", head: true })
+    .eq("lender_id", id);
+
+  if (drawCount && drawCount > 0) {
+    return {
+      error:
+        "This contact is linked to one or more draws and cannot be deleted.",
+    };
+  }
+
   const { error } = await supabase
     .from("contacts")
     .delete()

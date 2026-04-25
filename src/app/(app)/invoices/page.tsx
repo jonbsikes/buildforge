@@ -155,7 +155,7 @@ export default async function InvoicesPage() {
               />
             </div>
           ) : (
-            <InvoicesTable rows={rows as any} />
+            <InvoicesTable rows={rows as unknown as Parameters<typeof InvoicesTable>[0]["rows"]} />
           )}
         </div>
       </main>

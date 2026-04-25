@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 
 // ---------------------------------------------------------------------------
 // Global field logs (cross-project)
@@ -58,6 +59,8 @@ export async function createFieldTodo(formData: FormData) {
 }
 
 export async function updateTodoStatus(id: string, status: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const update: Record<string, string | null> = { status };
   if (status === "done") {
@@ -70,6 +73,8 @@ export async function updateTodoStatus(id: string, status: string) {
 }
 
 export async function deleteTodo(id: string) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   await supabase.from("field_todos").delete().eq("id", id);
   revalidatePath("/field-logs");
@@ -79,6 +84,8 @@ export async function updateFieldTodo(
   id: string,
   input: { description: string; priority: string; due_date: string | null }
 ) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   await supabase
     .from("field_todos")
@@ -95,6 +102,8 @@ export async function updateFieldLog(
   id: string,
   input: { log_date: string; notes: string }
 ) {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("field_logs")

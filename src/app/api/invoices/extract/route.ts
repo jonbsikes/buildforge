@@ -3,6 +3,7 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 import { createClient } from "@/lib/supabase/server";
 import { extractStructured } from "@/lib/ai/extract";
 import { findVendorId, normalizeCostCode } from "@/lib/ai/match";
+import { rateLimit } from "@/lib/rate-limit";
 
 const SYSTEM_PROMPT = `You are an invoice data extraction assistant for a residential construction and land development company.
 
@@ -100,6 +101,10 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    if (!rateLimit(user.id, 10, 60_000)) {
+      return NextResponse.json({ error: "Too many requests. Please wait a moment." }, { status: 429 });
+    }
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const projectsRaw = formData.get("projects") as string | null;
@@ -168,7 +173,7 @@ export async function POST(req: NextRequest) {
     // against the same vendor + cost-code snapshot.
     const [{ data: vendorRows }, { data: costCodeRows }] = await Promise.all([
       supabase.from("vendors").select("id, name").eq("is_active", true),
-      supabase.from("cost_codes").select("code").is("user_id", null),
+      supabase.from("cost_codes").select("code"),
     ]);
     const vendorList = (vendorRows ?? []) as { id: string; name: string }[];
     const validCodeSet = new Set(

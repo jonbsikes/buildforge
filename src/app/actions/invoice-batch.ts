@@ -12,6 +12,8 @@ import { approveInvoice } from "@/app/actions/invoices";
 export async function approveInvoicesBatch(
   invoiceIds: string[]
 ): Promise<{ error?: string; approved: number; skipped: number; errors: string[] }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error, approved: 0, skipped: 0, errors: [] };
   const errors: string[] = [];
   let approved = 0;
   let skipped = 0;

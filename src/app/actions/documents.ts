@@ -30,6 +30,7 @@ export async function uploadDocument(formData: FormData) {
 
   if (uploadError) {
     console.error("Storage upload error:", uploadError.message);
+    throw new Error(`File upload failed: ${uploadError.message}`);
   }
 
   const { data: urlData } = supabase.storage
@@ -58,13 +59,15 @@ export async function deleteDocument(id: string, storagePath: string | null) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
+  // Delete DB row first — an orphaned storage file is recoverable;
+  // a dangling DB pointer to a missing file is not.
+  await supabase.from("documents").delete().eq("id", id).eq("uploaded_by", user.id);
+
   if (storagePath) {
     const pathMatch = storagePath.match(/\/documents\/(.+)$/);
     if (pathMatch) {
       await supabase.storage.from("documents").remove([pathMatch[1]]);
     }
   }
-
-  await supabase.from("documents").delete().eq("id", id).eq("uploaded_by", user.id);
   revalidatePath("/documents");
 }

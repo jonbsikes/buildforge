@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { requireAdmin } from "@/lib/auth";
 
 export interface VendorFormData {
   name: string;
@@ -79,6 +80,8 @@ export async function updateVendor(
   id: string,
   data: VendorFormData
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -118,6 +121,8 @@ export async function updateVendor(
 // deactivateVendor
 // ---------------------------------------------------------------------------
 export async function deactivateVendor(id: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("vendors")
@@ -153,6 +158,8 @@ export async function deleteVendor(id: string): Promise<{ error?: string }> {
 // runNotifications — called on page load to refresh expiry notifications
 // ---------------------------------------------------------------------------
 export async function runNotifications(): Promise<void> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return;
   const supabase = await createClient();
   await supabase.rpc("generate_notifications");
 }

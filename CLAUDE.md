@@ -105,7 +105,9 @@ This is correct GAAP treatment: construction loan interest on qualifying assets 
 
 **Code 110 "Interest Expense" (G&A, codes 103–120)** is reserved for company-level interest only — e.g., interest on an operating line of credit. It is always company-level (`project_id = null`) and always hits 6900 / the income statement. Never use code 110 for construction loan interest.
 
-Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" account for project loan interest. It flows through AP (standard path) or directly to Cash (auto-draft path) and lands in WIP/CIP — no separate interest account is needed or correct.
+Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" account for project loan interest **paid via invoice**. It flows through AP (standard path) or directly to Cash (auto-draft path) and lands in WIP/CIP — no separate interest account is needed or correct.
+
+**Monthly interest accruals** (`accrueConstructionInterest` in `banking.ts`) use accounts 1220 (Capitalized Interest — asset), 2110 (Interest Payable — liability), and 6710 (Interest Expense — for non-capitalizable interest). These are for period-end accruals between payment dates, not for invoice-based interest. Account 2110 is cleared when the corresponding interest payment is processed.
 - The authoritative GL system is `journal_entries` + `journal_entry_lines` (double-entry). The old `gl_entries` table is legacy — do not write new entries to it
 - All journal entries post automatically at the correct lifecycle event — see **Automated Journal Entry Triggers** section
 - `committed_amount` = sum of active contract amounts per cost code/project
@@ -246,7 +248,8 @@ Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" 
 | invoice_number | string | |
 | invoice_date | date | |
 | due_date | date | Required — defaults to entry date if not provided |
-| amount | decimal | Total invoice amount (sum of all line items) |
+| amount | decimal | Total invoice amount (sum of all line items). Always kept in sync with `total_amount` |
+| total_amount | decimal | Alias of `amount` — both are written together by `saveInvoice`. Read via `(total_amount ?? amount ?? 0)` for safety |
 | status | string | `'pending_review'`, `'approved'`, `'released'`, `'cleared'`, `'disputed'`, `'void'` |
 | payment_date | date | nullable — set when check clears bank (status = `cleared`) |
 | payment_method | string | `'check'`, `'ach'`, `'wire'`, `'credit_card'` (nullable). The Payment Register row supports `'auto_draft'` as well, but on the invoice itself `auto_draft` is mapped to `'ach'` because the invoice column does not enumerate `auto_draft`. The distinction is preserved on `payments.payment_method`; if you need to identify auto-drafted invoices, query via the Payment Register, not the invoice row. |
@@ -752,12 +755,15 @@ All journal entries are posted automatically by server actions. **Never manually
 |---|---|---|
 | Cash (DDA) | 1000 | Asset |
 | Due from Lender | 1120 | Asset |
+| Capitalized Interest (WIP) | 1220 | Asset |
 | Construction WIP | 1210 | Asset |
 | CIP — Land Improvements | 1230 | Asset |
 | Accounts Payable | 2000 | Liability |
 | Checks Issued - Outstanding | 2050 | Liability |
 | Draws Pending Funding | 2060 | Liability |
+| Interest Payable (Accrued) | 2110 | Liability |
 | Construction Loan Payable (per loan) | 2201–229x | Liability |
+| Interest Expense (Non-Capitalized) | 6710 | Expense |
 | G&A / Misc Operating Expense | 6900 | Expense |
 
 ### Source files

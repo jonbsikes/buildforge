@@ -687,7 +687,6 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                   ? Math.floor((new Date(todayStr).getTime() - new Date(inv.due_date).getTime()) / 86400000)
                   : 0;
                 return (
-                  <>
                     <tr
                       key={inv.id}
                       data-row-index={rowIdx}
@@ -1052,7 +1051,6 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       />
                     </td>
                   </tr>
-                  </>
                 );
               })}
             </tbody>

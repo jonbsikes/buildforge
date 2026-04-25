@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
 function requireEnv(name: string): string {
@@ -314,7 +314,16 @@ async function findProjectByHint(
   return data?.[0]?.id ?? null;
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
+  // Auth gate: only allow cron / trusted callers
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  if (cronSecret) {
+    const authHeader = req.headers.get("authorization");
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+  }
+
   let processed = 0;
   let skipped = 0;
   let errors = 0;
@@ -327,7 +336,7 @@ Deno.serve(async () => {
     // reference data.
     const [{ data: vendors }, { data: costCodes }] = await Promise.all([
       supabase.from("vendors").select("id, name").eq("is_active", true),
-      supabase.from("cost_codes").select("code").is("user_id", null),
+      supabase.from("cost_codes").select("code"),
     ]);
 
     const vendorList = vendors ?? [];

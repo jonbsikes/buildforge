@@ -14,17 +14,22 @@ export async function updateDisplayName(displayName: string): Promise<void> {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  // Try update first
   const { error, count } = await supabase
     .from("user_profiles")
     .update({ display_name: trimmed }, { count: "exact" })
     .eq("id", user.id);
   if (error) throw new Error(error.message);
 
+  // If no row exists, create one with default role (uses upsert to avoid race)
   if (count === 0) {
-    const { error: insertError } = await supabase
+    const { error: upsertError } = await supabase
       .from("user_profiles")
-      .insert({ id: user.id, display_name: trimmed, role: "project_manager" });
-    if (insertError) throw new Error(insertError.message);
+      .upsert(
+        { id: user.id, display_name: trimmed, role: "project_manager" },
+        { onConflict: "id", ignoreDuplicates: true }
+      );
+    if (upsertError) throw new Error(upsertError.message);
   }
 
   revalidatePath("/", "layout");

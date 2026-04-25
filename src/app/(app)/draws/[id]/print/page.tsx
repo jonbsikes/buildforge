@@ -30,7 +30,7 @@ export default async function DrawPrintPage({ params }: Props) {
 
   const lender = draw.contacts as { id: string; name: string } | null;
 
-  const { summary } = await fetchDrawSummary(supabase as any, id);
+  const { summary } = await fetchDrawSummary(supabase as unknown as import("@supabase/supabase-js").SupabaseClient, id);
   const { groups: loanGroups, grandTotal } = summary;
 
   const drawName = drawDisplayName(draw.draw_date);

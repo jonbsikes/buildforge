@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth";
 
 export async function createTodo(input: {
   project_id: string;
@@ -30,6 +31,8 @@ export async function createTodo(input: {
 }
 
 export async function completeTodo(todoId: string, projectId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("field_todos")
@@ -42,6 +45,8 @@ export async function completeTodo(todoId: string, projectId: string): Promise<{
 }
 
 export async function reopenTodo(todoId: string, projectId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("field_todos")
@@ -54,6 +59,8 @@ export async function reopenTodo(todoId: string, projectId: string): Promise<{ e
 }
 
 export async function deleteTodo(todoId: string, projectId: string): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase.from("field_todos").delete().eq("id", todoId);
   if (error) return { error: error.message };
@@ -67,6 +74,8 @@ export async function updateTodo(
   projectId: string,
   input: { description: string; priority: string; due_date: string | null }
 ): Promise<{ error?: string }> {
+  const adminCheck = await requireAdmin();
+  if (!adminCheck.authorized) return { error: adminCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("field_todos")

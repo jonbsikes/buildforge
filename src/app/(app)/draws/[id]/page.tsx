@@ -64,12 +64,12 @@ export default async function DrawDetailPage({ params }: Props) {
     `)
     .eq("draw_id", id);
 
-  const { data: glEntry } = await supabase
-    .from("gl_entries")
-    .select("id, entry_date, description, debit_account, credit_account, amount")
+  const { data: journalEntries } = await supabase
+    .from("journal_entries")
+    .select("id, entry_date, reference, description, status, journal_entry_lines ( id, description, debit, credit, account_id, chart_of_accounts ( account_number, name ) )")
     .eq("source_id", id)
-    .eq("source_type", "loan_draw")
-    .maybeSingle();
+    .eq("status", "posted")
+    .order("entry_date", { ascending: true });
 
   const lender = draw.contacts as { id: string; name: string } | null;
   const canEdit = draw.status !== "paid";
@@ -288,13 +288,24 @@ export default async function DrawDetailPage({ params }: Props) {
             </div>
           </div>
 
-          {/* GL entry (funded only) */}
-          {glEntry && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm">
-              <p className="font-medium text-green-800 mb-1">GL Entry Posted</p>
-              <p className="text-green-700 text-xs">
-                {glEntry.entry_date} · Dr {glEntry.debit_account} / Cr {glEntry.credit_account} · {fmt(glEntry.amount)}
-              </p>
+          {/* Journal entries (funded draws will have posted JEs) */}
+          {(journalEntries ?? []).length > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm space-y-2">
+              <p className="font-medium text-green-800 mb-1">Journal Entries Posted</p>
+              {(journalEntries ?? []).map((je) => {
+                type JELine = { id: string; description: string; debit: number; credit: number; account_id: string; chart_of_accounts: { account_number: string; name: string } | null };
+                const lines = (je.journal_entry_lines ?? []) as JELine[];
+                const debits = lines.filter((l) => (l.debit ?? 0) > 0);
+                const credits = lines.filter((l) => (l.credit ?? 0) > 0);
+                const drAccts = debits.map((l) => l.chart_of_accounts?.account_number ?? "?").join(", ");
+                const crAccts = credits.map((l) => l.chart_of_accounts?.account_number ?? "?").join(", ");
+                const total = debits.reduce((s, l) => s + (l.debit ?? 0), 0);
+                return (
+                  <p key={je.id} className="text-green-700 text-xs">
+                    {je.entry_date} · {je.reference} · Dr {drAccts} / Cr {crAccts} · {fmt(total)}
+                  </p>
+                );
+              })}
             </div>
           )}
 

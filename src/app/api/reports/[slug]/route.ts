@@ -69,9 +69,6 @@ export async function GET(
     });
   } catch (err) {
     console.error(`[report:${slug}]`, err);
-    return new NextResponse(
-      `Failed to render report: ${err instanceof Error ? err.message : "unknown error"}`,
-      { status: 500 }
-    );
+    return new NextResponse("Failed to render report", { status: 500 });
   }
 }

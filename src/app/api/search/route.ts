@@ -16,12 +16,19 @@ export type SearchHit = {
  * Per UI Review § 02 #14.
  */
 export async function GET(req: NextRequest) {
-  const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
-  if (q.length < 1) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const raw = (req.nextUrl.searchParams.get("q") ?? "").trim();
+  if (raw.length < 1) {
     return NextResponse.json({ hits: [] });
   }
 
-  const supabase = await createClient();
+  // Sanitize: strip characters that break PostgREST .or() filter DSL
+  const q = raw.replace(/[,()%_\\"']/g, "");
+  if (!q) return NextResponse.json({ hits: [] });
+
   const like = `%${q}%`;
 
   const [projectsRes, vendorsRes, invoicesRes, contactsRes] = await Promise.all([

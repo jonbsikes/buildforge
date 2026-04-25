@@ -6,6 +6,7 @@ import { createTodo, completeTodo, reopenTodo, deleteTodo, updateTodo } from "@/
 import { Plus, Circle, CheckCircle2, Trash2, RotateCcw, Pencil, Check, X } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { StatusKind } from "@/components/ui/StatusBadge";
+import ConfirmButton from "@/components/ui/ConfirmButton";
 
 interface Project { id: string; name: string }
 
@@ -94,12 +95,9 @@ export default function TodosClient() {
     });
   }
 
-  function handleDelete(todo: Todo) {
-    if (!confirm(`Delete "${todo.description}"?`)) return;
-    startAdd(async () => {
-      await deleteTodo(todo.id, todo.project_id);
-      refreshTodos();
-    });
+  async function handleDelete(todo: Todo) {
+    await deleteTodo(todo.id, todo.project_id);
+    refreshTodos();
   }
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -313,14 +311,16 @@ export default function TodosClient() {
                           >
                             <Pencil size={14} />
                           </button>
-                          <button
-                            onClick={() => handleDelete(t)}
-                            className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                            aria-label={`Delete "${t.description}"`}
-                            title="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <ConfirmButton
+                            trigger={<Trash2 size={14} />}
+                            title={`Delete "${t.description}"?`}
+                            body="This permanently removes the to-do."
+                            confirmLabel="Delete"
+                            tone="danger"
+                            onConfirm={() => handleDelete(t)}
+                            triggerClassName="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                            ariaLabel={`Delete "${t.description}"`}
+                          />
                         </>
                       )}
                     </div>
@@ -356,14 +356,16 @@ export default function TodosClient() {
               >
                 <RotateCcw size={14} />
               </button>
-              <button
-                onClick={() => handleDelete(t)}
-                className="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
-                aria-label={`Delete "${t.description}"`}
-                title="Delete"
-              >
-                <Trash2 size={14} />
-              </button>
+              <ConfirmButton
+                trigger={<Trash2 size={14} />}
+                title={`Delete "${t.description}"?`}
+                body="This permanently removes the to-do."
+                confirmLabel="Delete"
+                tone="danger"
+                onConfirm={() => handleDelete(t)}
+                triggerClassName="flex-shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-0.5 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                ariaLabel={`Delete "${t.description}"`}
+              />
             </div>
           ))}
         </div>
