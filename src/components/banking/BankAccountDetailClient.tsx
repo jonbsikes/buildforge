@@ -213,7 +213,7 @@ export default function BankAccountDetailClient({
         </div>
       )}
 
-      {/* Transaction table */}
+      {/* Empty state (shared) */}
       {transactions.length === 0 ? (
         <div className="text-center py-12 bg-white border border-gray-200 rounded-lg">
           <p className="text-sm text-gray-400 mb-3">
@@ -232,108 +232,227 @@ export default function BankAccountDetailClient({
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <th className="px-3 py-2.5">Date</th>
-                <th className="px-3 py-2.5">Description</th>
-                <th className="px-3 py-2.5">Ref</th>
-                <th className="px-3 py-2.5 text-right">Debit (Out)</th>
-                <th className="px-3 py-2.5 text-right">Credit (In)</th>
-                <th className="px-3 py-2.5 text-right">Balance</th>
-                <th className="px-3 py-2.5">Type</th>
-                <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5">Match Info</th>
-                <th className="px-3 py-2.5 w-16"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {transactions.map((txn) => (
-                <tr
+        <>
+          {/* Mobile: card stack */}
+          <div className="md:hidden space-y-2">
+            {transactions.map((txn) => {
+              const isDebit = txn.debit > 0;
+              const amount = isDebit ? txn.debit : txn.credit;
+              const statusColor =
+                txn.match_status === "matched"
+                  ? "var(--status-complete)"
+                  : txn.match_status === "ignored"
+                  ? "var(--status-planned)"
+                  : "var(--status-warning)";
+              return (
+                <div
                   key={txn.id}
-                  className={`hover:bg-gray-50 transition-colors ${txn.match_status === "ignored" ? "opacity-40" : ""}`}
+                  className={`bg-white rounded-xl border border-gray-200 p-3.5 ${
+                    txn.match_status === "ignored" ? "opacity-40" : ""
+                  }`}
                 >
-                  <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
-                    {new Date(txn.transaction_date + "T00:00:00").toLocaleDateString()}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-gray-900 max-w-[280px]">
-                    <span className="block truncate" title={txn.description}>
-                      {txn.description}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap font-mono">
-                    {txn.check_ref || "—"}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-right whitespace-nowrap font-mono text-red-600">
-                    {txn.debit > 0 ? `$${fmt(txn.debit)}` : ""}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-right whitespace-nowrap font-mono text-green-600">
-                    {txn.credit > 0 ? `$${fmt(txn.credit)}` : ""}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-right whitespace-nowrap font-mono text-gray-600">
-                    {txn.balance != null ? `$${fmt(txn.balance)}` : "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <MetadataChip>
-                      {CATEGORY_LABELS[txn.category ?? ""] ?? txn.category}
-                    </MetadataChip>
-                  </td>
-                  <td className="px-3 py-2">
-                    <StatusBadge status={STATUS_KIND[txn.match_status] ?? "neutral"} size="sm">
-                      {txn.match_status}
-                    </StatusBadge>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-gray-500 max-w-[180px]">
-                    {txn.matched_invoice ? (
-                      <span className="text-[#4272EF] truncate block" title={`${txn.matched_invoice.vendor} #${txn.matched_invoice.invoice_number}`}>
-                        {txn.matched_invoice.vendor ?? "Invoice"} #{txn.matched_invoice.invoice_number}
-                      </span>
-                    ) : txn.notes ? (
-                      <span className="truncate block" title={txn.notes}>{txn.notes}</span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center gap-0.5 justify-end">
-                      {txn.match_status === "matched" && (
-                        <button
-                          onClick={() => handleUnmatch(txn.id)}
-                          disabled={isPending}
-                          className="p-1 text-gray-400 hover:text-amber-600 rounded transition-colors"
-                          title="Unmatch"
-                        >
-                          <Unlink size={13} />
-                        </button>
+                  <div className="flex items-start gap-2.5">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                      style={{ backgroundColor: statusColor }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate" title={txn.description}>
+                        {txn.description}
+                      </p>
+                      <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          {new Date(txn.transaction_date + "T00:00:00").toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                        {txn.check_ref && (
+                          <>
+                            <span className="text-gray-300">·</span>
+                            <span className="font-mono">{txn.check_ref}</span>
+                          </>
+                        )}
+                        <span className="text-gray-300">·</span>
+                        <MetadataChip>
+                          {CATEGORY_LABELS[txn.category ?? ""] ?? txn.category}
+                        </MetadataChip>
+                      </p>
+                      {txn.matched_invoice && (
+                        <p className="text-[10px] text-[#4272EF] mt-1 truncate">
+                          {txn.matched_invoice.vendor ?? "Invoice"} #{txn.matched_invoice.invoice_number}
+                        </p>
                       )}
-                      {txn.match_status === "unmatched" && (
-                        <button
-                          onClick={() => handleIgnore(txn.id)}
-                          disabled={isPending}
-                          className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
-                          title="Ignore"
-                        >
-                          <EyeOff size={13} />
-                        </button>
-                      )}
-                      {txn.match_status === "ignored" && (
-                        <button
-                          onClick={() => handleUnmatch(txn.id)}
-                          disabled={isPending}
-                          className="p-1 text-gray-400 hover:text-amber-600 rounded transition-colors"
-                          title="Restore"
-                        >
-                          <Eye size={13} />
-                        </button>
+                      {!txn.matched_invoice && txn.notes && (
+                        <p className="text-[10px] text-gray-400 mt-1 truncate" title={txn.notes}>
+                          {txn.notes}
+                        </p>
                       )}
                     </div>
-                  </td>
+                    <div className="text-right flex-shrink-0">
+                      <div
+                        className="text-sm font-semibold tabular-nums"
+                        style={{ color: isDebit ? "#dc2626" : "#16a34a" }}
+                      >
+                        {isDebit ? "-" : "+"}${fmt(amount)}
+                      </div>
+                      {txn.balance != null && (
+                        <div className="text-[10px] text-gray-400 tabular-nums mt-0.5">
+                          Bal ${fmt(txn.balance)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action row */}
+                  <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-gray-100">
+                    <StatusBadge status={STATUS_KIND[txn.match_status] ?? "neutral"} size="sm" className="flex-shrink-0">
+                      {txn.match_status}
+                    </StatusBadge>
+                    <span className="flex-1" />
+                    {txn.match_status === "matched" && (
+                      <button
+                        onClick={() => handleUnmatch(txn.id)}
+                        disabled={isPending}
+                        className="px-2.5 py-1.5 text-xs text-amber-600 border border-amber-200 rounded-md inline-flex items-center gap-1 min-h-[36px]"
+                        title="Unmatch"
+                      >
+                        <Unlink size={12} />
+                        Unmatch
+                      </button>
+                    )}
+                    {txn.match_status === "unmatched" && (
+                      <button
+                        onClick={() => handleIgnore(txn.id)}
+                        disabled={isPending}
+                        className="px-2.5 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-md inline-flex items-center gap-1 min-h-[36px]"
+                        title="Ignore"
+                      >
+                        <EyeOff size={12} />
+                        Ignore
+                      </button>
+                    )}
+                    {txn.match_status === "ignored" && (
+                      <button
+                        onClick={() => handleUnmatch(txn.id)}
+                        disabled={isPending}
+                        className="px-2.5 py-1.5 text-xs text-amber-600 border border-amber-200 rounded-md inline-flex items-center gap-1 min-h-[36px]"
+                        title="Restore"
+                      >
+                        <Eye size={12} />
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop: transaction table */}
+          <div className="hidden md:block overflow-x-auto border border-gray-200 rounded-lg bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-2.5">Date</th>
+                  <th className="px-3 py-2.5">Description</th>
+                  <th className="px-3 py-2.5">Ref</th>
+                  <th className="px-3 py-2.5 text-right">Debit (Out)</th>
+                  <th className="px-3 py-2.5 text-right">Credit (In)</th>
+                  <th className="px-3 py-2.5 text-right">Balance</th>
+                  <th className="px-3 py-2.5">Type</th>
+                  <th className="px-3 py-2.5">Status</th>
+                  <th className="px-3 py-2.5">Match Info</th>
+                  <th className="px-3 py-2.5 w-16"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {transactions.map((txn) => (
+                  <tr
+                    key={txn.id}
+                    className={`hover:bg-gray-50 transition-colors ${txn.match_status === "ignored" ? "opacity-40" : ""}`}
+                  >
+                    <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700">
+                      {new Date(txn.transaction_date + "T00:00:00").toLocaleDateString()}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-900 max-w-[280px]">
+                      <span className="block truncate" title={txn.description}>
+                        {txn.description}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap font-mono">
+                      {txn.check_ref || "—"}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-right whitespace-nowrap font-mono text-red-600">
+                      {txn.debit > 0 ? `$${fmt(txn.debit)}` : ""}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-right whitespace-nowrap font-mono text-green-600">
+                      {txn.credit > 0 ? `$${fmt(txn.credit)}` : ""}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-right whitespace-nowrap font-mono text-gray-600">
+                      {txn.balance != null ? `$${fmt(txn.balance)}` : "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <MetadataChip>
+                        {CATEGORY_LABELS[txn.category ?? ""] ?? txn.category}
+                      </MetadataChip>
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={STATUS_KIND[txn.match_status] ?? "neutral"} size="sm">
+                        {txn.match_status}
+                      </StatusBadge>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-500 max-w-[180px]">
+                      {txn.matched_invoice ? (
+                        <span className="text-[#4272EF] truncate block" title={`${txn.matched_invoice.vendor} #${txn.matched_invoice.invoice_number}`}>
+                          {txn.matched_invoice.vendor ?? "Invoice"} #{txn.matched_invoice.invoice_number}
+                        </span>
+                      ) : txn.notes ? (
+                        <span className="truncate block" title={txn.notes}>{txn.notes}</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center gap-0.5 justify-end">
+                        {txn.match_status === "matched" && (
+                          <button
+                            onClick={() => handleUnmatch(txn.id)}
+                            disabled={isPending}
+                            className="p-1 text-gray-400 hover:text-amber-600 rounded transition-colors"
+                            title="Unmatch"
+                          >
+                            <Unlink size={13} />
+                          </button>
+                        )}
+                        {txn.match_status === "unmatched" && (
+                          <button
+                            onClick={() => handleIgnore(txn.id)}
+                            disabled={isPending}
+                            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                            title="Ignore"
+                          >
+                            <EyeOff size={13} />
+                          </button>
+                        )}
+                        {txn.match_status === "ignored" && (
+                          <button
+                            onClick={() => handleUnmatch(txn.id)}
+                            disabled={isPending}
+                            className="p-1 text-gray-400 hover:text-amber-600 rounded transition-colors"
+                            title="Restore"
+                          >
+                            <Eye size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {/* Import dialog */}

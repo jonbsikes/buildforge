@@ -333,8 +333,174 @@ export default function PaymentRegisterClient({
         </div>
       )}
 
-      {/* Payment table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Mobile: card stack */}
+      <div className="md:hidden space-y-2">
+        {filteredPayments.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 px-6 py-10 text-center text-sm text-gray-400">
+            {initialPayments.length === 0
+              ? "No payments recorded yet."
+              : "No payments match your filters."}
+          </div>
+        ) : (
+          filteredPayments.map((p) => {
+            const expanded = expandedRows.has(p.id);
+            const MethodIcon = METHOD_ICONS[p.payment_method] ?? Banknote;
+            const discountAmt = p.discount_amount ?? 0;
+            const netAmt = p.amount - discountAmt;
+            return (
+              <div
+                key={p.id}
+                className={`bg-white rounded-xl border border-gray-200 p-3.5 ${
+                  p.status === "void" ? "opacity-50" : ""
+                }`}
+              >
+                <div
+                  className="flex items-start gap-2.5 cursor-pointer"
+                  onClick={() => toggleRow(p.id)}
+                >
+                  <span
+                    className="inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                    style={{
+                      backgroundColor:
+                        p.status === "outstanding"
+                          ? "var(--status-warning)"
+                          : p.status === "cleared"
+                          ? "var(--status-complete)"
+                          : "var(--status-over)",
+                    }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {p.payee}
+                      {p.payment_number && (
+                        <span className="ml-1.5 text-[11px] font-normal text-gray-400">
+                          #{p.payment_number}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                      <MethodIcon size={10} />
+                      {METHOD_LABELS[p.payment_method] ?? p.payment_method}
+                      <span className="text-gray-300">·</span>
+                      {fmtDate(p.payment_date)}
+                      {p.draw_id && (
+                        <>
+                          <span className="text-gray-300">·</span>
+                          <a
+                            href={`/draws/${p.draw_id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[#4272EF] font-medium"
+                          >
+                            Draw
+                          </a>
+                        </>
+                      )}
+                    </p>
+                    {discountAmt > 0 && (
+                      <p className="text-[10px] text-green-600 mt-0.5 flex items-center gap-0.5">
+                        <Tag size={9} />
+                        Discount {fmt(discountAmt)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-sm font-semibold text-gray-900 tabular-nums">
+                      {fmt(netAmt)}
+                    </div>
+                    <StatusBadge
+                      status={STATUS_KIND[p.status] ?? "neutral"}
+                      size="sm"
+                      className="capitalize mt-0.5"
+                    >
+                      {p.status}
+                    </StatusBadge>
+                  </div>
+                </div>
+
+                {/* Actions row */}
+                <div
+                  className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-gray-100"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="text-[10px] text-gray-400 flex-1">
+                    {p.invoices.length} invoice{p.invoices.length !== 1 ? "s" : ""}
+                    {p.cleared_date && (
+                      <> · Cleared {fmtDate(p.cleared_date)}</>
+                    )}
+                  </span>
+                  {p.status === "outstanding" && (
+                    <button
+                      onClick={() => setClearingPaymentId(p.id)}
+                      className="px-3 py-1.5 rounded-md text-xs font-semibold text-white inline-flex items-center gap-1 min-h-[36px]"
+                      style={{ backgroundColor: "#16a34a" }}
+                    >
+                      <Check size={12} />
+                      Clear
+                    </button>
+                  )}
+                  {p.status !== "void" && (
+                    <ConfirmButton
+                      trigger={
+                        <span className="inline-flex items-center gap-1">
+                          <X size={12} />
+                          Void
+                        </span>
+                      }
+                      title="Void this payment?"
+                      body="This will reverse all GL entries and revert linked invoices to Approved."
+                      confirmLabel="Void"
+                      tone="danger"
+                      onConfirm={async () => await handleVoid(p.id)}
+                      triggerClassName="px-3 py-1.5 rounded-md text-xs font-semibold text-red-600 border border-red-200 inline-flex items-center gap-1 min-h-[36px]"
+                      ariaLabel="Void Payment"
+                    />
+                  )}
+                  {p.invoices.length > 0 && (
+                    <button
+                      onClick={() => toggleRow(p.id)}
+                      className="p-1.5 text-gray-400"
+                    >
+                      {expanded ? (
+                        <ChevronDown size={14} />
+                      ) : (
+                        <ChevronRight size={14} />
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {/* Expanded: linked invoices */}
+                {expanded && p.invoices.length > 0 && (
+                  <div className="mt-2 border-t border-gray-100 pt-2 space-y-1.5">
+                    {p.invoices.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between text-xs text-gray-600 px-1"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-mono text-gray-500">
+                            Inv #{inv.invoice_number ?? "\u2014"}
+                          </span>
+                          <span className="text-gray-400 ml-1.5 truncate">
+                            {inv.project_name ?? "No project"}
+                            {inv.cost_code && ` / ${inv.cost_code}`}
+                          </span>
+                        </div>
+                        <span className="font-mono text-gray-700 ml-2 flex-shrink-0">
+                          {fmt(inv.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop: payment table */}
+      <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
         {filteredPayments.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-gray-400">
             {initialPayments.length === 0
