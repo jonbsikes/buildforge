@@ -14,10 +14,18 @@ export async function updateDisplayName(displayName: string): Promise<void> {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { error } = await supabase
+  const { error, count } = await supabase
     .from("user_profiles")
-    .upsert({ id: user.id, display_name: trimmed }, { onConflict: "id" });
+    .update({ display_name: trimmed }, { count: "exact" })
+    .eq("id", user.id);
   if (error) throw new Error(error.message);
+
+  if (count === 0) {
+    const { error: insertError } = await supabase
+      .from("user_profiles")
+      .insert({ id: user.id, display_name: trimmed, role: "project_manager" });
+    if (insertError) throw new Error(insertError.message);
+  }
 
   revalidatePath("/", "layout");
 }

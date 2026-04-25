@@ -73,17 +73,21 @@ export default function NotificationBell() {
 
   async function markRead(id: string) {
     await supabase.from("notifications").update({ is_read: true }).eq("id", id);
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
-    );
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
   }
 
   async function markAllRead() {
     startTransition(async () => {
-      const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
-      if (unreadIds.length === 0) return;
-      await supabase.from("notifications").update({ is_read: true }).in("id", unreadIds);
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase
+        .from("notifications")
+        .update({ is_read: true })
+        .eq("user_id", user.id)
+        .eq("is_read", false);
+      setNotifications([]);
     });
   }
 
