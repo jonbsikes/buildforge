@@ -77,6 +77,9 @@ interface Props {
   documents: Document[];
   committedByCostCodeId: Record<string, number>;
   actualByCostCodeId: Record<string, number>;
+  /** Counts shown on relevant tabs (per UI Review § 05 #30). */
+  fieldLogsCount?: number;
+  selectionsPendingCount?: number;
 }
 
 const TAB_ICONS: Record<string, React.ElementType> = {
@@ -114,10 +117,25 @@ type TabId = HomeTabId | LandTabId;
 
 export default function ProjectTabs({
   projectId, isHome, startDate, buildStages, costCodes, availableCostCodes, phases, documents,
-  committedByCostCodeId, actualByCostCodeId,
+  committedByCostCodeId, actualByCostCodeId, fieldLogsCount, selectionsPendingCount,
 }: Props) {
   void committedByCostCodeId;
   const tabs = isHome ? HOME_TABS : LAND_TABS;
+
+  // Per UI Review § 05 #30: counts and delayed-badge on tabs add a relevance signal.
+  const today = new Date().toISOString().split("T")[0]!;
+  const delayedCount = buildStages.filter(
+    (s) => s.status !== "complete" && s.status !== "completed" && s.status !== "skipped" &&
+      s.planned_end_date && s.planned_end_date < today
+  ).length;
+  const counts: Record<string, { count?: number; delayed?: boolean }> = {
+    "stage-report": { count: buildStages.length, delayed: delayedCount > 0 },
+    "cost-items": { count: costCodes.length },
+    "documents": { count: documents.length },
+    "phases": { count: phases.length },
+    "field-logs": { count: fieldLogsCount },
+    "selections": { count: selectionsPendingCount },
+  };
   const [activeTab, setActiveTab] = useState<TabId>(isHome ? "stage-report" : "phases");
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -145,6 +163,8 @@ export default function ProjectTabs({
         {tabs.map((tab) => {
           const Icon = TAB_ICONS[tab.id];
           const isActive = activeTab === tab.id;
+          const meta = counts[tab.id];
+          const showCount = meta?.count !== undefined && meta.count > 0;
           return (
             <button
               key={tab.id}
@@ -152,12 +172,26 @@ export default function ProjectTabs({
               onClick={() => setActiveTab(tab.id as TabId)}
               className={`flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-medium whitespace-nowrap snap-center transition-all ${
                 isActive
-                  ? "bg-[#4272EF] text-white shadow-sm"
-                  : "bg-white text-gray-600 border border-gray-200 active:bg-gray-100"
+                  ? "bg-[#4272EF] text-white"
+                  : meta?.count === 0
+                    ? "bg-white text-gray-400 border border-gray-200 active:bg-gray-100"
+                    : "bg-white text-gray-600 border border-gray-200 active:bg-gray-100"
               }`}
             >
               {Icon && <Icon size={15} />}
               {tab.label}
+              {showCount && (
+                <span className={`tabular-nums text-[10px] ${isActive ? "text-white/80" : "text-gray-400"}`}>
+                  {meta!.count}
+                </span>
+              )}
+              {meta?.delayed && !isActive && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: "var(--status-delayed)" }}
+                  title={`${delayedCount} delayed`}
+                />
+              )}
             </button>
           );
         })}
@@ -170,6 +204,8 @@ export default function ProjectTabs({
             {tabs.map((tab) => {
               const Icon = TAB_ICONS[tab.id];
               const isActive = activeTab === tab.id;
+              const meta = counts[tab.id];
+              const showCount = meta?.count !== undefined && meta.count > 0;
               return (
                 <button
                   key={tab.id}
@@ -177,11 +213,25 @@ export default function ProjectTabs({
                   className={`flex items-center gap-2 px-5 py-3.5 text-sm font-medium transition-colors whitespace-nowrap border-b-2 -mb-px ${
                     isActive
                       ? "border-[#4272EF] text-[#4272EF]"
-                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                      : meta?.count === 0
+                        ? "border-transparent text-gray-300 hover:text-gray-500 hover:border-gray-200"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
                 >
                   {Icon && <Icon size={15} />}
                   {tab.label}
+                  {showCount && (
+                    <span className={`tabular-nums text-[11px] ${isActive ? "text-[#4272EF]/80" : "text-gray-400"}`}>
+                      {meta!.count}
+                    </span>
+                  )}
+                  {meta?.delayed && !isActive && (
+                    <span
+                      className="ml-1 w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: "var(--status-delayed)" }}
+                      title={`${delayedCount} delayed`}
+                    />
+                  )}
                 </button>
               );
             })}

@@ -7,22 +7,15 @@ import {
   FolderOpen,
   AlertTriangle,
   ClipboardList,
-  ChevronRight,
   Calendar,
   Hammer,
   ArrowRight,
   Plus,
 } from "lucide-react";
+import Money from "@/components/ui/Money";
 
 export const dynamic = "force-dynamic";
 
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
 function fmtDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", {
     month: "short",
@@ -258,7 +251,9 @@ export default async function DashboardPage() {
                     <p className="text-sm font-medium text-white">
                       {pastDueInvoices.length} past-due invoice{pastDueInvoices.length !== 1 ? "s" : ""}
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pastDueAmount)}</p>
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={pastDueAmount} className="text-slate-400" />
+                    </p>
                   </div>
                 </Link>
               )}
@@ -277,8 +272,8 @@ export default async function DashboardPage() {
                         ? `${overBudgetDetail[0]!.name} over budget`
                         : `${overBudgetDetail.length} projects over budget`}
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">
-                      +{fmt(overBudgetDetail[0]!.delta)} ({overBudgetDetail[0]!.pct}%)
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={overBudgetDetail[0]!.delta} showSign className="text-slate-400" /> ({overBudgetDetail[0]!.pct}%)
                       {overBudgetDetail.length > 1 && (
                         <span className="text-slate-500"> · +{overBudgetDetail.length - 1} more</span>
                       )}
@@ -316,7 +311,9 @@ export default async function DashboardPage() {
                     <p className="text-sm font-medium text-white">
                       {pendingInvoices.length} invoice{pendingInvoices.length !== 1 ? "s" : ""} to review
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pendingReviewAmount)}</p>
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={pendingReviewAmount} className="text-slate-400" />
+                    </p>
                   </div>
                 </Link>
               )}
@@ -350,15 +347,21 @@ export default async function DashboardPage() {
             </div>
             <div>
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AP out</p>
-              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(outstandingAP)}</p>
+              <p className="text-lg font-bold leading-none mt-1">
+                <Money value={outstandingAP} />
+              </p>
             </div>
             <div>
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AP this week</p>
-              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(apThisWeek)}</p>
+              <p className="text-lg font-bold leading-none mt-1">
+                <Money value={apThisWeek} />
+              </p>
             </div>
-            <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">In flight</p>
-              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(inFlightTotal)}</p>
+            <div title="Sum of budgets across active projects">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Active budget</p>
+              <p className="text-lg font-bold leading-none mt-1">
+                <Money value={inFlightTotal} />
+              </p>
             </div>
             {pendingDraws > 0 && (
               <div>

@@ -1,51 +1,127 @@
 "use client";
 
-import { useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { Bell, CheckCheck, AlertCircle, Clock, Shield } from "lucide-react";
 import { markRead, markAllRead } from "@/app/actions/notifications";
+import EmptyState from "@/components/ui/EmptyState";
+import FilterChipRail, { type FilterChip } from "@/components/ui/FilterChipRail";
+import DateValue from "@/components/ui/DateValue";
 import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["notifications"]["Row"];
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
-  invoice_past_due: <Clock size={16} className="text-red-500" />,
-  invoice_pending_review: <AlertCircle size={16} className="text-amber-500" />,
-  coi_expiring: <Shield size={16} className="text-amber-500" />,
-  coi_expired: <Shield size={16} className="text-red-500" />,
-  license_expiring: <Shield size={16} className="text-amber-500" />,
-  license_expired: <Shield size={16} className="text-red-500" />,
+  invoice_past_due: <Clock size={14} />,
+  invoice_pending_review: <AlertCircle size={14} />,
+  coi_expiring: <Shield size={14} />,
+  coi_expired: <Shield size={14} />,
+  license_expiring: <Shield size={14} />,
+  license_expired: <Shield size={14} />,
 };
 
-const TYPE_COLORS: Record<string, string> = {
-  invoice_past_due: "border-l-red-400",
-  invoice_pending_review: "border-l-amber-400",
-  coi_expiring: "border-l-amber-400",
-  coi_expired: "border-l-red-400",
-  license_expiring: "border-l-amber-400",
-  license_expired: "border-l-red-400",
+const TYPE_TONE: Record<string, "over" | "warning" | "neutral"> = {
+  invoice_past_due: "over",
+  invoice_pending_review: "warning",
+  coi_expiring: "warning",
+  coi_expired: "over",
+  license_expiring: "warning",
+  license_expired: "over",
 };
 
-function fmtDate(str: string) {
-  return new Date(str).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
-  });
+const TONE_COLOR = {
+  over: "var(--status-over)",
+  warning: "var(--status-warning)",
+  neutral: "var(--status-neutral)",
+};
+
+type FilterId = "all" | "past_due" | "compliance" | "invoices" | "unread";
+
+function notificationCategory(type: string): "past_due" | "compliance" | "invoices" | "other" {
+  if (type === "invoice_past_due") return "past_due";
+  if (type.startsWith("coi_") || type.startsWith("license_")) return "compliance";
+  if (type.startsWith("invoice_")) return "invoices";
+  return "other";
+}
+
+function dayBucket(iso: string): "today" | "yesterday" | "week" | "older" {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diff < 1 && d.getDate() === now.getDate()) return "today";
+  if (diff < 2) return "yesterday";
+  if (diff < 7) return "week";
+  return "older";
+}
+
+function refHref(n: Notification): string | null {
+  if (n.reference_type === "invoice" && n.reference_id) return `/invoices/${n.reference_id}`;
+  if (n.reference_type === "vendor" && n.reference_id) return `/vendors/${n.reference_id}`;
+  return null;
 }
 
 export default function NotificationsClient({ notifications }: { notifications: Notification[] }) {
   const [, startTransition] = useTransition();
-  const unread = notifications.filter((n) => !n.is_read);
+  const [filter, setFilter] = useState<FilterId>("all");
+
+  const counts = useMemo(() => {
+    const map = { all: notifications.length, past_due: 0, compliance: 0, invoices: 0, unread: 0 };
+    for (const n of notifications) {
+      const cat = notificationCategory(n.type);
+      if (cat === "past_due") map.past_due += 1;
+      if (cat === "compliance") map.compliance += 1;
+      if (cat === "invoices") map.invoices += 1;
+      if (!n.is_read) map.unread += 1;
+    }
+    return map;
+  }, [notifications]);
+
+  const filtered = useMemo(() => {
+    return notifications.filter((n) => {
+      if (filter === "all") return true;
+      if (filter === "unread") return !n.is_read;
+      const cat = notificationCategory(n.type);
+      return cat === filter;
+    });
+  }, [notifications, filter]);
+
+  const grouped = useMemo(() => {
+    const map: Record<"today" | "yesterday" | "week" | "older", Notification[]> = {
+      today: [],
+      yesterday: [],
+      week: [],
+      older: [],
+    };
+    for (const n of filtered) map[dayBucket(n.created_at)].push(n);
+    return map;
+  }, [filtered]);
+
+  const groupOrder: Array<{ id: "today" | "yesterday" | "week" | "older"; label: string }> = [
+    { id: "today", label: "Today" },
+    { id: "yesterday", label: "Yesterday" },
+    { id: "week", label: "This week" },
+    { id: "older", label: "Older" },
+  ];
+
+  const chips: FilterChip<FilterId>[] = [
+    { id: "all", label: "All", count: counts.all },
+    { id: "unread", label: "Unread", count: counts.unread, tone: counts.unread > 0 ? "warning" : "neutral" },
+    { id: "past_due", label: "Past due", count: counts.past_due, tone: counts.past_due > 0 ? "over" : "neutral" },
+    { id: "compliance", label: "COI / License", count: counts.compliance, tone: counts.compliance > 0 ? "warning" : "neutral" },
+    { id: "invoices", label: "Invoices", count: counts.invoices },
+  ];
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 max-w-3xl">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-gray-500">
-          {unread.length > 0 ? (
-            <span className="font-medium text-gray-900">{unread.length} unread</span>
+          {counts.unread > 0 ? (
+            <span className="font-medium text-gray-900">{counts.unread} unread</span>
           ) : (
             "All caught up!"
           )}
         </p>
-        {unread.length > 0 && (
+        {counts.unread > 0 && (
           <button
             onClick={() => startTransition(() => markAllRead())}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700"
@@ -55,39 +131,89 @@ export default function NotificationsClient({ notifications }: { notifications: 
         )}
       </div>
 
+      <FilterChipRail<FilterId> chips={chips} active={filter} onChange={setFilter} />
+
       {notifications.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 px-5 py-16 text-center">
-          <Bell size={32} className="text-gray-300 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">No notifications yet.</p>
+        <div className="bg-white rounded-xl border border-gray-200">
+          <EmptyState
+            icon={<Bell size={20} />}
+            title="No notifications yet"
+            description="You'll see alerts here when invoices go past due, COIs or licenses approach expiry, or invoices need review."
+          />
         </div>
       ) : (
-        <div className="space-y-2">
-          {notifications.map((n) => (
-            <div
-              key={n.id}
-              className={`bg-white rounded-xl border border-gray-200 border-l-4 px-4 py-3 flex items-start gap-3 transition-opacity ${
-                n.is_read ? "opacity-60" : ""
-              } ${TYPE_COLORS[n.type] ?? "border-l-gray-300"}`}
-            >
-              <div className="mt-0.5 shrink-0">
-                {TYPE_ICONS[n.type] ?? <Bell size={16} className="text-gray-400" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm ${n.is_read ? "text-gray-500" : "text-gray-900 font-medium"}`}>
-                  {n.message}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">{fmtDate(n.created_at)}</p>
-              </div>
-              {!n.is_read && (
-                <button
-                  onClick={() => startTransition(() => markRead(n.id))}
-                  className="shrink-0 text-xs text-gray-400 hover:text-gray-600"
-                >
-                  <CheckCheck size={15} />
-                </button>
-              )}
-            </div>
-          ))}
+        <div className="space-y-6">
+          {groupOrder.map(({ id, label }) => {
+            const items = grouped[id];
+            if (items.length === 0) return null;
+            return (
+              <section key={id}>
+                <h2 className="text-[10px] uppercase tracking-[0.08em] font-semibold text-gray-400 mb-2">
+                  {label}
+                </h2>
+                <ul className="space-y-2">
+                  {items.map((n) => {
+                    const tone = TYPE_TONE[n.type] ?? "neutral";
+                    const href = refHref(n);
+                    const inner = (
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="mt-0.5 shrink-0"
+                          style={{ color: TONE_COLOR[tone] }}
+                        >
+                          {TYPE_ICONS[n.type] ?? <Bell size={14} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm ${n.is_read ? "text-gray-500" : "text-gray-900 font-medium"}`}>
+                            {n.message}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            <DateValue value={n.created_at} kind="smart" className="text-gray-400" />
+                          </p>
+                        </div>
+                        {!n.is_read && (
+                          <span
+                            className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                            style={{ backgroundColor: "var(--brand-blue)" }}
+                            aria-label="Unread"
+                          />
+                        )}
+                      </div>
+                    );
+                    return (
+                      <li key={n.id}>
+                        {href ? (
+                          <Link
+                            href={href}
+                            onClick={() => {
+                              if (!n.is_read) startTransition(() => markRead(n.id));
+                            }}
+                            className={`block bg-white rounded-xl border border-gray-200 px-4 py-3 hover:border-gray-400 transition-colors ${
+                              n.is_read ? "opacity-70" : ""
+                            }`}
+                          >
+                            {inner}
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!n.is_read) startTransition(() => markRead(n.id));
+                            }}
+                            className={`block w-full text-left bg-white rounded-xl border border-gray-200 px-4 py-3 hover:border-gray-400 transition-colors ${
+                              n.is_read ? "opacity-70" : ""
+                            }`}
+                          >
+                            {inner}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

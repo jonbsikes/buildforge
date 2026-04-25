@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Plus, Trash2, AlertTriangle, AlertCircle, Truck } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { Plus, Trash2, Truck } from "lucide-react";
 import { createVendor, updateVendor, deleteVendor } from "@/app/actions/vendors";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 import StatusBadge from "@/components/ui/StatusBadge";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
+import EmptyState from "@/components/ui/EmptyState";
+import FilterChipRail, { type FilterChip } from "@/components/ui/FilterChipRail";
 import type { Database } from "@/types/database";
 
 function vendorInputFromForm(fd: FormData, existing?: Vendor) {
@@ -31,7 +36,13 @@ function vendorInputFromForm(fd: FormData, existing?: Vendor) {
   };
 }
 
-type Vendor = Database["public"]["Tables"]["vendors"]["Row"];
+type Vendor = Database["public"]["Tables"]["vendors"]["Row"] & {
+  ytd_spend?: number;
+  open_invoices?: number;
+  open_amount?: number;
+  last_invoice_date?: string | null;
+  active_contracts?: number;
+};
 
 const TRADES = [
   "General", "Framing", "Concrete", "Electrical", "Plumbing", "HVAC",
@@ -46,26 +57,32 @@ function daysUntil(dateStr: string | null): number | null {
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-function ExpiryBadge({ label, dateStr }: { label: string; dateStr: string | null }) {
-  if (!dateStr) return null;
-  const days = daysUntil(dateStr);
-  if (days === null) return null;
-  if (days < 0)
-    return (
-      <StatusBadge status="over" size="sm">
-        <AlertCircle size={11} className="mr-0.5" /> {label} EXPIRED
-      </StatusBadge>
-    );
-  if (days <= 30)
-    return (
-      <StatusBadge status="warning" size="sm">
-        <AlertTriangle size={11} className="mr-0.5" /> {label} expires in {days}d
-      </StatusBadge>
-    );
+type ComplianceStatus = "ok" | "expiring" | "expired" | "missing";
+
+function complianceFor(v: Vendor): ComplianceStatus {
+  const coi = daysUntil(v.coi_expiry_date);
+  const lic = daysUntil(v.license_expiry_date);
+  if ((coi !== null && coi < 0) || (lic !== null && lic < 0)) return "expired";
+  if ((coi !== null && coi <= 30) || (lic !== null && lic <= 30)) return "expiring";
+  if (v.coi_expiry_date && v.license_expiry_date) return "ok";
+  return "missing";
+}
+
+function ComplianceDot({ status }: { status: ComplianceStatus }) {
+  const map: Record<ComplianceStatus, { color: string; label: string }> = {
+    ok: { color: "var(--status-complete)", label: "Compliance current" },
+    expiring: { color: "var(--status-warning)", label: "Compliance expiring soon" },
+    expired: { color: "var(--status-over)", label: "Compliance expired" },
+    missing: { color: "var(--status-planned)", label: "Compliance not on file" },
+  };
+  const { color, label } = map[status];
   return (
-    <span className="text-xs text-gray-400">
-      {label}: {dateStr}
-    </span>
+    <span
+      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+      style={{ backgroundColor: color }}
+      title={label}
+      aria-label={label}
+    />
   );
 }
 
@@ -165,75 +182,68 @@ function VendorForm({
   );
 }
 
+type FilterId = "all" | "active" | "expired" | "expiring";
+
 export default function VendorsClient({ vendors }: { vendors: Vendor[] }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [filterTrade, setFilterTrade] = useState("");
+  const [filter, setFilter] = useState<FilterId>("all");
+
+  const counts = useMemo(() => {
+    let active = 0;
+    let expired = 0;
+    let expiring = 0;
+    for (const v of vendors) {
+      const c = complianceFor(v);
+      if (c === "ok" || c === "missing") active += 1;
+      if (c === "expired") {
+        expired += 1;
+        active += 1;
+      }
+      if (c === "expiring") {
+        expiring += 1;
+        active += 1;
+      }
+    }
+    return { all: vendors.length, active, expired, expiring };
+  }, [vendors]);
 
   const filtered = vendors.filter((v) => {
     const matchSearch =
       !search ||
       v.name.toLowerCase().includes(search.toLowerCase()) ||
-      (v.email ?? "").toLowerCase().includes(search.toLowerCase());
-    const matchTrade = !filterTrade || v.trade === filterTrade;
-    return matchSearch && matchTrade;
+      (v.email ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (v.trade ?? "").toLowerCase().includes(search.toLowerCase());
+    const c = complianceFor(v);
+    const matchFilter =
+      filter === "all" ||
+      (filter === "active" && (c === "ok" || c === "missing")) ||
+      (filter === "expired" && c === "expired") ||
+      (filter === "expiring" && c === "expiring");
+    return matchSearch && matchFilter;
   });
 
-  const expiredCount = vendors.filter((v) => {
-    const coiDays = daysUntil(v.coi_expiry_date);
-    const licDays = daysUntil(v.license_expiry_date);
-    return (coiDays !== null && coiDays < 0) || (licDays !== null && licDays < 0);
-  }).length;
-
-  const expiringCount = vendors.filter((v) => {
-    const coiDays = daysUntil(v.coi_expiry_date);
-    const licDays = daysUntil(v.license_expiry_date);
-    return (
-      ((coiDays !== null && coiDays >= 0 && coiDays <= 30) ||
-        (licDays !== null && licDays >= 0 && licDays <= 30)) &&
-      !((coiDays !== null && coiDays < 0) || (licDays !== null && licDays < 0))
-    );
-  }).length;
-
-  const allTrades = Array.from(new Set(vendors.map((v) => v.trade).filter(Boolean)));
+  const chips: FilterChip<FilterId>[] = [
+    { id: "all", label: "All", count: counts.all },
+    { id: "active", label: "Active", count: counts.active, tone: "complete" },
+    { id: "expired", label: "Expired", count: counts.expired, tone: counts.expired > 0 ? "over" : "neutral" },
+    { id: "expiring", label: "Expiring <30d", count: counts.expiring, tone: counts.expiring > 0 ? "warning" : "neutral" },
+  ];
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Total Vendors</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{vendors.length}</p>
-        </div>
-        <div className={`rounded-xl border p-4 ${expiredCount > 0 ? "bg-red-50 border-red-200" : "bg-white border-gray-200"}`}>
-          <p className={`text-xs ${expiredCount > 0 ? "text-red-600" : "text-gray-500"}`}>Expired COI/License</p>
-          <p className={`text-2xl font-bold mt-1 ${expiredCount > 0 ? "text-red-700" : "text-gray-900"}`}>{expiredCount}</p>
-        </div>
-        <div className={`rounded-xl border p-4 ${expiringCount > 0 ? "bg-amber-50 border-amber-200" : "bg-white border-gray-200"}`}>
-          <p className={`text-xs ${expiringCount > 0 ? "text-amber-700" : "text-gray-500"}`}>Expiring Soon (&le;30d)</p>
-          <p className={`text-2xl font-bold mt-1 ${expiringCount > 0 ? "text-amber-700" : "text-gray-900"}`}>{expiringCount}</p>
-        </div>
-      </div>
+    <div className="space-y-5 max-w-5xl">
+      {/* Filter chip rail (was: red/amber compliance banners) */}
+      <FilterChipRail<FilterId> chips={chips} active={filter} onChange={setFilter} />
 
-      {/* Controls */}
+      {/* Search row */}
       <div className="flex flex-wrap items-center gap-3">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search vendors..."
+          placeholder="Search by name, trade, or email…"
           className="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
         />
-        <select
-          value={filterTrade}
-          onChange={(e) => setFilterTrade(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-        >
-          <option value="">All trades</option>
-          {allTrades.map((t) => (
-            <option key={t} value={t!}>{t}</option>
-          ))}
-        </select>
         <button
           onClick={() => { setShowAdd(true); setEditingId(null); }}
           className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
@@ -248,33 +258,77 @@ export default function VendorsClient({ vendors }: { vendors: Vendor[] }) {
       {/* Vendor list */}
       <div className="space-y-3">
         {filtered.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 px-5 py-12 text-center">
-            <Truck size={32} className="text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-400">No vendors found.</p>
+          <div className="bg-white rounded-xl border border-gray-200">
+            <EmptyState
+              icon={<Truck size={20} />}
+              title={search ? "No vendors match your search" : "No vendors yet"}
+              description={
+                search
+                  ? "Try a different name, trade, or email."
+                  : "Vendors are subcontractors and suppliers you pay. They're linked to invoices and contracts, with COI/license expiry tracked."
+              }
+              primary={search ? undefined : { label: "+ Add your first vendor", onClick: () => setShowAdd(true) }}
+            />
           </div>
         ) : (
           filtered.map((vendor) =>
             editingId === vendor.id ? (
               <VendorForm key={vendor.id} vendor={vendor} onDone={() => setEditingId(null)} />
             ) : (
-              <div key={vendor.id} className="bg-white rounded-xl border border-gray-200 p-4">
+              <div key={vendor.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-400 transition-colors">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <span className="font-semibold text-gray-900">{vendor.name}</span>
+                      <ComplianceDot status={complianceFor(vendor)} />
+                      <Link
+                        href={`/vendors/${vendor.id}`}
+                        className="font-semibold text-gray-900 hover:text-[#4272EF] transition-colors"
+                      >
+                        {vendor.name}
+                      </Link>
                       {vendor.trade && (
                         <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
                           {vendor.trade}
                         </span>
                       )}
+                      {complianceFor(vendor) === "expired" && (
+                        <StatusBadge status="over" size="sm">COI/license expired</StatusBadge>
+                      )}
+                      {complianceFor(vendor) === "expiring" && (
+                        <StatusBadge status="warning" size="sm">Expiring &lt;30d</StatusBadge>
+                      )}
                     </div>
-                    <div className="flex flex-wrap gap-3 text-sm text-gray-500">
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500 mt-2">
                       {vendor.email && <span>{vendor.email}</span>}
                       {vendor.phone && <span>{vendor.phone}</span>}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <ExpiryBadge label="COI" dateStr={vendor.coi_expiry_date} />
-                      <ExpiryBadge label="License" dateStr={vendor.license_expiry_date} />
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs">
+                      <div>
+                        <span className="text-gray-400 mr-1.5">YTD spend</span>
+                        <Money value={vendor.ytd_spend ?? 0} className="font-semibold text-gray-700" />
+                      </div>
+                      {(vendor.open_invoices ?? 0) > 0 && (
+                        <div>
+                          <span className="text-gray-400 mr-1.5">Open</span>
+                          <span className="font-semibold text-gray-700 tabular-nums">
+                            {vendor.open_invoices}
+                          </span>
+                          <span className="text-gray-400 mx-1">·</span>
+                          <Money value={vendor.open_amount ?? 0} className="font-semibold text-gray-700" />
+                        </div>
+                      )}
+                      {(vendor.active_contracts ?? 0) > 0 && (
+                        <div>
+                          <span className="text-gray-400 mr-1.5">Contracts</span>
+                          <span className="font-semibold text-gray-700 tabular-nums">{vendor.active_contracts}</span>
+                        </div>
+                      )}
+                      {vendor.last_invoice_date && (
+                        <div>
+                          <span className="text-gray-400 mr-1.5">Last invoice</span>
+                          <DateValue value={vendor.last_invoice_date} kind="smart" className="font-semibold text-gray-700" />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { Plus, Pencil, Trash2, X, Mail, Phone, Users } from "lucide-react";
 import {
   createContact,
   updateContact,
   deleteContact,
   type ContactInput,
 } from "@/app/actions/contacts";
-import MetadataChip from "@/components/ui/MetadataChip";
+import EmptyState from "@/components/ui/EmptyState";
+import FilterChipRail, { type FilterChip } from "@/components/ui/FilterChipRail";
 
 interface Contact {
   id: string;
@@ -16,6 +17,8 @@ interface Contact {
   type: string;
   email: string | null;
   phone: string | null;
+  active_loans?: number;
+  active_projects?: number;
 }
 
 const TYPE_OPTIONS = [
@@ -38,8 +41,26 @@ function ic(err = false) {
   }`;
 }
 
+type ContactType = "all" | "lender" | "owner" | "other";
+
 export default function ContactsClient({ contacts }: { contacts: Contact[] }) {
   const [isPending, startTransition] = useTransition();
+  const [filter, setFilter] = useState<ContactType>("all");
+
+  const counts = useMemo(() => {
+    const map = { all: contacts.length, lender: 0, owner: 0, other: 0 };
+    for (const c of contacts) {
+      if (c.type === "lender") map.lender += 1;
+      else if (c.type === "owner") map.owner += 1;
+      else map.other += 1;
+    }
+    return map;
+  }, [contacts]);
+
+  const visibleContacts = useMemo(() => {
+    if (filter === "all") return contacts;
+    return contacts.filter((c) => c.type === filter || (filter === "other" && c.type !== "lender" && c.type !== "owner"));
+  }, [contacts, filter]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -140,67 +161,94 @@ export default function ContactsClient({ contacts }: { contacts: Contact[] }) {
         </button>
       </div>
 
-      {/* Table */}
+      {/* Filter chips */}
+      {contacts.length > 0 && (
+        <div className="mb-5">
+          <FilterChipRail<ContactType>
+            chips={[
+              { id: "all", label: "All", count: counts.all },
+              { id: "lender", label: "Lenders", count: counts.lender },
+              { id: "owner", label: "Owners", count: counts.owner },
+              { id: "other", label: "Other", count: counts.other },
+            ] as FilterChip<ContactType>[]}
+            active={filter}
+            onChange={setFilter}
+          />
+        </div>
+      )}
+
+      {/* Card grid */}
       {contacts.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center">
-          <p className="text-sm font-medium text-gray-600 mb-1">No contacts yet</p>
-          <p className="text-sm text-gray-400">
-            Add lenders, owners, or other contacts to get started.
-          </p>
+        <div className="bg-white rounded-xl border border-gray-200">
+          <EmptyState
+            icon={<Users size={20} />}
+            title="No contacts yet"
+            description="Contacts are lenders, owners, and others tied to projects and loans. Lenders show up on a project's banking and draw flows."
+            primary={{ label: "+ Add your first contact", onClick: openNew }}
+          />
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left px-5 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">
-                  Name
-                </th>
-                <th className="text-left px-5 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">
-                  Type
-                </th>
-                <th className="text-left px-5 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">
-                  Email
-                </th>
-                <th className="text-left px-5 py-3 font-medium text-gray-500 text-xs uppercase tracking-wide">
-                  Phone
-                </th>
-                <th className="px-5 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {contacts.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3.5 font-medium text-gray-900">{c.name}</td>
-                  <td className="px-5 py-3.5">
-                    <MetadataChip className="capitalize">{c.type}</MetadataChip>
-                  </td>
-                  <td className="px-5 py-3.5 text-gray-500">{c.email ?? "—"}</td>
-                  <td className="px-5 py-3.5 text-gray-500">{c.phone ?? "—"}</td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => openEdit(c)}
-                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#4272EF] hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Pencil size={13} />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => openDelete(c)}
-                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={13} />
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {visibleContacts.map((c) => (
+            <div
+              key={c.id}
+              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-400 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 truncate">{c.name}</p>
+                  <p className="text-xs text-gray-500 capitalize">{c.type}</p>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+                  <button
+                    onClick={() => openEdit(c)}
+                    aria-label={`Edit ${c.name}`}
+                    className="p-1.5 text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => openDelete(c)}
+                    aria-label={`Delete ${c.name}`}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5 text-xs text-gray-500">
+                {c.email && (
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Mail size={12} className="flex-shrink-0" />
+                    <a href={`mailto:${c.email}`} className="hover:text-[#4272EF] truncate">{c.email}</a>
+                  </div>
+                )}
+                {c.phone && (
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Phone size={12} className="flex-shrink-0" />
+                    <span>{c.phone}</span>
+                  </div>
+                )}
+              </div>
+              {(c.active_loans !== undefined || c.active_projects !== undefined) &&
+                ((c.active_loans ?? 0) > 0 || (c.active_projects ?? 0) > 0) && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    {(c.active_loans ?? 0) > 0 && (
+                      <span>
+                        <span className="font-semibold text-gray-700 tabular-nums">{c.active_loans}</span>{" "}
+                        active loan{c.active_loans !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {(c.active_projects ?? 0) > 0 && (
+                      <span>
+                        <span className="font-semibold text-gray-700 tabular-nums">{c.active_projects}</span>{" "}
+                        active project{c.active_projects !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                )}
+            </div>
+          ))}
         </div>
       )}
 

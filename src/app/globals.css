@@ -42,6 +42,29 @@
   --border-strong: #CBD5E1;
   --border-weak:   #E5E7EB;
   --border-hair:   #F1F5F9;
+
+  /* Density (tables / lists) */
+  --row-h-compact: 32px;
+  --row-h-default: 44px;
+  --row-h-comfy:   56px;
+
+  /* Numeric column min-widths (DataTable) */
+  --col-money:  120px;
+  --col-date:    96px;
+  --col-pct:     64px;
+  --col-status: 140px;
+
+  /* Type scale */
+  --t-display:  28px;
+  --t-h2:       18px;
+  --t-h3:       14px;
+  --t-body:     14px;
+  --t-caption:  12px;
+  --t-eyebrow:  11px;
+
+  /* Neutral category icon — strip decorative color from nav cards */
+  --neutral-chip-bg:   #F1F5F9;
+  --neutral-chip-fg:   #64748B;
 }
 
 /* Dark mode: activated via [data-theme="dark"] on <html> */
@@ -120,12 +143,21 @@ body {
 }
 
 /* ── Page transition ── */
+/* Per UI Review § 02 #16: drop the translate; opacity-only fade reads as fast
+   without making content appear to "slide up" because rendering took a moment. */
 @keyframes page-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .animate-page-enter {
-  animation: page-enter 0.22s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+  animation: page-enter 0.12s ease-out both;
+}
+
+/* Global focus ring — brand blue at 40%, 2px offset (UI Review § 17 #89) */
+*:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand-blue) 40%, transparent);
+  outline-offset: 2px;
+  border-radius: inherit;
 }
 
 /* Reduce motion for users who prefer it */
@@ -196,4 +228,16 @@ body {
 .animate-expand-down {
   animation: expand-down 0.2s ease-out;
   overflow: hidden;
+}
+
+/* Skeleton shimmer */
+@keyframes skeleton-shimmer {
+  100% { transform: translateX(100%); }
+}
+.animate-skeleton-shimmer {
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-skeleton-shimmer { animation: none !important; }
 }

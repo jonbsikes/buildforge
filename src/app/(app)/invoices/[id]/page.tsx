@@ -7,16 +7,14 @@ import InvoiceDetailActions from "@/components/invoices/InvoiceDetailActions";
 import DeleteInvoiceButton from "@/components/invoices/DeleteInvoiceButton";
 import StatusBadge from "@/components/ui/StatusBadge";
 import MetadataChip from "@/components/ui/MetadataChip";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
+import LifecycleStepper, { type LifecycleStep } from "@/components/ui/LifecycleStepper";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
-}
-
-function fmt(n: number | null) {
-  if (n == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
 export default async function InvoiceDetailPage({ params }: Props) {
@@ -89,18 +87,59 @@ export default async function InvoiceDetailPage({ params }: Props) {
   const isFullyEditable = !isInFundedDraw && invoice.status !== "paid" && invoice.status !== "cleared";
   const isDeletable = !isInFundedDraw;
 
+  // Lifecycle stepper data — per UI Review § 06 #42.
+  const isVoid = invoice.status === "void";
+  const isDisputed = invoice.status === "disputed";
+  const lifecycle: LifecycleStep[] =
+    isVoid
+      ? [
+          { id: "pending_review", label: "Pending review" },
+          { id: "void", label: "Void" },
+        ]
+      : isDisputed
+      ? [
+          { id: "pending_review", label: "Pending review" },
+          { id: "disputed", label: "Disputed" },
+        ]
+      : [
+          { id: "pending_review", label: "Pending review" },
+          { id: "approved", label: "Approved" },
+          { id: "released", label: "Check issued" },
+          {
+            id: "cleared",
+            label: "Cleared",
+            caption: invoice.payment_date ? <DateValue value={invoice.payment_date} kind="absolute" /> : undefined,
+          },
+        ];
+  const lifecycleCurrent = isVoid
+    ? "void"
+    : isDisputed
+    ? "disputed"
+    : (invoice.status ?? "pending_review");
+
   return (
     <>
-      <Header title={invoice.file_name ?? "Invoice"} />
+      <Header
+        title={invoice.invoice_number ? `Invoice #${invoice.invoice_number}` : "Invoice"}
+        breadcrumbs={[
+          { label: "Accounts Payable", href: "/invoices" },
+          { label: invoice.vendor ?? "Vendor", href: undefined },
+          { label: invoice.invoice_number ? `#${invoice.invoice_number}` : "Invoice" },
+        ]}
+      />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-7xl mx-auto space-y-5">
-          {/* Back link */}
-          <Link
-            href="/invoices"
-            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            ← Accounts Payable
-          </Link>
+          {/* Lifecycle stepper */}
+          <div className="bg-white rounded-xl border border-[color:var(--card-border)] px-5 py-4">
+            <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[color:var(--text-secondary)] mb-3">
+              Status
+            </p>
+            <LifecycleStepper
+              steps={lifecycle}
+              current={lifecycleCurrent}
+              ended={isVoid || isDisputed}
+            />
+          </div>
 
           {/* Low confidence warning — above split view */}
           {isLowConf && invoice.status === "pending_review" && !invoice.manually_reviewed && (
@@ -182,14 +221,16 @@ export default async function InvoiceDetailPage({ params }: Props) {
                 {/* Large amount display */}
                 <div className="mb-6 pb-6 border-b border-gray-100">
                   <p className="text-xs text-gray-400 mb-1">Total Amount</p>
-                  <p className="text-3xl font-bold text-gray-900 tabular-nums">{fmt(invoice.amount)}</p>
+                  <p className="text-3xl font-bold text-gray-900">
+                    <Money value={invoice.amount} decimals />
+                  </p>
                   {(invoice.discount_taken as number) > 0 && (
                     <div className="mt-2">
                       <p className="text-sm text-green-600">
-                        Discount: {fmt(invoice.discount_taken as number)}
+                        Discount: <Money value={invoice.discount_taken as number} decimals className="text-green-600" />
                       </p>
                       <p className="text-sm text-gray-500">
-                        Net paid: {fmt((invoice.amount ?? 0) - (invoice.discount_taken as number))}
+                        Net paid: <Money value={(invoice.amount ?? 0) - (invoice.discount_taken as number)} decimals className="text-gray-500" />
                       </p>
                     </div>
                   )}
@@ -199,17 +240,23 @@ export default async function InvoiceDetailPage({ params }: Props) {
                 <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Invoice Date</p>
-                    <p className="text-gray-800 font-medium">{invoice.invoice_date ?? "—"}</p>
+                    <p className="text-gray-800 font-medium">
+                      <DateValue value={invoice.invoice_date} />
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 mb-0.5">Due Date</p>
-                    <p className="text-gray-800 font-medium">{invoice.due_date ?? "—"}</p>
+                    <p className="text-gray-800 font-medium">
+                      <DateValue value={invoice.due_date} kind="smart" />
+                    </p>
                   </div>
                   {invoice.payment_date && (
                     <>
                       <div>
                         <p className="text-xs text-gray-400 mb-0.5">Payment Date</p>
-                        <p className="text-gray-800 font-medium">{invoice.payment_date}</p>
+                        <p className="text-gray-800 font-medium">
+                          <DateValue value={invoice.payment_date} />
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-400 mb-0.5">Payment Method</p>
@@ -273,7 +320,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
                         }
                       </Link>
                       <p className="text-xs text-gray-500 mt-1">
-                        {fmt(linkedContract.amount)} · {linkedContract.status}
+                        <Money value={linkedContract.amount} decimals className="text-gray-500" /> · {linkedContract.status}
                       </p>
                     </div>
                   )}
@@ -326,7 +373,9 @@ export default async function InvoiceDetailPage({ params }: Props) {
                             <td className="py-1.5 pr-4 text-xs text-gray-500">{liProject?.name ?? "G&A"}</td>
                             <td className="py-1.5 pr-4 text-xs font-mono text-gray-500">{li.cost_code}</td>
                             <td className="py-1.5 pr-4 text-gray-700">{li.description ?? "\u2014"}</td>
-                            <td className="py-1.5 text-right font-medium text-gray-900 tabular-nums">{fmt(li.amount)}</td>
+                            <td className="py-1.5 text-right font-medium text-gray-900">
+                              <Money value={li.amount} decimals />
+                            </td>
                           </tr>
                         );
                       })}
@@ -334,7 +383,9 @@ export default async function InvoiceDetailPage({ params }: Props) {
                     <tfoot>
                       <tr className="border-t border-gray-200">
                         <td colSpan={3} className="pt-2 text-sm font-semibold text-gray-700">Total</td>
-                        <td className="pt-2 text-right text-sm font-semibold text-gray-900 tabular-nums">{fmt(lineTotal)}</td>
+                        <td className="pt-2 text-right text-sm font-semibold text-gray-900">
+                          <Money value={lineTotal} decimals />
+                        </td>
                       </tr>
                     </tfoot>
                   </table>

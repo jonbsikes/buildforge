@@ -1,19 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Banknote } from "lucide-react";
 import DeleteLoanButton from "@/components/banking/DeleteLoanButton";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 import AdminOnly from "@/components/ui/AdminOnly";
 import MetadataChip from "@/components/ui/MetadataChip";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
+import CapacityBar from "@/components/ui/CapacityBar";
+import EmptyState from "@/components/ui/EmptyState";
 
 export const dynamic = "force-dynamic";
-
-function fmt(n: number | null) {
-  if (n == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-}
 
 const STATUS_KIND: Record<string, StatusKind> = {
   active: "active",
@@ -43,7 +42,7 @@ export default async function LoansPage() {
   const loans = loansData ?? [];
 
   // Compute total drawn per loan (for term loans)
-  let drawnByLoan: Record<string, number> = {};
+  const drawnByLoan: Record<string, number> = {};
 
   if (loans.length > 0) {
     const { data: fundedLinks } = await supabase
@@ -71,7 +70,13 @@ export default async function LoansPage() {
 
   return (
     <>
-      <Header title="Loans" />
+      <Header
+        title="Loans"
+        breadcrumbs={[
+          { label: "Banking", href: "/banking/accounts" },
+          { label: "Loans" },
+        ]}
+      />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-6xl mx-auto">
           <ReadOnlyBanner />
@@ -91,98 +96,109 @@ export default async function LoansPage() {
           </div>
 
           {loans.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
-              No loans yet.{" "}
-              <Link href="/banking/loans/new" className="text-[#4272EF] hover:underline">
-                Add your first loan
-              </Link>
+            <div className="bg-white rounded-xl border border-gray-200">
+              <EmptyState
+                icon={<Banknote size={20} />}
+                title="No loans yet"
+                description="Loans track lender commitments and current outstanding balance. Each loan ties to a project and a lender contact, and its balance grows as draws are funded."
+                primary={{ label: "+ Add your first loan", href: "/banking/loans/new" }}
+              />
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50/50">
-                    {["Loan #", "Type", "Project", "Lender", "Amount / Limit", "Drawn / Balance", "Available", "Origination", "Maturity", "Status", ""].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {loans.map((loan) => {
-                    const project = loan.projects as { name: string } | null;
-                    const lender = loan.contacts as { name: string } | null;
-                    const isLOC = loan.loan_type === "line_of_credit";
+            // Per UI Review § 08 #51: card layout (was 11-column horizontal-scroll table).
+            // The "drawn vs available" capacity bar is the headline signal.
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {loans.map((loan) => {
+                const project = loan.projects as { name: string } | null;
+                const lender = loan.contacts as { name: string } | null;
+                const isLOC = loan.loan_type === "line_of_credit";
 
-                    // Line of credit: available = credit_limit - current_balance
-                    // Term loan: available = loan_amount - drawn
-                    const drawn = drawnByLoan[loan.id] ?? 0;
-                    const limit = isLOC ? (loan.credit_limit ?? 0) : (loan.loan_amount ?? 0);
-                    const used = isLOC ? (loan.current_balance ?? 0) : drawn;
-                    const available = limit - used;
-                    const pct = limit > 0 ? (used / limit) * 100 : 0;
+                const drawn = drawnByLoan[loan.id] ?? 0;
+                const limit = isLOC ? (loan.credit_limit ?? 0) : (loan.loan_amount ?? 0);
+                const used = isLOC ? (loan.current_balance ?? 0) : drawn;
+                const available = limit - used;
 
-                    return (
-                      <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-gray-900">#{loan.loan_number}</td>
-                        <td className="px-4 py-3">
+                return (
+                  <div
+                    key={loan.id}
+                    className="bg-white rounded-xl border border-gray-200 hover:border-gray-400 transition-colors p-5"
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Link
+                            href={`/banking/loans/${loan.id}/edit`}
+                            className="font-semibold text-gray-900 hover:text-[#4272EF] transition-colors truncate"
+                          >
+                            Loan #{loan.loan_number}
+                          </Link>
                           <MetadataChip variant={isLOC ? "accent" : "default"}>
                             {isLOC ? "Line of Credit" : "Term Loan"}
                           </MetadataChip>
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{project?.name ?? "—"}</td>
-                        <td className="px-4 py-3 text-gray-700">{lender?.name ?? "—"}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{fmt(limit)}</td>
-                        <td className="px-4 py-3">
-                          <div>
-                            <p className="text-gray-700">{fmt(used)}</p>
-                            {used > 0 && (
-                              <div className="mt-1 w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full"
-                                  style={{
-                                    width: `${Math.min(pct, 100)}%`,
-                                    backgroundColor:
-                                      pct >= 90
-                                        ? "var(--status-over)"
-                                        : pct >= 70
-                                          ? "var(--status-warning)"
-                                          : "var(--brand-blue)",
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className={`px-4 py-3 font-medium ${available < 0 ? "text-red-600" : "text-gray-900"}`}>
-                          {fmt(available)}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-500">{loan.origination_date ?? "—"}</td>
-                        <td className="px-4 py-3 text-xs text-gray-500">{loan.maturity_date ?? "—"}</td>
-                        <td className="px-4 py-3">
-                          <StatusBadge status={STATUS_KIND[loan.status] ?? "neutral"} size="sm">
-                            {STATUS_LABEL[loan.status] ?? loan.status.replace(/_/g, " ")}
-                          </StatusBadge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1 justify-end">
-                            <Link
-                              href={`/banking/loans/${loan.id}/edit`}
-                              className="p-1.5 text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
-                            >
-                              <Pencil size={13} />
-                            </Link>
-                            <DeleteLoanButton loanId={loan.id} loanNumber={loan.loan_number} />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              </div>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">
+                          {project?.name ?? "—"} · {lender?.name ?? "—"}
+                        </p>
+                      </div>
+                      <StatusBadge status={STATUS_KIND[loan.status] ?? "neutral"} size="sm">
+                        {STATUS_LABEL[loan.status] ?? loan.status.replace(/_/g, " ")}
+                      </StatusBadge>
+                    </div>
+
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <Money value={used} className="text-2xl font-semibold" />
+                      <span className="text-xs text-gray-500">
+                        of <Money value={limit} className="text-gray-700 font-medium" />
+                      </span>
+                    </div>
+                    <CapacityBar used={used} total={limit} />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      <Money
+                        value={available}
+                        tone={available < 0 ? "negative" : "default"}
+                        className="font-medium"
+                      />{" "}
+                      available
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-gray-100 text-xs">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">
+                          Origination
+                        </p>
+                        <DateValue value={loan.origination_date} className="text-gray-700" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">
+                          Maturity
+                        </p>
+                        <DateValue value={loan.maturity_date} className="text-gray-700" />
+                      </div>
+                      {loan.interest_rate != null && (
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-0.5">
+                            Rate
+                          </p>
+                          <span className="text-gray-700 tabular-nums">{loan.interest_rate}%</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <AdminOnly>
+                      <div className="flex justify-end gap-1 mt-3">
+                        <Link
+                          href={`/banking/loans/${loan.id}/edit`}
+                          aria-label={`Edit loan ${loan.loan_number}`}
+                          className="p-1.5 text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 rounded transition-colors"
+                        >
+                          <Pencil size={13} />
+                        </Link>
+                        <DeleteLoanButton loanId={loan.id} loanNumber={loan.loan_number} />
+                      </div>
+                    </AdminOnly>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

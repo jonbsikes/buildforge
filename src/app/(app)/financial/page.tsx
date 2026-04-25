@@ -19,16 +19,11 @@ import {
   AlertTriangle,
   DollarSign,
 } from "lucide-react";
+import Money from "@/components/ui/Money";
+import StatusBadge from "@/components/ui/StatusBadge";
+import DateValue from "@/components/ui/DateValue";
 
 export const dynamic = "force-dynamic";
-
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
 
 export default async function FinancialHubPage() {
   const supabase = await createClient();
@@ -86,14 +81,14 @@ export default async function FinancialHubPage() {
 
   const attentionCount = (pastDue > 0 ? 1 : 0) + (pendingReview > 0 ? 1 : 0) + (releasedCount > 0 ? 1 : 0) + (pendingDraws > 0 ? 1 : 0);
 
+  // Per UI Review § 00 #2 + § 07 #43: nav cards drop decorative color.
+  // One neutral icon treatment; color is reserved for status, never category.
   const mainNavCards = [
     {
       href: "/invoices",
       icon: Receipt,
       label: "Accounts Payable",
       description: pendingReview > 0 ? `${pendingReview} pending review` : `${approvedAP.length} approved`,
-      color: "text-[#4272EF]",
-      bg: "bg-blue-50",
       badge: pendingReview > 0 ? `${pendingReview}` : null,
     },
     {
@@ -101,28 +96,26 @@ export default async function FinancialHubPage() {
       icon: BookOpen,
       label: "Journal Entries",
       description: `${(recentJournalEntries ?? []).length} recent`,
-      color: "text-indigo-600",
-      bg: "bg-indigo-50",
       badge: null,
     },
   ];
 
   const bankingCards = [
-    { href: "/banking/accounts", icon: Landmark, label: "Bank Accounts", color: "text-emerald-600", bg: "bg-emerald-50" },
-    { href: "/banking/loans", icon: Banknote, label: "Loans", color: "text-[#4272EF]", bg: "bg-blue-50" },
-    { href: "/banking/payments", icon: CreditCard, label: "Payment Register", color: "text-purple-600", bg: "bg-purple-50" },
-    { href: "/draws", icon: HandCoins, label: "Draw Requests", color: "text-amber-600", bg: "bg-amber-50" },
+    { href: "/banking/accounts", icon: Landmark, label: "Bank Accounts" },
+    { href: "/banking/loans", icon: Banknote, label: "Loans" },
+    { href: "/banking/payments", icon: CreditCard, label: "Payment Register" },
+    { href: "/draws", icon: HandCoins, label: "Draw Requests" },
   ];
 
   const reportCards = [
-    { href: "/financial/summary", icon: PieChart, label: "Summary", color: "text-[#4272EF]", bg: "bg-blue-50" },
-    { href: "/financial/income-statement", icon: TrendingUp, label: "Income Statement", color: "text-emerald-600", bg: "bg-emerald-50" },
-    { href: "/financial/balance-sheet", icon: Scale, label: "Balance Sheet", color: "text-indigo-600", bg: "bg-indigo-50" },
-    { href: "/financial/cash-flow", icon: ArrowDownUp, label: "Cash Flow", color: "text-[#4272EF]", bg: "bg-blue-50" },
-    { href: "/financial/ap-aging", icon: Clock, label: "AP Aging", color: "text-amber-600", bg: "bg-amber-50" },
-    { href: "/financial/wip", icon: BarChart3, label: "WIP Report", color: "text-purple-600", bg: "bg-purple-50" },
-    { href: "/financial/vendor-spend", icon: DollarSign, label: "Vendor Spend", color: "text-emerald-600", bg: "bg-emerald-50" },
-    { href: "/financial/tax-export", icon: FileSpreadsheet, label: "Tax Package Export", color: "text-gray-600", bg: "bg-gray-100" },
+    { href: "/financial/summary", icon: PieChart, label: "Summary" },
+    { href: "/financial/income-statement", icon: TrendingUp, label: "Income Statement" },
+    { href: "/financial/balance-sheet", icon: Scale, label: "Balance Sheet" },
+    { href: "/financial/cash-flow", icon: ArrowDownUp, label: "Cash Flow" },
+    { href: "/financial/ap-aging", icon: Clock, label: "AP Aging" },
+    { href: "/financial/wip", icon: BarChart3, label: "WIP Report" },
+    { href: "/financial/vendor-spend", icon: DollarSign, label: "Vendor Spend" },
+    { href: "/financial/tax-export", icon: FileSpreadsheet, label: "Tax Package Export" },
   ];
 
   return (
@@ -158,7 +151,9 @@ export default async function FinancialHubPage() {
                     <p className="text-sm font-medium text-white">
                       {pastDue} past-due invoice{pastDue !== 1 ? "s" : ""}
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pastDueAmount)}</p>
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={pastDueAmount} className="text-slate-400" />
+                    </p>
                   </div>
                 </Link>
               )}
@@ -175,7 +170,9 @@ export default async function FinancialHubPage() {
                     <p className="text-sm font-medium text-white">
                       {pendingReview} invoice{pendingReview !== 1 ? "s" : ""} to review
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pendingReviewAmount)}</p>
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={pendingReviewAmount} className="text-slate-400" />
+                    </p>
                   </div>
                 </Link>
               )}
@@ -192,7 +189,9 @@ export default async function FinancialHubPage() {
                     <p className="text-sm font-medium text-white">
                       {releasedCount} check{releasedCount !== 1 ? "s" : ""} outstanding
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(releasedAmount)}</p>
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={releasedAmount} className="text-slate-400" />
+                    </p>
                   </div>
                 </Link>
               )}
@@ -209,7 +208,9 @@ export default async function FinancialHubPage() {
                     <p className="text-sm font-medium text-white">
                       {pendingDraws} draw{pendingDraws !== 1 ? "s" : ""} pending
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">{fmt(pendingDrawsAmount)}</p>
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={pendingDrawsAmount} className="text-slate-400" />
+                    </p>
                   </div>
                 </Link>
               )}
@@ -221,7 +222,9 @@ export default async function FinancialHubPage() {
         <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 pb-4 mb-6 border-b border-gray-200 tabular-nums">
           <div>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">AP outstanding</p>
-            <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(outstandingAP)}</p>
+            <p className="text-lg font-bold text-gray-900 leading-none mt-1">
+              <Money value={outstandingAP} />
+            </p>
           </div>
           <div>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Pending review</p>
@@ -243,9 +246,13 @@ export default async function FinancialHubPage() {
           </div>
           <div>
             <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Loan balance</p>
-            <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(totalLoanBalance)}</p>
+            <p className="text-lg font-bold text-gray-900 leading-none mt-1">
+              <Money value={totalLoanBalance} />
+            </p>
             {totalLoanCommitment > 0 && (
-              <p className="text-[10px] text-gray-400 mt-0.5">of {fmt(totalLoanCommitment)} committed</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                of <Money value={totalLoanCommitment} className="text-gray-400" /> committed
+              </p>
             )}
           </div>
           <div>
@@ -267,11 +274,11 @@ export default async function FinancialHubPage() {
                     <Link
                       key={card.href}
                       href={card.href}
-                      className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all group relative"
+                      className="bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-400 transition-colors group relative"
                     >
                       <div className="flex items-start justify-between">
-                        <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center mb-3`}>
-                          <Icon size={20} className={card.color} />
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 bg-[color:var(--neutral-chip-bg)] text-[color:var(--neutral-chip-fg)]">
+                          <Icon size={20} />
                         </div>
                         {card.badge && (
                           <span
@@ -300,10 +307,10 @@ export default async function FinancialHubPage() {
                     <Link
                       key={card.href}
                       href={card.href}
-                      className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all group text-center"
+                      className="bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-400 transition-colors group text-center"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center mx-auto mb-2`}>
-                        <Icon size={20} className={card.color} />
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-2 bg-[color:var(--neutral-chip-bg)] text-[color:var(--neutral-chip-fg)]">
+                        <Icon size={20} />
                       </div>
                       <p className="text-sm font-semibold text-gray-900 group-hover:text-[#4272EF] transition-colors">{card.label}</p>
                     </Link>
@@ -315,7 +322,7 @@ export default async function FinancialHubPage() {
             {/* Reports */}
             <div>
               <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Reports</h2>
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden divide-y divide-gray-100">
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
                 {reportCards.map((card) => {
                   const Icon = card.icon;
                   return (
@@ -324,8 +331,8 @@ export default async function FinancialHubPage() {
                       href={card.href}
                       className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>
-                        <Icon size={16} className={card.color} />
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-[color:var(--neutral-chip-bg)] text-[color:var(--neutral-chip-fg)]">
+                        <Icon size={16} />
                       </div>
                       <span className="text-sm font-medium text-gray-700 flex-1">{card.label}</span>
                       <ChevronRight size={16} className="text-gray-300" />
@@ -352,17 +359,13 @@ export default async function FinancialHubPage() {
                       href={`/invoices/${inv.id}`}
                       className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${
-                        inv.status === "pending_review" ? "bg-amber-500" :
-                        inv.status === "approved" ? "bg-blue-500" :
-                        inv.status === "released" ? "bg-purple-500" :
-                        inv.status === "cleared" ? "bg-emerald-500" : "bg-gray-400"
-                      }`} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{inv.vendor || inv.invoice_number || "Invoice"}</p>
-                        <p className="text-xs text-gray-400 capitalize">{inv.status?.replace("_", " ")}</p>
+                        <div className="mt-0.5">
+                          {inv.status && <StatusBadge status={inv.status} size="sm" />}
+                        </div>
                       </div>
-                      <span className="text-sm font-semibold text-gray-900 tabular-nums">{fmt(inv.total_amount ?? inv.amount ?? 0)}</span>
+                      <Money value={inv.total_amount ?? inv.amount ?? 0} className="text-sm font-semibold" />
                     </Link>
                   ))}
                 </div>
@@ -381,7 +384,9 @@ export default async function FinancialHubPage() {
                     <div key={je.id} className="px-5 py-3">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-xs font-mono text-[#4272EF]">{je.reference}</span>
-                        <span className="text-xs text-gray-400">{je.entry_date}</span>
+                        <span className="text-xs text-gray-400">
+                          <DateValue value={je.entry_date} kind="smart" className="text-gray-400" />
+                        </span>
                       </div>
                       <p className="text-sm text-gray-700 truncate">{je.description}</p>
                     </div>

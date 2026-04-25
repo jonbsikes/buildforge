@@ -42,6 +42,8 @@ export default async function ProjectDetailPage({ params }: Props) {
     contractsResult,
     invoicesResult,
     jeLinesResult,
+    fieldLogsCountResult,
+    selectionsResult,
   ] = await Promise.all([
     supabase
       .from("projects")
@@ -102,6 +104,17 @@ export default async function ProjectDetailPage({ params }: Props) {
       .select("cost_code_id, debit, credit, journal_entries!inner ( status, source_type )")
       .eq("project_id", id)
       .not("cost_code_id", "is", null) as unknown as Promise<{ data: { cost_code_id: string | null; debit: number; credit: number; journal_entries: { status: string; source_type: string } }[] | null; error: unknown }>,
+
+    // Tab-count queries — head:true returns just the count (per UI Review § 05 #30)
+    supabase
+      .from("field_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", id),
+
+    supabase
+      .from("selections")
+      .select("id, status")
+      .eq("project_id", id),
   ]);
 
   if (!projectResult.data) notFound();
@@ -207,6 +220,11 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   const days = daysUnderConstruction(project.start_date);
 
+  const fieldLogsCount = fieldLogsCountResult.count ?? 0;
+  const selectionsPendingCount = (selectionsResult.data ?? []).filter(
+    (s) => (s as { status?: string | null }).status === "pending" || (s as { status?: string | null }).status === "selected"
+  ).length;
+
   // Stage progress
   const activeStages = buildStages.filter((s) => s.status !== "skipped");
   const completedStages = activeStages.filter((s) => s.status === "complete" || s.status === "completed").length;
@@ -215,6 +233,26 @@ export default async function ProjectDetailPage({ params }: Props) {
   // Budget progress
   const totalBudget = costCodes.reduce((s, c) => s + (c.budgeted_amount ?? 0), 0);
   const totalActual = Object.values(actualByCostCodeId).reduce((s, v) => s + v, 0);
+
+  // Day N of M progress (UI Review § 05 #35): planned total = days from start
+  // through latest planned end across all stages.
+  let plannedTotalDays: number | null = null;
+  if (project.start_date) {
+    const lastEnd = (buildStages ?? [])
+      .map((s) => s.planned_end_date ?? s.actual_end_date)
+      .filter((d): d is string => !!d)
+      .sort()
+      .at(-1);
+    if (lastEnd) {
+      const start = new Date(project.start_date + "T00:00:00").getTime();
+      const end = new Date(lastEnd + "T00:00:00").getTime();
+      plannedTotalDays = Math.max(1, Math.round((end - start) / 86400000));
+    }
+  }
+  const offPace =
+    plannedTotalDays !== null && days !== null && days > 0
+      ? (days / plannedTotalDays) > (stageProgress / 100) + 0.05
+      : false;
 
   // What's Next
   const tracks = ["Exterior", "Interior"] as const;
@@ -238,7 +276,14 @@ export default async function ProjectDetailPage({ params }: Props) {
 
   return (
     <>
-      <Header title={project.name} />
+      <Header
+        title={project.name}
+        breadcrumbs={[
+          { label: "Projects", href: "/projects" },
+          ...(project.subdivision ? [{ label: project.subdivision }] : []),
+          { label: project.name },
+        ]}
+      />
       <main className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto">
 
@@ -345,7 +390,7 @@ export default async function ProjectDetailPage({ params }: Props) {
             )}
 
             <div className="px-4 pb-6">
-              <ProjectTabs projectId={id} isHome={isHome} startDate={project.start_date} buildStages={buildStages} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} documents={documents} committedByCostCodeId={committedByCostCodeId} actualByCostCodeId={actualByCostCodeId} />
+              <ProjectTabs projectId={id} isHome={isHome} startDate={project.start_date} buildStages={buildStages} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} documents={documents} committedByCostCodeId={committedByCostCodeId} actualByCostCodeId={actualByCostCodeId} fieldLogsCount={fieldLogsCount} selectionsPendingCount={selectionsPendingCount} />
             </div>
           </div>
 
@@ -387,7 +432,28 @@ export default async function ProjectDetailPage({ params }: Props) {
                 {project.start_date && (
                   <DetailField icon={<Calendar size={13} />} label="Start Date" value={new Date(project.start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} />
                 )}
-                {days !== null && <DetailField label="Days Under Construction" value={`${days.toLocaleString()} days`} highlight />}
+                {days !== null && plannedTotalDays !== null ? (
+                  <div>
+                    <p className="text-[11px] text-gray-400 mb-1">Schedule</p>
+                    <div className="text-sm font-medium text-gray-900 tabular-nums mb-1">
+                      Day {days.toLocaleString()} of {plannedTotalDays.toLocaleString()}
+                      <span className="text-gray-400 font-normal ml-1.5">
+                        · {Math.min(100, Math.round((days / plannedTotalDays) * 100))}%
+                      </span>
+                    </div>
+                    <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.min(100, Math.round((days / plannedTotalDays) * 100))}%`,
+                          backgroundColor: offPace ? "var(--status-delayed)" : "var(--brand-blue)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : days !== null ? (
+                  <DetailField label="Days Under Construction" value={`${days.toLocaleString()} days`} highlight />
+                ) : null}
                 {lender && <DetailField label="Lender" value={lender.name} />}
                 {isHome && project.subdivision && <DetailField label="Subdivision" value={project.subdivision} />}
                 {isHome && (project.block || project.lot) && <DetailField label="Block / Lot" value={[project.block, project.lot].filter(Boolean).join(" / ")} />}

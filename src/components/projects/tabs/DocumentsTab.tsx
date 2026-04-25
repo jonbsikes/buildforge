@@ -8,6 +8,8 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { saveDocument, deleteDocument } from "@/app/actions/projects";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import FilterChipRail, { type FilterChip } from "@/components/ui/FilterChipRail";
+import CapacityBar from "@/components/ui/CapacityBar";
 import type { Document } from "@/components/projects/ProjectTabs";
 
 const FOLDERS = [
@@ -230,6 +232,8 @@ function FolderDropZone({
 // ---------------------------------------------------------------------------
 // Main tab
 // ---------------------------------------------------------------------------
+type FolderFilter = Folder | "all";
+
 export default function DocumentsTab({
   projectId,
   initialDocuments,
@@ -238,6 +242,7 @@ export default function DocumentsTab({
   initialDocuments: Document[];
 }) {
   const [docs, setDocs] = useState<Document[]>(initialDocuments);
+  const [filter, setFilter] = useState<FolderFilter>("all");
 
   const totalKb = docs.reduce((s, d) => s + (d.file_size_kb ?? 0), 0);
   const nearLimit = totalKb >= PROJECT_WARN_KB * 0.9;
@@ -256,45 +261,48 @@ export default function DocumentsTab({
     return `${(kb / 1024).toFixed(0)} MB`;
   };
 
+  // Per UI Review § 05 #34: folder filter pills with counts.
+  const folderChips: FilterChip<FolderFilter>[] = [
+    { id: "all", label: "All", count: docs.length },
+    ...FOLDERS.map((f) => ({
+      id: f as FolderFilter,
+      label: f,
+      count: docs.filter((d) => d.folder === f).length,
+    })),
+  ];
+
+  const visibleFolders: readonly Folder[] = filter === "all" ? FOLDERS : [filter];
+
   return (
     <div className="space-y-4">
-      {/* Storage usage */}
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-gray-400">
-          Storage used: <span className={`font-medium ${overLimit ? "text-red-600" : nearLimit ? "text-amber-600" : "text-gray-700"}`}>
-            {fmtTotalSize(totalKb)} / 500 MB
-          </span>
-        </span>
-        {overLimit && (
-          <span className="flex items-center gap-1 text-red-600 font-medium">
-            <AlertTriangle size={12} /> Project storage limit reached (500 MB)
-          </span>
-        )}
-        {nearLimit && !overLimit && (
-          <span className="flex items-center gap-1 text-amber-600 font-medium">
-            <AlertTriangle size={12} /> Approaching 500 MB limit
-          </span>
-        )}
-      </div>
+      {/* Folder filter pills */}
+      <FilterChipRail<FolderFilter>
+        chips={folderChips}
+        active={filter}
+        onChange={setFilter}
+        size="sm"
+      />
 
-      {/* Progress bar */}
-      <div className="w-full bg-gray-100 rounded-full h-1.5">
-        <div
-          className="h-1.5 rounded-full transition-all"
-          style={{
-            width: `${Math.min((totalKb / PROJECT_WARN_KB) * 100, 100)}%`,
-            backgroundColor: overLimit
-              ? "var(--status-over)"
-              : nearLimit
-                ? "var(--status-warning)"
-                : "var(--brand-blue)",
-          }}
-        />
-      </div>
+      {/* Storage usage — uses CapacityBar primitive */}
+      <CapacityBar
+        used={totalKb}
+        total={PROJECT_WARN_KB}
+        label={`Storage: ${fmtTotalSize(totalKb)} / 500 MB`}
+      />
+      {overLimit && (
+        <p className="flex items-center gap-1 text-xs text-[color:var(--status-over)] font-medium">
+          <AlertTriangle size={12} /> Project storage limit reached (500 MB)
+        </p>
+      )}
+      {nearLimit && !overLimit && (
+        <p className="flex items-center gap-1 text-xs text-[color:var(--status-warning)] font-medium">
+          <AlertTriangle size={12} /> Approaching 500 MB limit
+        </p>
+      )}
 
       {/* Folder grid */}
       <div className="grid grid-cols-1 gap-4">
-        {FOLDERS.map((folder) => (
+        {visibleFolders.map((folder) => (
           <FolderDropZone
             key={folder}
             folder={folder}

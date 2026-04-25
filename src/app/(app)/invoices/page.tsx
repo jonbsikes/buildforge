@@ -1,11 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
-import { Plus, AlertTriangle } from "lucide-react";
+import { Plus, AlertTriangle, Receipt } from "lucide-react";
 import InvoicesTable from "@/components/invoices/InvoicesTable";
 import PollEmailButton from "@/components/invoices/PollEmailButton";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 import AdminOnly from "@/components/ui/AdminOnly";
+import EmptyState from "@/components/ui/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -88,27 +89,35 @@ export default async function InvoicesPage() {
         <div className="max-w-7xl mx-auto">
           <ReadOnlyBanner />
 
-          {/* Low confidence alert */}
-          {lowConfCount > 0 && (
-            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
-              <AlertTriangle size={16} className="flex-shrink-0 text-amber-500" />
-              {lowConfCount} invoice{lowConfCount > 1 ? "s" : ""} flagged as low AI confidence — manual review required before approval.
-            </div>
-          )}
-
-          {/* Missing vendor match — blocks approval because saveInvoice rejects null vendor_id */}
-          {missingVendorCount > 0 && (
-            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-4 text-sm text-red-800">
-              <AlertTriangle size={16} className="flex-shrink-0 text-red-500" />
-              {missingVendorCount} pending invoice{missingVendorCount > 1 ? "s need" : " needs"} a vendor — open each one and select or create the vendor before approving.
-            </div>
-          )}
-
-          {/* Missing or invalid cost codes */}
-          {missingCostCodeCount > 0 && (
-            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
-              <AlertTriangle size={16} className="flex-shrink-0 text-amber-500" />
-              {missingCostCodeCount} pending invoice{missingCostCodeCount > 1 ? "s have" : " has"} a line item without a valid cost code — pick one before approving.
+          {/* Per UI Review § 06 #36: collapse three competing banners into one
+              compact "needs review" strip. Severity is the leading dot color. */}
+          {(lowConfCount > 0 || missingVendorCount > 0 || missingCostCodeCount > 0) && (
+            <div className="bg-white border border-[color:var(--card-border)] rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <div className="flex items-center gap-2 text-[color:var(--text-secondary)] font-medium pr-2 mr-1 border-r border-[color:var(--border-weak)]">
+                <AlertTriangle size={14} className="text-[color:var(--status-warning)]" />
+                Needs review
+              </div>
+              {missingVendorCount > 0 && (
+                <span className="inline-flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
+                  <span className="font-semibold tabular-nums">{missingVendorCount}</span>
+                  <span className="text-[color:var(--text-secondary)]">missing vendor</span>
+                </span>
+              )}
+              {lowConfCount > 0 && (
+                <span className="inline-flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
+                  <span className="font-semibold tabular-nums">{lowConfCount}</span>
+                  <span className="text-[color:var(--text-secondary)]">low AI confidence</span>
+                </span>
+              )}
+              {missingCostCodeCount > 0 && (
+                <span className="inline-flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
+                  <span className="font-semibold tabular-nums">{missingCostCodeCount}</span>
+                  <span className="text-[color:var(--text-secondary)]">missing cost code</span>
+                </span>
+              )}
             </div>
           )}
 
@@ -132,11 +141,18 @@ export default async function InvoicesPage() {
           </div>
 
           {rows.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 px-6 py-12 text-center text-sm text-gray-400">
-              No invoices yet.{" "}
-              <Link href="/invoices/upload" className="text-[#4272EF] hover:underline">
-                Add one
-              </Link>
+            <div className="bg-white rounded-xl border border-gray-200">
+              <EmptyState
+                icon={<Receipt size={20} />}
+                title="No invoices yet"
+                description="Invoices route through this page from email ingestion or direct upload. Once uploaded, AI extracts the vendor, amount, dates and suggests cost codes for review."
+                steps={[
+                  "Upload a PDF or image, or send to the Gmail address linked to BuildForge.",
+                  "Review the AI-extracted fields and approve.",
+                  "Track through approved → released → cleared.",
+                ]}
+                primary={{ label: "+ Add your first invoice", href: "/invoices/upload" }}
+              />
             </div>
           ) : (
             <InvoicesTable rows={rows as any} />

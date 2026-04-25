@@ -1,6 +1,7 @@
 import DesktopNavRail from "@/components/layout/DesktopNavRail";
 import BottomTabBar from "@/components/layout/BottomTabBar";
 import PageTransition from "@/components/layout/PageTransition";
+import CommandPalette from "@/components/layout/CommandPalette";
 import { UserRoleProvider } from "@/components/layout/UserRoleContext";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ export default function AppLayout({
 
         {/* Mobile: bottom tab bar with FAB */}
         <BottomTabBar />
+
+        {/* Cmd+K palette (mounted globally; opens on Cmd/Ctrl+K) */}
+        <CommandPalette />
       </div>
     </UserRoleProvider>
   );

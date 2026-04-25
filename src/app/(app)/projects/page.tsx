@@ -11,28 +11,14 @@ import {
   ListChecks,
   AlertTriangle,
   ChevronRight,
-  Calendar,
   Hammer,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import ProjectCard from "@/components/dashboard/ProjectCard";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
 
 export const dynamic = "force-dynamic";
-
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function fmtDate(d: string) {
-  return new Date(d + "T00:00:00").toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
 
 export default async function ProjectsHubPage() {
   const supabase = await createClient();
@@ -168,39 +154,35 @@ export default async function ProjectsHubPage() {
     )
     .slice(0, 5);
 
+  // Per UI Review § 00 #2: nav and report cards drop decorative color.
   const navCards = [
     {
       href: "/projects/tree",
       icon: FolderOpen,
       label: "All Projects",
       description: `${activeCount} active, ${preConCount} pre-construction`,
-      color: "text-[#4272EF]",
-      bg: "bg-blue-50",
     },
     {
       href: "/todos",
       icon: ClipboardList,
       label: "To-Do List",
       description: urgentTodos > 0 ? `${openTodos} open, ${urgentTodos} urgent` : `${openTodos} open`,
-      color: urgentTodos > 0 ? "text-red-600" : "text-purple-600",
-      bg: urgentTodos > 0 ? "bg-red-50" : "bg-purple-50",
+      tone: urgentTodos > 0 ? "over" : undefined,
     },
     {
       href: "/field-logs",
       icon: FileText,
       label: "Field Logs",
       description: `${(recentLogs ?? []).length} recent entries`,
-      color: "text-emerald-600",
-      bg: "bg-emerald-50",
     },
-  ];
+  ] as const;
 
   const reportCards = [
-    { href: "/reports/stage-progress", icon: ListChecks, label: "Stage Progress", color: "text-[#4272EF]", bg: "bg-blue-50" },
-    { href: "/reports/gantt", icon: GanttChart, label: "Gantt Report", color: "text-indigo-600", bg: "bg-indigo-50" },
-    { href: "/reports/job-cost", icon: BarChart3, label: "Job Cost", color: "text-emerald-600", bg: "bg-emerald-50" },
-    { href: "/reports/budget-variance", icon: TrendingUp, label: "Budget Variance", color: "text-amber-600", bg: "bg-amber-50" },
-    { href: "/reports/selections", icon: ListChecks, label: "Selections", color: "text-purple-600", bg: "bg-purple-50" },
+    { href: "/reports/stage-progress", icon: ListChecks, label: "Stage Progress" },
+    { href: "/reports/gantt", icon: GanttChart, label: "Gantt Report" },
+    { href: "/reports/job-cost", icon: BarChart3, label: "Job Cost" },
+    { href: "/reports/budget-variance", icon: TrendingUp, label: "Budget Variance" },
+    { href: "/reports/selections", icon: ListChecks, label: "Selections" },
   ];
 
   return (
@@ -238,8 +220,8 @@ export default async function ProjectsHubPage() {
                         ? `${overBudgetDetail[0]!.name} over budget`
                         : `${overBudgetDetail.length} projects over budget`}
                     </p>
-                    <p className="text-[11px] text-slate-400 tabular-nums">
-                      +{fmt(overBudgetDetail[0]!.delta)} ({overBudgetDetail[0]!.pct}%)
+                    <p className="text-[11px] text-slate-400">
+                      <Money value={overBudgetDetail[0]!.delta} showSign className="text-slate-400" /> ({overBudgetDetail[0]!.pct}%)
                       {overBudgetDetail.length > 1 && (
                         <span className="text-slate-500"> · +{overBudgetDetail.length - 1} more</span>
                       )}
@@ -316,8 +298,10 @@ export default async function ProjectsHubPage() {
               <p className="text-lg font-bold text-gray-900 leading-none mt-1">{openTodos}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Budget in flight</p>
-              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{fmt(totalBudget)}</p>
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Active budget</p>
+              <p className="text-lg font-bold text-gray-900 leading-none mt-1">
+                <Money value={totalBudget} />
+              </p>
             </div>
           </div>
         </div>
@@ -331,16 +315,24 @@ export default async function ProjectsHubPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {navCards.map((card) => {
                   const Icon = card.icon;
+                  const isOver = (card as { tone?: string }).tone === "over";
                   return (
                     <Link
                       key={card.href}
                       href={card.href}
-                      className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all group"
+                      className="bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-400 transition-colors group"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center mb-3`}>
-                        <Icon size={20} className={card.color} />
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 bg-[color:var(--neutral-chip-bg)] text-[color:var(--neutral-chip-fg)]"
+                      >
+                        <Icon size={20} />
                       </div>
-                      <p className="font-semibold text-gray-900 mb-0.5 group-hover:text-[#4272EF] transition-colors">{card.label}</p>
+                      <p className="font-semibold text-gray-900 mb-0.5 group-hover:text-[#4272EF] transition-colors">
+                        {card.label}
+                        {isOver && (
+                          <span className="ml-2 align-middle inline-block w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
+                        )}
+                      </p>
                       <p className="text-xs text-gray-500">{card.description}</p>
                     </Link>
                   );
@@ -351,7 +343,7 @@ export default async function ProjectsHubPage() {
             {/* Reports */}
             <div>
               <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Reports</h2>
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden divide-y divide-gray-100">
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
                 {reportCards.map((card) => {
                   const Icon = card.icon;
                   return (
@@ -360,8 +352,8 @@ export default async function ProjectsHubPage() {
                       href={card.href}
                       className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
                     >
-                      <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center shrink-0`}>
-                        <Icon size={16} className={card.color} />
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-[color:var(--neutral-chip-bg)] text-[color:var(--neutral-chip-fg)]">
+                        <Icon size={16} />
                       </div>
                       <span className="text-sm font-medium text-gray-700 flex-1">{card.label}</span>
                       <ChevronRight size={16} className="text-gray-300" />
@@ -447,7 +439,9 @@ export default async function ProjectsHubPage() {
                     <div key={log.id} className="px-5 py-3">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-xs font-medium text-[#4272EF]">{projectNames[log.project_id] ?? "—"}</span>
-                        <span className="text-xs text-gray-400">{fmtDate(log.log_date)}</span>
+                        <span className="text-xs text-gray-400">
+                          <DateValue value={log.log_date} kind="smart" className="text-gray-400" />
+                        </span>
                       </div>
                       <p className="text-sm text-gray-700 line-clamp-2">{log.notes}</p>
                     </div>
