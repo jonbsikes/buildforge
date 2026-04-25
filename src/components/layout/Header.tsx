@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserProfile } from "@/lib/auth";
 import NotificationBell from "@/components/layout/NotificationBell";
 import AvatarMenu from "@/components/layout/AvatarMenu";
 
@@ -7,19 +8,24 @@ export default async function Header({ title }: { title: string }) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const profile = await getUserProfile();
 
   const email = user?.email ?? "";
   const emailLocal = email.split("@")[0] ?? "";
+  const profileName = profile?.display_name?.trim() ?? "";
   const displayName =
+    profileName ||
     emailLocal
       .split(/[._]/)
       .filter((p) => p.length > 1)
       .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
       .slice(0, 2)
-      .join(" ") || emailLocal;
+      .join(" ") ||
+    emailLocal;
 
   const initials = displayName
-    .split(" ")
+    .split(/\s+/)
+    .filter(Boolean)
     .map((p) => p.charAt(0).toUpperCase())
     .join("")
     .slice(0, 2);

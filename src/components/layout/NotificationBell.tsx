@@ -36,6 +36,7 @@ export default function NotificationBell() {
     const { data } = await supabase
       .from("notifications")
       .select("id, type, message, is_read, created_at, reference_id, reference_type")
+      .eq("is_read", false)
       .order("created_at", { ascending: false })
       .limit(30);
     setNotifications(data ?? []);
