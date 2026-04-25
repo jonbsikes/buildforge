@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages";
 import { createClient } from "@/lib/supabase/server";
 import { extractStructured } from "@/lib/ai/extract";
+import { findVendorId, normalizeCostCode } from "@/lib/ai/match";
 
 const SYSTEM_PROMPT = `You are an invoice data extraction assistant for a residential construction and land development company.
 
@@ -67,14 +68,26 @@ Extract structured data from the provided invoice PDF and return ONLY valid JSON
 
 export interface ExtractedInvoiceData {
   vendor: string;
+  /** Matched vendor id from the vendors table, or null if no confident match. */
+  vendor_id: string | null;
   invoice_number: string;
   invoice_date: string;
   due_date: string;
   total_amount: number;
   project_id: string | null;
-  line_items: { cost_code: string; description: string; amount: number }[];
+  line_items: {
+    cost_code: string;
+    description: string;
+    amount: number;
+    /** True when the cost_code string exists in the cost_codes master list. */
+    cost_code_valid: boolean;
+  }[];
   ai_confidence: "high" | "medium" | "low";
   ai_notes: string;
+  /** Non-empty when the extracted vendor couldn't be resolved against the vendors table. */
+  vendor_unmatched_name?: string;
+  /** Any cost codes the AI produced that don't exist in the master list. */
+  invalid_cost_codes?: string[];
 }
 
 export interface ExtractedInvoiceResponse {
@@ -151,7 +164,19 @@ export async function POST(req: NextRequest) {
       invoices = [];
     }
 
-    // Validate each invoice
+    // Load matching sources once so each invoice in the batch gets resolved
+    // against the same vendor + cost-code snapshot.
+    const [{ data: vendorRows }, { data: costCodeRows }] = await Promise.all([
+      supabase.from("vendors").select("id, name").eq("is_active", true),
+      supabase.from("cost_codes").select("code").is("user_id", null),
+    ]);
+    const vendorList = (vendorRows ?? []) as { id: string; name: string }[];
+    const validCodeSet = new Set(
+      (costCodeRows ?? []).map((c) => String((c as { code: number | string }).code))
+    );
+
+    // Validate each invoice, resolve vendor_id / cost codes against the DB,
+    // and surface unmatched results so the review UI can flag them.
     invoices.forEach((inv) => {
       if (!inv.vendor || !inv.total_amount) {
         inv.ai_confidence = "low";
@@ -163,6 +188,45 @@ export async function POST(req: NextRequest) {
         minDue.setDate(minDue.getDate() + 7);
         const minDueStr = minDue.toISOString().split("T")[0];
         if (inv.due_date < minDueStr) inv.due_date = minDueStr;
+      }
+
+      // Resolve vendor_id. If unmatched, keep the AI-extracted name around so
+      // the UI can prompt the reviewer to pick an existing vendor or create one.
+      const vendorId = findVendorId(inv.vendor, vendorList);
+      inv.vendor_id = vendorId;
+      if (!vendorId && inv.vendor) {
+        inv.vendor_unmatched_name = inv.vendor;
+      }
+
+      // Validate + normalize each line item's cost code against the master list.
+      const invalid: string[] = [];
+      inv.line_items = (inv.line_items ?? []).map((li) => {
+        const norm = normalizeCostCode(li.cost_code);
+        const valid = norm !== null && validCodeSet.has(norm);
+        if (!valid) {
+          const shown = (li.cost_code ?? "").toString().trim() || "(blank)";
+          invalid.push(shown);
+        }
+        return {
+          cost_code: norm ?? (li.cost_code ?? ""),
+          description: li.description ?? "",
+          amount: li.amount ?? 0,
+          cost_code_valid: valid,
+        };
+      });
+      if (invalid.length) {
+        inv.invalid_cost_codes = invalid;
+        // Downgrade confidence: the reviewer must pick a valid code before save.
+        if (inv.ai_confidence === "high") inv.ai_confidence = "medium";
+        inv.ai_notes = (
+          (inv.ai_notes ?? "") +
+          ` Unknown cost code(s): ${invalid.join(", ")}.`
+        ).trim();
+      }
+      // If vendor couldn't be resolved, same treatment — don't let a "high"
+      // confidence hide a missing vendor match.
+      if (!vendorId && inv.vendor) {
+        if (inv.ai_confidence === "high") inv.ai_confidence = "medium";
       }
     });
 

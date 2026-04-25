@@ -47,6 +47,10 @@ interface InvoiceReviewItem {
   ai_notes: string;
   ai_confidence: "high" | "medium" | "low" | "";
   line_items: { cost_code: string; description: string; amount: number }[];
+  /** AI-extracted name that couldn't be resolved to a real vendor. Empty once user picks / creates. */
+  vendor_unmatched_name: string;
+  /** Cost codes from the extraction that don't exist in the master list. */
+  invalid_cost_codes: string[];
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -57,40 +61,18 @@ function fileSizeOk(f: File) { return f.size <= 20 * 1024 * 1024; }
 const MULTI_PROJECT = "__multiple__";
 
 function emptyReviewItem(): InvoiceReviewItem {
-  return { project_id: "", cost_code: "", vendor: "", vendor_id: "", invoice_number: "", invoice_date: "", amount: "", due_date: "", ai_notes: "", ai_confidence: "", line_items: [] };
+  return { project_id: "", cost_code: "", vendor: "", vendor_id: "", invoice_number: "", invoice_date: "", amount: "", due_date: "", ai_notes: "", ai_confidence: "", line_items: [], vendor_unmatched_name: "", invalid_cost_codes: [] };
 }
 
-/** Strip suffixes like LLC, Inc, Corp and normalize whitespace / casing for fuzzy vendor matching */
-function normalizeVendorName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/[.,'"]/g, "")
-    .replace(/\b(llc|inc|corp|corporation|incorporated|co|company|ltd|lp|llp|dba)\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Find the best matching vendor by name — exact normalized match or containment */
-function matchVendor(extractedName: string, vendors: Vendor[]): string {
-  if (!extractedName) return "";
-  const normalized = normalizeVendorName(extractedName);
-  // 1) Exact normalized match
-  const exact = vendors.find((v) => normalizeVendorName(v.name) === normalized);
-  if (exact) return exact.id;
-  // 2) Containment match
-  const contains = vendors.find((v) => {
-    const vNorm = normalizeVendorName(v.name);
-    return vNorm.includes(normalized) || normalized.includes(vNorm);
-  });
-  return contains?.id ?? "";
-}
-
-function extractedToReviewItem(inv: ExtractedInvoiceData, vendors: Vendor[]): InvoiceReviewItem {
+function extractedToReviewItem(inv: ExtractedInvoiceData): InvoiceReviewItem {
   const vendorName = inv.vendor ?? "";
-  const vendorId = matchVendor(vendorName, vendors);
+  // Vendor matching now happens server-side in /api/invoices/extract so both the
+  // manual upload path and the Gmail ingestion path use the same algorithm.
+  const vendorId = inv.vendor_id ?? "";
+  const firstValidLine = (inv.line_items ?? []).find((li) => li.cost_code_valid);
   return {
     project_id: inv.project_id ?? "",
-    cost_code: inv.line_items?.[0]?.cost_code ?? "",
+    cost_code: firstValidLine?.cost_code ?? inv.line_items?.[0]?.cost_code ?? "",
     vendor: vendorName,
     vendor_id: vendorId,
     invoice_number: inv.invoice_number ?? "",
@@ -100,10 +82,15 @@ function extractedToReviewItem(inv: ExtractedInvoiceData, vendors: Vendor[]): In
     ai_notes: inv.ai_notes ?? "",
     ai_confidence: inv.ai_confidence ?? "",
     line_items: (inv.line_items ?? []).map((li) => ({
-      cost_code: li.cost_code ?? "",
+      // Drop invalid codes so the reviewer is forced to pick from the dropdown
+      // instead of silently carrying through an AI-invented code that would
+      // fail validation at save time.
+      cost_code: li.cost_code_valid ? li.cost_code : "",
       description: li.description ?? "",
       amount: li.amount ?? 0,
     })),
+    vendor_unmatched_name: inv.vendor_unmatched_name ?? (vendorId ? "" : vendorName),
+    invalid_cost_codes: inv.invalid_cost_codes ?? [],
   };
 }
 
@@ -161,6 +148,7 @@ async function uploadAndExtract(
       user_id: userId,
       file_path: filePath,
       file_name: file.name,
+      vendor_id: inv.vendor_id || null,
       vendor: inv.vendor || null,
       invoice_number: inv.invoice_number || null,
       invoice_date: inv.invoice_date || null,
@@ -189,16 +177,14 @@ async function uploadAndExtract(
 
     if (!insertError && record) {
       created++;
-      const lineItems = inv.line_items?.length
-        ? inv.line_items
-        : inv.line_items?.[0]?.cost_code
-          ? [{ cost_code: inv.line_items[0].cost_code, description: inv.vendor || "Invoice", amount: inv.total_amount ?? 0 }]
-          : [];
+      const lineItems = inv.line_items?.length ? inv.line_items : [];
       if (lineItems.length) {
         await supabase.from("invoice_line_items").insert(
           lineItems.map((li) => ({
             invoice_id: record.id,
-            cost_code: li.cost_code || null,
+            // Drop invalid codes so reviewers see a blank code (not an
+            // AI-invented one) and are forced to pick from the dropdown.
+            cost_code: li.cost_code_valid ? li.cost_code : null,
             description: li.description || "",
             amount: li.amount || 0,
             project_id: resolvedProjectId,
@@ -275,6 +261,42 @@ function InvoiceCard({
             </div>
           )}
 
+          {!item.vendor_id && item.vendor_unmatched_name && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 text-sm px-3 py-2 rounded-lg">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium">
+                  Vendor &ldquo;{item.vendor_unmatched_name}&rdquo; is not in your vendor list.
+                </div>
+                <div className="text-xs mt-0.5">
+                  Pick an existing vendor below, or{" "}
+                  <button
+                    type="button"
+                    onClick={() => onCreateVendor(idx)}
+                    className="underline font-medium"
+                  >
+                    create &ldquo;{item.vendor_unmatched_name}&rdquo; as a new vendor
+                  </button>
+                  {" "}before saving.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {item.invalid_cost_codes.length > 0 && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2 rounded-lg">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <div className="font-medium">
+                  Unknown cost code{item.invalid_cost_codes.length > 1 ? "s" : ""} from AI: {item.invalid_cost_codes.join(", ")}
+                </div>
+                <div className="text-xs mt-0.5">
+                  Pick a valid cost code from the dropdown before saving.
+                </div>
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
             <select value={item.project_id} onChange={(e) => onChange("project_id", e.target.value)}
@@ -292,19 +314,9 @@ function InvoiceCard({
                 <option value="">— Select vendor —</option>
                 {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
-              {!item.vendor_id && item.vendor && (
-                <p className="mt-1 text-xs text-amber-600">
-                  No match for &ldquo;{item.vendor}&rdquo; —{" "}
-                  <button type="button" onClick={() => onCreateVendor(idx)} className="text-[#4272EF] hover:underline font-medium">
-                    + Create new vendor
-                  </button>
-                </p>
-              )}
-              {(item.vendor_id || !item.vendor) && (
-                <button type="button" onClick={() => onCreateVendor(idx)} className="mt-1 text-xs text-[#4272EF] hover:underline">
-                  + Create new vendor
-                </button>
-              )}
+              <button type="button" onClick={() => onCreateVendor(idx)} className="mt-1 text-xs text-[#4272EF] hover:underline">
+                + Create new vendor
+              </button>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
@@ -505,7 +517,7 @@ function SingleUpload({ projects, costCodes, vendors: initialVendors, hasAI }: P
         const res = await fetch("/api/invoices/extract", { method: "POST", body: fd });
         const data = await res.json();
         if (!data.error && data.invoices?.length) {
-          items = (data.invoices as ExtractedInvoiceData[]).map((inv) => extractedToReviewItem(inv, vendors));
+          items = (data.invoices as ExtractedInvoiceData[]).map((inv) => extractedToReviewItem(inv));
         } else {
           extractionFailed = true;
         }

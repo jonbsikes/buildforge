@@ -76,6 +76,14 @@ interface ExtractedData {
   project_name_hint: string | null;
 }
 
+/** Normalize a cost code string to the integer form used by the master list. */
+function normalizeCostCode(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const n = parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return String(n);
+}
+
 interface GmailPart {
   partId?: string;
   mimeType: string;
@@ -314,13 +322,18 @@ Deno.serve(async () => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Fetch vendors for matching
-    const { data: vendors } = await supabase
-      .from("vendors")
-      .select("id, name")
-      .eq("is_active", true);
+    // Fetch vendors + cost codes for matching. Both are snapshots — fetched
+    // once per run so every invoice in the batch is resolved against the same
+    // reference data.
+    const [{ data: vendors }, { data: costCodes }] = await Promise.all([
+      supabase.from("vendors").select("id, name").eq("is_active", true),
+      supabase.from("cost_codes").select("code").is("user_id", null),
+    ]);
 
     const vendorList = vendors ?? [];
+    const validCodeSet = new Set(
+      (costCodes ?? []).map((c) => String((c as { code: number | string }).code))
+    );
 
     // Get Gmail access token
     const accessToken = await getAccessToken();
@@ -428,6 +441,64 @@ Deno.serve(async () => {
               // Find vendor
               const vendorId = findVendor(inv.vendor, vendorList);
 
+              // Composite-key dedup: even if this Gmail message hasn't been
+              // seen before, the same invoice can arrive twice (resend,
+              // forwarded thread, attachment on a new reply). Skip if we
+              // already have a row with the same vendor_id (or vendor name
+              // when vendor_id is null) + invoice_number + amount.
+              if (inv.invoice_number && inv.total_amount) {
+                const dupQuery = supabase
+                  .from("invoices")
+                  .select("id")
+                  .eq("invoice_number", inv.invoice_number)
+                  .eq("amount", inv.total_amount)
+                  .limit(1);
+                if (vendorId) {
+                  dupQuery.eq("vendor_id", vendorId);
+                } else if (inv.vendor) {
+                  dupQuery.ilike("vendor", inv.vendor);
+                }
+                const { data: compositeDup } = await dupQuery;
+                if (compositeDup?.length) {
+                  console.log(
+                    `Skipping ${inv.vendor} #${inv.invoice_number} ($${inv.total_amount}): already in system`
+                  );
+                  skipped++;
+                  continue;
+                }
+              }
+
+              // Validate cost codes against master list. Codes we can't resolve
+              // are nulled out so the reviewer sees a blank in the UI (instead
+              // of silently carrying an AI-invented code through to save).
+              const invalidCodes: string[] = [];
+              const validatedLines = (inv.line_items ?? []).map((li) => {
+                const norm = normalizeCostCode(li.cost_code);
+                const valid = norm !== null && validCodeSet.has(norm);
+                if (!valid) {
+                  invalidCodes.push(
+                    (li.cost_code ?? "").toString().trim() || "(blank)"
+                  );
+                }
+                return {
+                  cost_code: valid ? norm : null,
+                  description: li.description ?? "",
+                  amount: li.amount ?? 0,
+                };
+              });
+
+              // Assemble ai_notes, downgrade confidence when matching fails.
+              let aiConfidence = inv.ai_confidence;
+              let aiNotes = inv.ai_notes ?? "";
+              if (invalidCodes.length) {
+                if (aiConfidence === "high") aiConfidence = "medium";
+                aiNotes = (aiNotes + ` Unknown cost code(s): ${invalidCodes.join(", ")}.`).trim();
+              }
+              if (!vendorId && inv.vendor) {
+                if (aiConfidence === "high") aiConfidence = "medium";
+                aiNotes = (aiNotes + ` Vendor "${inv.vendor}" not in master list — pick or create.`).trim();
+              }
+
               const displayName = `${inv.vendor} – ${inv.invoice_number}`;
 
               // Insert the invoice row FIRST without file_path. If the insert
@@ -447,8 +518,8 @@ Deno.serve(async () => {
                   due_date: inv.due_date,
                   amount: inv.total_amount,
                   total_amount: inv.total_amount,
-                  ai_confidence: inv.ai_confidence,
-                  ai_notes: inv.ai_notes,
+                  ai_confidence: aiConfidence,
+                  ai_notes: aiNotes,
                   status: "pending_review",
                   source: "email",
                   file_name: displayName,
@@ -470,8 +541,8 @@ Deno.serve(async () => {
               // Insert line items into the dedicated table. If this fails, roll
               // back the invoice row so we don't leave a header with no lines —
               // downstream job-cost rollups read from invoice_line_items.
-              if (inv.line_items?.length) {
-                const lineRows = inv.line_items.map((li) => ({
+              if (validatedLines.length) {
+                const lineRows = validatedLines.map((li) => ({
                   invoice_id: invRow.id,
                   project_id: projectId,
                   cost_code: li.cost_code,
