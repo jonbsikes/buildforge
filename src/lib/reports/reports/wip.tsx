@@ -39,12 +39,24 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   const supabase = await createClient();
   const asOf = p.asOf!;
 
-  // Get all home construction projects (active status)
+  // Get all active projects
   const { data: projects } = await supabase
     .from("projects")
-    .select("id, name, total_budget, status")
+    .select("id, name, status")
     .eq("status", "active")
     .order("name");
+
+  // Get per-project budget totals from project_cost_codes
+  const { data: pccRows } = await supabase
+    .from("project_cost_codes")
+    .select("project_id, budgeted_amount");
+
+  const budgetByProject: Record<string, number> = {};
+  for (const row of pccRows ?? []) {
+    if (row.project_id) {
+      budgetByProject[row.project_id] = (budgetByProject[row.project_id] ?? 0) + (row.budgeted_amount ?? 0);
+    }
+  }
 
   // Get approved/released/cleared invoice line items (by line item project)
   const { data: lineItems } = await supabase
@@ -92,9 +104,9 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   }
 
   const rows: WIPRow[] = (projects ?? [])
-    .filter((p) => p.total_budget && p.total_budget > 0)
+    .filter((p) => (budgetByProject[p.id] ?? 0) > 0)
     .map((p) => {
-      const contractPrice = Number(p.total_budget ?? 0);
+      const contractPrice = budgetByProject[p.id] ?? 0;
       const costsToDdate = invoiceMap[p.id] ?? 0;
       const ledgerWip = wipMap[p.id] ?? 0;
       const pctComplete = contractPrice > 0 ? (costsToDdate / contractPrice) * 100 : 0;

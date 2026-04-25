@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import type { NavSection } from "./navMap";
 import { createClient } from "@/lib/supabase/client";
+import { usePinnedProjects } from "@/lib/usePinnedProjects";
 
 interface PinnedProject {
   id: string;
@@ -26,11 +27,16 @@ const SWIPE_HORIZONTAL_TOLERANCE = 40; // px
 export default function NavSheet({ section, onClose, fullNav }: NavSheetProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { ids: pinnedIds } = usePinnedProjects();
   const [pinned, setPinned] = useState<PinnedProject[]>([]);
   const [dragOffset, setDragOffset] = useState(0);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
+    if (pinnedIds.length === 0) {
+      setPinned([]);
+      return;
+    }
     let cancel = false;
     (async () => {
       try {
@@ -38,15 +44,22 @@ export default function NavSheet({ section, onClose, fullNav }: NavSheetProps) {
         const { data } = await supabase
           .from("projects")
           .select("id, name, subdivision")
-          .order("created_at", { ascending: false })
-          .limit(3);
-        if (!cancel && data) setPinned(data as PinnedProject[]);
+          .in("id", pinnedIds);
+        if (!cancel && data) {
+          // Preserve the pinned order from localStorage
+          const byId = new Map(data.map((p) => [p.id, p]));
+          setPinned(
+            pinnedIds
+              .map((id) => byId.get(id))
+              .filter(Boolean) as PinnedProject[]
+          );
+        }
       } catch {}
     })();
     return () => {
       cancel = true;
     };
-  }, []);
+  }, [pinnedIds]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

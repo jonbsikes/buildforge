@@ -7,6 +7,7 @@ import {
 import GanttTab from "@/components/projects/tabs/GanttTab";
 import StageReportTab from "@/components/projects/tabs/StageReportTab";
 import CostItemsTab from "@/components/projects/tabs/CostItemsTab";
+import BudgetTab from "@/components/projects/tabs/BudgetTab";
 import PhasesTab from "@/components/projects/tabs/PhasesTab";
 import SelectionsTab from "@/components/projects/tabs/SelectionsTab";
 import FieldLogsTab from "@/components/projects/tabs/FieldLogsTab";
@@ -94,19 +95,21 @@ const TAB_ICONS: Record<string, React.ElementType> = {
 };
 
 const HOME_TABS = [
+  { id: "gantt",        label: "Gantt" },
   { id: "stage-report", label: "Stages" },
   { id: "cost-items",   label: "Job Costs" },
-  { id: "gantt",        label: "Gantt" },
+  { id: "budget",       label: "Budget" },
   { id: "selections",   label: "Selections" },
   { id: "field-logs",   label: "Logs" },
   { id: "documents",    label: "Docs" },
 ] as const;
 
 const LAND_TABS = [
-  { id: "phases",       label: "Phases" },
+  { id: "gantt",        label: "Gantt" },
   { id: "stage-report", label: "Stages" },
   { id: "cost-items",   label: "Job Costs" },
-  { id: "gantt",        label: "Gantt" },
+  { id: "budget",       label: "Budget" },
+  { id: "phases",       label: "Phases" },
   { id: "field-logs",   label: "Logs" },
   { id: "documents",    label: "Docs" },
 ] as const;
@@ -136,7 +139,7 @@ export default function ProjectTabs({
     "field-logs": { count: fieldLogsCount },
     "selections": { count: selectionsPendingCount },
   };
-  const [activeTab, setActiveTab] = useState<TabId>(isHome ? "stage-report" : "phases");
+  const [activeTab, setActiveTab] = useState<TabId>("gantt");
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
 
@@ -249,6 +252,9 @@ export default function ProjectTabs({
         )}
         {activeTab === "cost-items" && (
           <CostItemsTab projectId={projectId} isHome={isHome} costCodes={costCodes} availableCostCodes={availableCostCodes} phases={phases} actualByCostCodeId={actualByCostCodeId} />
+        )}
+        {activeTab === "budget" && (
+          <BudgetTab projectId={projectId} costCodes={costCodes} />
         )}
         {activeTab === "phases" && !isHome && (
           <PhasesTab projectId={projectId} initialPhases={phases} />
