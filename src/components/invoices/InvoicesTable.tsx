@@ -95,8 +95,19 @@ type InvoiceRow = {
   } | null;
 };
 
-export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
+export default function InvoicesTable({
+  rows,
+  needsAttentionIds = [],
+}: {
+  rows: InvoiceRow[];
+  needsAttentionIds?: string[];
+}) {
   const router = useRouter();
+  // Set lookup of pending-review invoices that are missing vendor, cost code,
+  // amount, or were flagged low-confidence by the AI extractor. These rows
+  // cannot be approved without manual review (the dropdowns on the edit
+  // form must be filled in first).
+  const needsAttention = useMemo(() => new Set(needsAttentionIds), [needsAttentionIds]);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
@@ -126,9 +137,13 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
   function approveRow(invId: string) {
     const row = rows.find((r) => r.id === invId);
     if (!row) return;
-    const isLowConf = row.ai_confidence === "low" && (statusOverrides[invId] ?? row.status) === "pending_review";
-    if (isLowConf && !row.manually_reviewed) {
-      setBanner({ type: "error", msg: "Review required before approval" });
+    const effectiveStatus = statusOverrides[invId] ?? row.status;
+    const blocked =
+      effectiveStatus === "pending_review" &&
+      needsAttention.has(invId) &&
+      !row.manually_reviewed;
+    if (blocked) {
+      setBanner({ type: "error", msg: "Needs attention — fix vendor, cost code, and amount before approving" });
       return;
     }
     setStatusOverrides((prev) => ({ ...prev, [invId]: "approved" }));
@@ -544,7 +559,8 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
         ) : (
           sortedRows.map((inv) => {
             const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
-            const isLowConf = inv.ai_confidence === "low" && effectiveStatus === "pending_review";
+            const isNeedsAttention =
+              effectiveStatus === "pending_review" && needsAttention.has(inv.id);
             const isPaid = PAID_STATUSES.has(effectiveStatus);
             const todayStr = new Date().toISOString().split("T")[0]!;
             const isPastDue = !!inv.due_date && !isPaid && inv.due_date < todayStr;
@@ -581,16 +597,16 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       {inv.projects?.name ?? "G&A"}
                       {inv.cost_codes && <span className="text-gray-400"> · {inv.cost_codes.name}</span>}
                     </p>
-                    {(isPastDue || isLowConf) && (
+                    {(isPastDue || isNeedsAttention) && (
                       <p className="text-[10px] mt-1 flex items-center gap-1.5">
                         {isPastDue && (
                           <span className="font-medium" style={{ color: "var(--status-over)" }}>
                             Past due · {pastDueDays}d
                           </span>
                         )}
-                        {isLowConf && (
-                          <span className="inline-flex items-center gap-0.5 font-medium" style={{ color: "var(--status-warning)" }}>
-                            <AlertTriangle size={10} /> Low conf
+                        {isNeedsAttention && (
+                          <span className="inline-flex items-center gap-0.5 font-bold uppercase tracking-wide" style={{ color: "var(--status-over)" }}>
+                            <AlertTriangle size={10} /> Needs attention
                           </span>
                         )}
                       </p>
@@ -614,7 +630,7 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       e.stopPropagation();
                       approveRow(inv.id);
                     }}
-                    disabled={isPending || (isLowConf && !inv.manually_reviewed)}
+                    disabled={isPending || (isNeedsAttention && !inv.manually_reviewed)}
                     className="mt-3 w-full py-2 rounded-md text-xs font-semibold text-white disabled:opacity-40 inline-flex items-center justify-center gap-1.5 min-h-[44px]"
                     style={{ backgroundColor: "var(--brand-blue)" }}
                   >
@@ -686,7 +702,8 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                 </tr>
               ) : sortedRows.map((inv, rowIdx) => {
                 const effectiveStatus = statusOverrides[inv.id] ?? inv.status;
-                const isLowConf = inv.ai_confidence === "low" && effectiveStatus === "pending_review";
+                const isNeedsAttention =
+                  effectiveStatus === "pending_review" && needsAttention.has(inv.id);
                 const isSelected = selected.has(inv.id);
                 const isPaid = PAID_STATUSES.has(effectiveStatus);
                 const todayStr = new Date().toISOString().split("T")[0]!;
@@ -756,9 +773,9 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                             Past due · {pastDueDays}d
                           </span>
                         )}
-                        {isLowConf && (
-                          <span className="inline-flex items-center gap-0.5 font-medium" style={{ color: "var(--status-warning)" }}>
-                            <AlertTriangle size={10} /> Low conf
+                        {isNeedsAttention && (
+                          <span className="inline-flex items-center gap-0.5 font-bold uppercase tracking-wide" style={{ color: "var(--status-over)" }}>
+                            <AlertTriangle size={10} /> Needs attention
                           </span>
                         )}
                         {inv.pending_draw && (
@@ -803,12 +820,12 @@ export default function InvoicesTable({ rows }: { rows: InvoiceRow[] }) {
                       <div className="inline-flex items-center gap-1 justify-end">
                         {effectiveStatus === "pending_review" && (
                           <button
-                            title={isLowConf && !inv.manually_reviewed ? "Review required before approval" : "Approve invoice (a)"}
+                            title={isNeedsAttention && !inv.manually_reviewed ? "Needs attention — fix vendor, cost code, and amount first" : "Approve invoice (a)"}
                             onClick={(e) => {
                               e.stopPropagation();
                               approveRow(inv.id);
                             }}
-                            disabled={isPending || (isLowConf && !inv.manually_reviewed)}
+                            disabled={isPending || (isNeedsAttention && !inv.manually_reviewed)}
                             className="px-3 py-1 rounded-md text-xs font-semibold text-white disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1 transition-colors"
                             style={{ backgroundColor: "var(--brand-blue)" }}
                           >

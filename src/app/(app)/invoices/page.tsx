@@ -57,30 +57,49 @@ export default async function InvoicesPage() {
     in_draw: drawByInvoice.get(r.id) ?? null,
   }));
 
-  const lowConfCount = rows.filter(
-    (i) => i.ai_confidence === "low" && i.status === "pending_review"
-  ).length;
-
-  // Count pending invoices that need manual attention because extraction
-  // couldn't resolve the vendor or a cost code. These rows can't be approved
-  // as-is — saveInvoice rejects null vendor_id and invalid cost codes.
+  // ---------------------------------------------------------------------------
+  // Compute the unified "Needs attention" set. A pending invoice needs
+  // attention if it's missing ANY of the three required-from-dropdown fields:
+  // vendor (matched to master list), cost code on every line, or a positive
+  // amount. AI low-confidence rows are also included since the extractor
+  // forces low when any of those three is missing.
+  // ---------------------------------------------------------------------------
   const pendingIds = rows.filter((r) => r.status === "pending_review").map((r) => r.id);
-  const missingVendorCount = rows.filter(
-    (i) => i.status === "pending_review" && !i.vendor_id
-  ).length;
-  let missingCostCodeCount = 0;
+
+  const needsAttention = new Set<string>();
+  const reasons = { missingVendor: 0, missingCostCode: 0, missingAmount: 0 };
+
+  for (const inv of rows) {
+    if (inv.status !== "pending_review") continue;
+    let flagged = false;
+    if (!inv.vendor_id) {
+      reasons.missingVendor++;
+      flagged = true;
+    }
+    if (inv.amount == null || inv.amount <= 0) {
+      reasons.missingAmount++;
+      flagged = true;
+    }
+    if (flagged || inv.ai_confidence === "low") {
+      needsAttention.add(inv.id);
+    }
+  }
+
   if (pendingIds.length) {
     const { data: lineRows } = await supabase
       .from("invoice_line_items")
       .select("invoice_id, cost_code")
       .in("invoice_id", pendingIds);
-    const invoicesWithMissingCode = new Set<string>();
+    const missingCodeIds = new Set<string>();
     for (const li of lineRows ?? []) {
       const row = li as { invoice_id: string; cost_code: string | null };
-      if (!row.cost_code) invoicesWithMissingCode.add(row.invoice_id);
+      if (!row.cost_code) missingCodeIds.add(row.invoice_id);
     }
-    missingCostCodeCount = invoicesWithMissingCode.size;
+    reasons.missingCostCode = missingCodeIds.size;
+    for (const id of missingCodeIds) needsAttention.add(id);
   }
+
+  const needsAttentionCount = needsAttention.size;
 
   return (
     <>
@@ -89,33 +108,37 @@ export default async function InvoicesPage() {
         <div className="max-w-7xl mx-auto">
           <ReadOnlyBanner />
 
-          {/* Per UI Review § 06 #36: collapse three competing banners into one
-              compact "needs review" strip. Severity is the leading dot color. */}
-          {(lowConfCount > 0 || missingVendorCount > 0 || missingCostCodeCount > 0) && (
+          {/* Unified "Needs attention" strip — fires when an invoice is
+              missing any of the three required-from-dropdown fields (vendor,
+              cost code, amount) or when AI flagged it as low confidence.
+              These rows can't be approved until the user fixes them on the
+              edit form. */}
+          {needsAttentionCount > 0 && (
             <div className="bg-white border border-[color:var(--card-border)] rounded-lg px-4 py-3 mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <div className="flex items-center gap-2 text-[color:var(--text-secondary)] font-medium pr-2 mr-1 border-r border-[color:var(--border-weak)]">
-                <AlertTriangle size={14} className="text-[color:var(--status-warning)]" />
-                Needs review
+              <div className="flex items-center gap-2 font-medium pr-2 mr-1 border-r border-[color:var(--border-weak)]" style={{ color: "var(--status-over)" }}>
+                <AlertTriangle size={14} />
+                <span className="font-semibold tabular-nums">{needsAttentionCount}</span>
+                {needsAttentionCount === 1 ? "invoice needs attention" : "invoices need attention"}
               </div>
-              {missingVendorCount > 0 && (
+              {reasons.missingVendor > 0 && (
                 <span className="inline-flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
-                  <span className="font-semibold tabular-nums">{missingVendorCount}</span>
+                  <span className="font-semibold tabular-nums">{reasons.missingVendor}</span>
                   <span className="text-[color:var(--text-secondary)]">missing vendor</span>
                 </span>
               )}
-              {lowConfCount > 0 && (
+              {reasons.missingCostCode > 0 && (
                 <span className="inline-flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
-                  <span className="font-semibold tabular-nums">{lowConfCount}</span>
-                  <span className="text-[color:var(--text-secondary)]">low AI confidence</span>
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
+                  <span className="font-semibold tabular-nums">{reasons.missingCostCode}</span>
+                  <span className="text-[color:var(--text-secondary)]">missing cost code</span>
                 </span>
               )}
-              {missingCostCodeCount > 0 && (
+              {reasons.missingAmount > 0 && (
                 <span className="inline-flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-warning)" }} />
-                  <span className="font-semibold tabular-nums">{missingCostCodeCount}</span>
-                  <span className="text-[color:var(--text-secondary)]">missing cost code</span>
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--status-over)" }} />
+                  <span className="font-semibold tabular-nums">{reasons.missingAmount}</span>
+                  <span className="text-[color:var(--text-secondary)]">missing amount</span>
                 </span>
               )}
             </div>
@@ -155,7 +178,10 @@ export default async function InvoicesPage() {
               />
             </div>
           ) : (
-            <InvoicesTable rows={rows as unknown as Parameters<typeof InvoicesTable>[0]["rows"]} />
+            <InvoicesTable
+              rows={rows as unknown as Parameters<typeof InvoicesTable>[0]["rows"]}
+              needsAttentionIds={Array.from(needsAttention)}
+            />
           )}
         </div>
       </main>

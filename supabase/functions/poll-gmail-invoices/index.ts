@@ -1,21 +1,45 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 
-function requireEnv(name: string): string {
-  const v = Deno.env.get(name);
-  if (!v) throw new Error(`Missing required environment variable: ${name}`);
-  return v;
+// Read env at request time (not module load) so a missing variable produces a
+// clean JSON error response instead of a Deno boot crash. A boot crash returns
+// a plain-text 503 from the Supabase runtime, which the client surfaces as a
+// generic "Failed to connect" — making it impossible to know which secret is
+// missing without checking dashboard logs.
+const REQUIRED_ENV = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "GMAIL_CLIENT_ID",
+  "GMAIL_CLIENT_SECRET",
+  "GMAIL_REFRESH_TOKEN",
+  "BUILDFORGE_USER_ID",
+  "ANTHROPIC_API_KEY",
+] as const;
+
+function loadEnv(): { ok: true; env: Record<(typeof REQUIRED_ENV)[number], string> } | { ok: false; missing: string[] } {
+  const missing: string[] = [];
+  const env: Record<string, string> = {};
+  for (const name of REQUIRED_ENV) {
+    const v = Deno.env.get(name);
+    if (!v) missing.push(name);
+    else env[name] = v;
+  }
+  if (missing.length) return { ok: false, missing };
+  return { ok: true, env: env as Record<(typeof REQUIRED_ENV)[number], string> };
 }
 
-const SUPABASE_URL = requireEnv("SUPABASE_URL");
-const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-const GMAIL_CLIENT_ID = requireEnv("GMAIL_CLIENT_ID");
-const GMAIL_CLIENT_SECRET = requireEnv("GMAIL_CLIENT_SECRET");
-const GMAIL_REFRESH_TOKEN = requireEnv("GMAIL_REFRESH_TOKEN");
-const BUILDFORGE_USER_ID = requireEnv("BUILDFORGE_USER_ID");
-const ANTHROPIC_API_KEY = requireEnv("ANTHROPIC_API_KEY");
-
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
+
+// CORS headers for browser-originated calls (from the AP page "Check Email"
+// button). The Supabase runtime handles OPTIONS preflight on its own, but
+// the actual POST response needs Access-Control-Allow-Origin or the browser
+// will block it with net::ERR_FAILED — which surfaces to the user as
+// "Network error: Failed to fetch".
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
 const SYSTEM_PROMPT = `You are an invoice data extraction assistant for a residential construction and land development company.
 
@@ -151,20 +175,28 @@ function findVendor(
   return best?.id ?? null;
 }
 
-async function getAccessToken(): Promise<string> {
+async function getAccessToken(
+  clientId: string,
+  clientSecret: string,
+  refreshToken: string,
+): Promise<string> {
   const resp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: GMAIL_CLIENT_ID,
-      client_secret: GMAIL_CLIENT_SECRET,
-      refresh_token: GMAIL_REFRESH_TOKEN,
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
   });
   const data = await resp.json();
   if (!data.access_token) {
-    throw new Error(`Gmail OAuth failed: ${JSON.stringify(data)}`);
+    // Surface Google's error_description so the operator can tell the
+    // difference between a revoked token, an invalid client, and a
+    // network/quota issue.
+    const detail = data?.error_description || data?.error || JSON.stringify(data).slice(0, 200);
+    throw new Error(`Gmail OAuth failed: ${detail}`);
   }
   return data.access_token;
 }
@@ -220,7 +252,8 @@ function uint8ToBase64(buffer: Uint8Array): string {
 }
 
 async function extractInvoicesFromPdf(
-  buffer: Uint8Array
+  buffer: Uint8Array,
+  anthropicApiKey: string,
 ): Promise<ExtractedData[]> {
   // Send to Anthropic with base64 encoding
   const base64Data = uint8ToBase64(buffer);
@@ -230,7 +263,7 @@ async function extractInvoicesFromPdf(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
+      "x-api-key": anthropicApiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
@@ -315,12 +348,41 @@ async function findProjectByHint(
 }
 
 Deno.serve(async (req: Request) => {
-  // Auth gate: only allow cron / trusted callers
+  // CORS preflight — return immediately with allowed methods/headers.
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
+  // Validate env first — return a structured JSON error so the client can
+  // display exactly which secret is missing rather than a generic
+  // "Failed to connect" boot crash.
+  const envResult = loadEnv();
+  if (!envResult.ok) {
+    return new Response(
+      JSON.stringify({
+        error: `Edge function misconfigured — missing env: ${envResult.missing.join(", ")}`,
+      }),
+      { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+    );
+  }
+  const {
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+    GMAIL_CLIENT_ID,
+    GMAIL_CLIENT_SECRET,
+    GMAIL_REFRESH_TOKEN,
+    BUILDFORGE_USER_ID,
+    ANTHROPIC_API_KEY,
+  } = envResult.env;
+
+  // Auth gate: only allow cron / trusted callers (or signed-in app users with
+  // a valid Supabase session JWT — verified by Supabase Edge Runtime via the
+  // Authorization header).
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (cronSecret) {
     const authHeader = req.headers.get("authorization");
     if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response("Unauthorized", { status: 401 });
+      return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
     }
   }
 
@@ -344,8 +406,23 @@ Deno.serve(async (req: Request) => {
       (costCodes ?? []).map((c) => String((c as { code: number | string }).code))
     );
 
-    // Get Gmail access token
-    const accessToken = await getAccessToken();
+    // Get Gmail access token. Catch separately so we can surface a clear
+    // OAuth error (revoked refresh token, wrong client, etc.) instead of
+    // letting it fall into the generic outer catch.
+    let accessToken: string;
+    try {
+      accessToken = await getAccessToken(
+        GMAIL_CLIENT_ID,
+        GMAIL_CLIENT_SECRET,
+        GMAIL_REFRESH_TOKEN,
+      );
+    } catch (oauthErr) {
+      console.error("Gmail OAuth error:", oauthErr);
+      return new Response(
+        JSON.stringify({ error: String(oauthErr), processed, skipped, errors }),
+        { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+      );
+    }
 
     // ---------------------------------------------------------------------------
     // Incremental sync: read last-checked timestamp from gmail_sync_state.
@@ -441,7 +518,7 @@ Deno.serve(async (req: Request) => {
             );
 
             // Extract invoices
-            const extractedInvoices = await extractInvoicesFromPdf(buffer);
+            const extractedInvoices = await extractInvoicesFromPdf(buffer, ANTHROPIC_API_KEY);
 
             for (const inv of extractedInvoices) {
               // Find project
@@ -492,20 +569,40 @@ Deno.serve(async (req: Request) => {
                 return {
                   cost_code: valid ? norm : null,
                   description: li.description ?? "",
-                  amount: li.amount ?? 0,
+                  amount: Number(li.amount) || 0,
                 };
               });
 
-              // Assemble ai_notes, downgrade confidence when matching fails.
+              // Strict gate: an invoice cannot be silently approved unless we
+              // have all three of vendor (matched to the master list), every
+              // line item resolved to a valid cost code, and a positive amount.
+              // Any miss flips the row to LOW confidence so the AP page shows
+              // a "Needs attention" badge and approval is blocked until the
+              // user fixes it via the dropdowns on the edit form.
+              const totalAmount = Number(inv.total_amount) || 0;
+              const hasAmount = totalAmount > 0;
+              const allLinesHaveCode = validatedLines.length > 0 && validatedLines.every((l) => l.cost_code !== null);
+              const hasVendor = !!vendorId;
+              const needsAttention = !hasVendor || !allLinesHaveCode || !hasAmount;
+
               let aiConfidence = inv.ai_confidence;
               let aiNotes = inv.ai_notes ?? "";
               if (invalidCodes.length) {
-                if (aiConfidence === "high") aiConfidence = "medium";
                 aiNotes = (aiNotes + ` Unknown cost code(s): ${invalidCodes.join(", ")}.`).trim();
               }
               if (!vendorId && inv.vendor) {
-                if (aiConfidence === "high") aiConfidence = "medium";
                 aiNotes = (aiNotes + ` Vendor "${inv.vendor}" not in master list — pick or create.`).trim();
+              }
+              if (!hasAmount) {
+                aiNotes = (aiNotes + ` Amount missing or zero — verify.`).trim();
+              }
+              if (!validatedLines.length) {
+                aiNotes = (aiNotes + ` No line items extracted — add at least one.`).trim();
+              }
+              if (needsAttention) {
+                // Force low so the existing low-conf gate on approveInvoice and
+                // the AP page banner both flag this row consistently.
+                aiConfidence = "low";
               }
 
               const displayName = `${inv.vendor} – ${inv.invoice_number}`;
@@ -534,6 +631,7 @@ Deno.serve(async (req: Request) => {
                   file_name: displayName,
                   email_message_id: msg.id,
                   user_id: BUILDFORGE_USER_ID,
+                  manually_reviewed: false,
                 })
                 .select("id")
                 .single();
@@ -666,7 +764,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ success: true, processed, skipped, errors }),
       {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       }
     );
   } catch (err) {
@@ -675,7 +773,7 @@ Deno.serve(async (req: Request) => {
       JSON.stringify({ error: String(err), processed, skipped, errors }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       }
     );
   }

@@ -223,12 +223,34 @@ export async function approveInvoice(
 
   if (!invoice) return { error: "Invoice not found" };
 
-  // Low-confidence lock: cannot approve without manual review
-  if (invoice.ai_confidence === "low" && !invoice.manually_reviewed) {
-    return {
-      error:
-        "This invoice was flagged as low confidence by AI. Please review and edit at least one field before approving.",
-    };
+  // Strict approval gate: vendor, every line item's cost code, and a positive
+  // amount must all be present. The email-ingestion path can produce invoices
+  // missing any of these (vendor not in master list, AI hallucinated a code,
+  // amount unreadable). Block approval until the user fixes them on the edit
+  // form — saveInvoice flips manually_reviewed=true on a successful save.
+  if (!invoice.manually_reviewed) {
+    if (!invoice.vendor_id) {
+      return { error: "Needs attention — pick a vendor before approving." };
+    }
+    const amt = (invoice.total_amount ?? invoice.amount ?? 0) as number;
+    if (!amt || amt <= 0) {
+      return { error: "Needs attention — invoice amount must be greater than zero." };
+    }
+    const { data: missingLines } = await supabase
+      .from("invoice_line_items")
+      .select("id")
+      .eq("invoice_id", invoiceId)
+      .is("cost_code", null)
+      .limit(1);
+    if (missingLines && missingLines.length > 0) {
+      return { error: "Needs attention — assign a cost code to every line item before approving." };
+    }
+    if (invoice.ai_confidence === "low") {
+      return {
+        error:
+          "This invoice was flagged as low confidence by AI. Please review and edit at least one field before approving.",
+      };
+    }
   }
 
   // Status gate is enforced in the UPDATE predicate below (race-safe) — no
