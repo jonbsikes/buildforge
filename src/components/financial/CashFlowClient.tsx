@@ -255,22 +255,15 @@ export default function CashFlowClient() {
       });
       finTotal += loanDelta;
     }
-    if (equityCredits > 0) {
+    const equityNet = equityCredits - equityDebits;
+    if (equityNet !== 0) {
       finSectionLines.push({
-        label: "Capital contributions from owners",
-        amount: equityCredits,
-        entries: toDrillEntries(equityCreditLines),
+        label: equityNet >= 0 ? "Owner capital contributions (net of distributions)" : "Owner distributions (net of contributions)",
+        amount: Math.abs(equityNet),
+        entries: toDrillEntries([...equityCreditLines, ...equityDebitLines]),
+        isSubtraction: equityNet < 0,
       });
-      finTotal += equityCredits;
-    }
-    if (equityDebits > 0) {
-      finSectionLines.push({
-        label: "Owner draws & distributions",
-        amount: equityDebits,
-        entries: toDrillEntries(equityDebitLines),
-        isSubtraction: true,
-      });
-      finTotal -= equityDebits;
+      finTotal += equityNet;
     }
 
     const operating: CashFlowSection = {
