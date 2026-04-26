@@ -119,108 +119,176 @@ export default function CashFlowClient() {
         amount: Number(l.debit || 0) - Number(l.credit || 0),
       })).sort((a, b) => b.entry_date.localeCompare(a.entry_date));
 
-    // ─── CASH-BASIS APPROACH ─────────────────────────────────────────
-    // Build the statement from actual Cash (1000) account movements.
-    // Group all lines by journal_entry_id so we can inspect sibling
-    // accounts to categorize each cash movement — this works regardless
-    // of source_type, including migrated/historical JEs.
+    // ─── BALANCE-SHEET-DRIVEN APPROACH ───────────────────────────────
+    // Aggregate every account's net change over the period and derive the
+    // cash flow statement directly from those movements. By construction:
+    //
+    //   Δ Cash = Net Income − Δ(non-cash assets) + Δ(liabilities) + Δ(equity)
+    //
+    // so this presentation always reconciles to the balance sheet and to the
+    // actual cash account movement for the period — no imputation, no
+    // double-counting, no edge cases around mixed JEs or migration entries.
     // ─────────────────────────────────────────────────────────────────
 
-    const jeGroups = new Map<string, LedgerRow[]>();
-    for (const line of lines) {
-      const jeId = line.journal_entry?.id;
-      if (!jeId) continue;
-      if (!jeGroups.has(jeId)) jeGroups.set(jeId, []);
-      jeGroups.get(jeId)!.push(line);
+    const CASH_ACCOUNTS = new Set(["1000", "1010", "1020"]);
+
+    const isLoanPayable = (a: string) => /^22\d{2}$/.test(a) || a === "2100";
+    const isEquity = (a: string) => a.startsWith("3") && a !== "3100"; // 3100 = Retained Earnings (net income flows through it)
+    const isFixedAsset = (a: string) => a.startsWith("14") || a.startsWith("15");
+
+    // Aggregate per-account totals and keep the lines for drill-down.
+    const acctTotals = new Map<string, { name: string; type: string; debits: number; credits: number; lines: LedgerRow[] }>();
+    for (const l of lines) {
+      const acct = l.account?.account_number ?? "";
+      if (!acct) continue;
+      const existing = acctTotals.get(acct) ?? {
+        name: l.account?.name ?? acct,
+        type: l.account?.type ?? "",
+        debits: 0,
+        credits: 0,
+        lines: [],
+      };
+      existing.debits += Number(l.debit || 0);
+      existing.credits += Number(l.credit || 0);
+      existing.lines.push(l);
+      acctTotals.set(acct, existing);
     }
 
-    // Category buckets (each holds the Cash-account line for drill-down)
-    const operatingInLines: LedgerRow[] = [];   // DR Cash — revenue / customer payments
-    const operatingOutLines: LedgerRow[] = [];  // CR Cash — vendor / G&A payments
-    const drawInLines: LedgerRow[] = [];        // DR Cash — loan draw proceeds
-    const capitalInLines: LedgerRow[] = [];     // DR Cash — capital contributions
-    const loanPayOutLines: LedgerRow[] = [];    // CR Cash — loan principal payments
-    const ownerDrawOutLines: LedgerRow[] = [];  // CR Cash — owner draws / distributions
-
-    for (const [, jeLines] of jeGroups) {
-      // Find Cash (1000) lines in this JE
-      const cashLines = jeLines.filter((l) => l.account?.account_number === '1000');
-      if (cashLines.length === 0) continue;
-
-      // Collect sibling account numbers for categorization
-      const siblings = jeLines.filter((l) => l.account?.account_number !== '1000');
-      const siblingAccts = siblings.map((l) => l.account?.account_number ?? '');
-      const siblingTypes = siblings.map((l) => l.account?.type ?? '');
-
-      // Determine if siblings include financing-related accounts
-      const hasLoanPayable = siblingAccts.some((a) => a.startsWith('22') || a === '2100');
-      const hasDueFromLender = siblingAccts.some((a) => a === '1120');
-      const hasEquity = siblingAccts.some((a) => a.startsWith('30')) || siblingTypes.includes('equity');
-      const hasDistributions = siblingAccts.some((a) => a.startsWith('32'));
-
-      for (const cashLine of cashLines) {
-        const debit = Number(cashLine.debit || 0);
-        const credit = Number(cashLine.credit || 0);
-
-        if (debit > 0) {
-          // Cash inflow — categorize by what the counter-accounts are
-          if (hasDueFromLender || hasLoanPayable) {
-            drawInLines.push(cashLine);        // Loan draw funded
-          } else if (hasEquity) {
-            capitalInLines.push(cashLine);      // Capital contribution
-          } else {
-            operatingInLines.push(cashLine);    // Revenue / customer payment / other
-          }
-        }
-
-        if (credit > 0) {
-          // Cash outflow — categorize by what the counter-accounts are
-          if (hasLoanPayable) {
-            loanPayOutLines.push(cashLine);     // Loan principal payment
-          } else if (hasDistributions) {
-            ownerDrawOutLines.push(cashLine);   // Owner draw / distribution
-          } else {
-            operatingOutLines.push(cashLine);   // Vendor payment / G&A / other
-          }
-        }
+    // Net Income = revenue − (expense + cogs).
+    let netIncome = 0;
+    const incomeStmtLines: LedgerRow[] = [];
+    for (const [, a] of acctTotals) {
+      if (a.type === "revenue") netIncome += a.credits - a.debits;
+      else if (a.type === "expense" || a.type === "cogs") netIncome -= a.debits - a.credits;
+      if (a.type === "revenue" || a.type === "expense" || a.type === "cogs") {
+        incomeStmtLines.push(...a.lines);
       }
     }
 
-    // Sum helpers
-    const sumDebit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.debit || 0), 0);
-    const sumCredit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.credit || 0), 0);
+    type SectionLine = { label: string; amount: number; entries: DrillEntry[]; isSubtraction?: boolean };
+    const opSectionLines: SectionLine[] = [];
+    const invSectionLines: SectionLine[] = [];
+    const finSectionLines: SectionLine[] = [];
 
-    const cashFromCustomers = sumDebit(operatingInLines);
-    const cashToVendors = sumCredit(operatingOutLines);
-    const cashFromDraws = sumDebit(drawInLines);
-    const capitalContribs = sumDebit(capitalInLines);
-    const loanPayments = sumCredit(loanPayOutLines);
-    const ownerDraws = sumCredit(ownerDrawOutLines);
+    let opTotal = netIncome;
+    let invTotal = 0;
+    let finTotal = 0;
+
+    // Net Income/Loss line (operating).
+    if (incomeStmtLines.length > 0 && netIncome !== 0) {
+      opSectionLines.push({
+        label: netIncome >= 0 ? "Net Income" : "Net Loss",
+        amount: Math.abs(netIncome),
+        entries: toDrillEntries(incomeStmtLines),
+        isSubtraction: netIncome < 0,
+      });
+    }
+
+    // Group all loan accounts into a single "Construction loans" line and show
+    // capital contributions / distributions gross from equity activity.
+    const loanLines: LedgerRow[] = [];
+    let loanDelta = 0;
+    const equityCreditLines: LedgerRow[] = [];
+    const equityDebitLines: LedgerRow[] = [];
+    let equityCredits = 0;
+    let equityDebits = 0;
+
+    const sortedAccts = Array.from(acctTotals.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+    for (const [acct, a] of sortedAccts) {
+      if (CASH_ACCOUNTS.has(acct)) continue; // result, not a source
+      if (acct === "1120" || acct === "2060") continue; // transitory cash holding accounts
+      if (a.type === "revenue" || a.type === "expense" || a.type === "cogs") continue; // in net income
+      if (acct === "3100") continue; // retained earnings flows through net income
+
+      const isDebitNatured = a.type === "asset";
+      const balanceDelta = isDebitNatured ? a.debits - a.credits : a.credits - a.debits;
+      if (balanceDelta === 0 && a.debits === 0 && a.credits === 0) continue;
+
+      // Loans → grouped into one financing line at the bottom.
+      if (isLoanPayable(acct)) {
+        loanDelta += balanceDelta;
+        loanLines.push(...a.lines);
+        continue;
+      }
+
+      // Equity → split into gross contributions (credits) and distributions (debits).
+      if (isEquity(acct)) {
+        if (a.credits > 0) {
+          equityCredits += a.credits;
+          equityCreditLines.push(...a.lines.filter((l) => Number(l.credit || 0) > 0));
+        }
+        if (a.debits > 0) {
+          equityDebits += a.debits;
+          equityDebitLines.push(...a.lines.filter((l) => Number(l.debit || 0) > 0));
+        }
+        continue;
+      }
+
+      // Per-account operating / investing line.
+      if (balanceDelta === 0) continue;
+      const cashEffect = isDebitNatured ? -balanceDelta : balanceDelta;
+      const verb = balanceDelta > 0 ? "Increase" : "Decrease";
+      const sectionLine: SectionLine = {
+        label: `${verb} in ${a.name}`,
+        amount: Math.abs(cashEffect),
+        entries: toDrillEntries(a.lines),
+        isSubtraction: cashEffect < 0,
+      };
+
+      if (isFixedAsset(acct)) {
+        invSectionLines.push(sectionLine);
+        invTotal += cashEffect;
+      } else {
+        opSectionLines.push(sectionLine);
+        opTotal += cashEffect;
+      }
+    }
+
+    // Financing — loans grouped, equity gross.
+    if (loanDelta !== 0) {
+      finSectionLines.push({
+        label: loanDelta >= 0 ? "Construction loan draws (net)" : "Net loan principal payments",
+        amount: Math.abs(loanDelta),
+        entries: toDrillEntries(loanLines),
+        isSubtraction: loanDelta < 0,
+      });
+      finTotal += loanDelta;
+    }
+    if (equityCredits > 0) {
+      finSectionLines.push({
+        label: "Capital contributions from owners",
+        amount: equityCredits,
+        entries: toDrillEntries(equityCreditLines),
+      });
+      finTotal += equityCredits;
+    }
+    if (equityDebits > 0) {
+      finSectionLines.push({
+        label: "Owner draws & distributions",
+        amount: equityDebits,
+        entries: toDrillEntries(equityDebitLines),
+        isSubtraction: true,
+      });
+      finTotal -= equityDebits;
+    }
 
     const operating: CashFlowSection = {
       title: "Operating Activities",
-      lines: [
-        { label: "Cash received from customers", amount: cashFromCustomers, entries: toDrillEntries(operatingInLines) },
-        ...(cashToVendors > 0 ? [{ label: "Cash paid to vendors & subcontractors", amount: cashToVendors, entries: toDrillEntries(operatingOutLines), isSubtraction: true }] : []),
-      ],
-      total: cashFromCustomers - cashToVendors,
+      lines: opSectionLines,
+      total: opTotal,
     };
 
     const investing: CashFlowSection = {
       title: "Investing Activities",
-      lines: [],
-      total: 0,
+      lines: invSectionLines,
+      total: invTotal,
     };
 
     const financing: CashFlowSection = {
       title: "Financing Activities",
-      lines: [
-        ...(cashFromDraws > 0 ? [{ label: "Construction loan draws received", amount: cashFromDraws, entries: toDrillEntries(drawInLines) }] : []),
-        ...(capitalContribs > 0 ? [{ label: "Capital contributions", amount: capitalContribs, entries: toDrillEntries(capitalInLines) }] : []),
-        ...(loanPayments > 0 ? [{ label: "Loan payments made", amount: loanPayments, entries: toDrillEntries(loanPayOutLines), isSubtraction: true }] : []),
-        ...(ownerDraws > 0 ? [{ label: "Owner draws & distributions", amount: ownerDraws, entries: toDrillEntries(ownerDrawOutLines), isSubtraction: true }] : []),
-      ],
-      total: cashFromDraws + capitalContribs - loanPayments - ownerDraws,
+      lines: finSectionLines,
+      total: finTotal,
     };
 
     setSections([operating, investing, financing]);
