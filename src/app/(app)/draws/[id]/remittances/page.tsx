@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { drawDisplayName } from "@/lib/draws";
 import RemittanceActions from "@/components/draws/RemittanceActions";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

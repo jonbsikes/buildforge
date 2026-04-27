@@ -13,7 +13,6 @@ import ProgressRing from "@/components/ui/ProgressRing";
 import StatusBadge from "@/components/ui/StatusBadge";
 import StageStrip, { type StageStripStage } from "@/components/ui/StageStrip";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

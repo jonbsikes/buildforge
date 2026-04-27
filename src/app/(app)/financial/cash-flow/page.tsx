@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import CashFlowClient from "@/components/financial/CashFlowClient";
 
-export const dynamic = "force-dynamic";
 
 export default function CashFlowPage() {
   return (

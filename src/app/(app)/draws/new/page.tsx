@@ -4,7 +4,6 @@ import Link from "next/link";
 import { getDrawableInvoices } from "@/app/actions/draws";
 import NewDrawForm from "@/components/draws/NewDrawForm";
 
-export const dynamic = "force-dynamic";
 
 export type LenderOption = {
   id: string;

@@ -3,7 +3,6 @@ import PaymentRegisterClient from "@/components/payments/PaymentRegisterClient";
 import { getPayments, getPayableInvoices, getReleasedUnlinkedInvoices } from "@/app/actions/payments";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 
-export const dynamic = "force-dynamic";
 
 export default async function PaymentRegisterPage() {
   const [paymentsResult, payableResult, releasedResult] = await Promise.all([

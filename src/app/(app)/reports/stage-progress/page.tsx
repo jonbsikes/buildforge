@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import StageProgressReportClient from "@/components/reports/StageProgressReportClient";
 
-export const dynamic = "force-dynamic";
 
 export default function StageProgressPage() {
   return (

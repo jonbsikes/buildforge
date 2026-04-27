@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Plus, BookOpen, Calendar } from "lucide-react";
 
-export const dynamic = "force-dynamic";
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });

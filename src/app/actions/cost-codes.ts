@@ -1,10 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
 import type { Database } from "@/types/database";
+import { revalidateAfterCostCodeMutation } from "@/lib/cache";
 
 export async function createCostCode(formData: FormData) {
   const adminCheck = await requireAdmin();
@@ -29,7 +29,7 @@ export async function createCostCode(formData: FormData) {
   });
 
   if (error) throw new Error(error.message);
-  revalidatePath("/settings/cost-codes");
+  revalidateAfterCostCodeMutation();
 }
 
 export async function toggleCostCode(id: string, isActive: boolean) {
@@ -41,7 +41,7 @@ export async function toggleCostCode(id: string, isActive: boolean) {
     .update({ is_active: isActive })
     .eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/settings/cost-codes");
+  revalidateAfterCostCodeMutation();
 }
 
 export async function deleteCostCode(id: string) {
@@ -50,5 +50,5 @@ export async function deleteCostCode(id: string) {
   const supabase = await createClient();
   const { error } = await supabase.from("cost_codes").delete().eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/settings/cost-codes");
+  revalidateAfterCostCodeMutation();
 }

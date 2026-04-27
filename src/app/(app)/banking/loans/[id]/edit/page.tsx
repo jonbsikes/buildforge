@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import LoanForm from "@/components/banking/LoanForm";
 import DeleteLoanButton from "@/components/banking/DeleteLoanButton";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import WIPClient from "@/components/financial/WIPClient";
 
-export const dynamic = "force-dynamic";
 
 export default function WIPReportPage() {
   return (

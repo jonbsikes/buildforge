@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import ContractForm from "@/components/contracts/ContractForm";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

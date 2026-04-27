@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import GanttReportClient from "@/components/reports/GanttReportClient";
 
-export const dynamic = "force-dynamic";
 
 export default function GanttReportPage() {
   return (

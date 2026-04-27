@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import BalanceSheetClient from "@/components/financial/BalanceSheetClient";
 
-export const dynamic = "force-dynamic";
 
 export default function BalanceSheetPage() {
   return (

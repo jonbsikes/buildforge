@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import Money from "@/components/ui/Money";
 
-export const dynamic = "force-dynamic";
 
 function fmtDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", {

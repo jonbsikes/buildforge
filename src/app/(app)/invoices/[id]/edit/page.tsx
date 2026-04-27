@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import EditInvoiceForm from "@/components/invoices/EditInvoiceForm";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 import {
   DollarSign, BarChart3, ClipboardList, Palette, FileText, FolderOpen, LayoutGrid, Layers,
 } from "lucide-react";
-import GanttTab from "@/components/projects/tabs/GanttTab";
 import StageReportTab from "@/components/projects/tabs/StageReportTab";
 import CostItemsTab from "@/components/projects/tabs/CostItemsTab";
 import BudgetTab from "@/components/projects/tabs/BudgetTab";
@@ -12,6 +12,20 @@ import PhasesTab from "@/components/projects/tabs/PhasesTab";
 import SelectionsTab from "@/components/projects/tabs/SelectionsTab";
 import FieldLogsTab from "@/components/projects/tabs/FieldLogsTab";
 import DocumentsTab from "@/components/projects/tabs/DocumentsTab";
+
+// Gantt is the heaviest tab and not the default — defer its bundle until clicked.
+const GanttTab = dynamic(() => import("@/components/projects/tabs/GanttTab"), {
+  loading: () => (
+    <div className="animate-pulse space-y-3 p-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <div className="h-4 w-32 bg-gray-100 rounded" />
+          <div className="h-6 flex-1 bg-gray-100 rounded" />
+        </div>
+      ))}
+    </div>
+  ),
+});
 
 export interface BuildStage {
   id: string;

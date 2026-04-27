@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateAfterDocumentMutation } from "@/lib/cache";
 
 const ALLOWED_FOLDERS = ["Plans", "Permits", "Contracts", "Lender", "Inspections", "Photos", "Field Photos", "Other"];
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -60,7 +60,7 @@ export async function uploadDocument(formData: FormData) {
     uploaded_by: user.id,
   });
 
-  revalidatePath("/documents");
+  revalidateAfterDocumentMutation(projectId ?? undefined);
 }
 
 export async function deleteDocument(id: string, storagePath: string | null) {
@@ -82,5 +82,5 @@ export async function deleteDocument(id: string, storagePath: string | null) {
       await supabase.storage.from("documents").remove([pathMatch[1]]);
     }
   }
-  revalidatePath("/documents");
+  revalidateAfterDocumentMutation();
 }

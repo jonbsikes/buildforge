@@ -1,8 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateAfterVendorMutation } from "@/lib/cache";
 
 export interface VendorFormData {
   name: string;
@@ -71,7 +71,7 @@ export async function createVendor(
   // Generate notifications now that a new vendor exists
   await supabase.rpc("generate_notifications");
 
-  revalidatePath("/vendors");
+  revalidateAfterVendorMutation();
   return { vendorId: vendor.id };
 }
 
@@ -114,8 +114,7 @@ export async function updateVendor(
 
   await supabase.rpc("generate_notifications");
 
-  revalidatePath("/vendors");
-  revalidatePath(`/vendors/${id}`);
+  revalidateAfterVendorMutation();
   return {};
 }
 
@@ -131,7 +130,7 @@ export async function deactivateVendor(id: string): Promise<{ error?: string }> 
     .update({ is_active: false })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/vendors");
+  revalidateAfterVendorMutation();
   return {};
 }
 
@@ -155,7 +154,7 @@ export async function deleteVendor(id: string): Promise<{ error?: string }> {
     .eq("id", id)
     .eq("user_id", user.id);
   if (error) return { error: error.message };
-  revalidatePath("/vendors");
+  revalidateAfterVendorMutation();
   return {};
 }
 

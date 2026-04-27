@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import HomeConstructionForm from "@/components/projects/HomeConstructionForm";
 
-export const dynamic = "force-dynamic";
 
 export default async function NewHomeConstructionPage() {
   const supabase = await createClient();

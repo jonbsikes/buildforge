@@ -1,8 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
+import {
+  revalidateAfterFieldLogMutation,
+  revalidateAfterTodoMutation,
+} from "@/lib/cache";
 
 // ---------------------------------------------------------------------------
 // Global field logs (cross-project)
@@ -35,7 +38,7 @@ export async function createFieldLog(
 
   if (error || !data) throw new Error(error?.message ?? "Failed to create field log");
 
-  revalidatePath("/field-logs");
+  revalidateAfterFieldLogMutation(project_id);
   return { id: data.id, project_id, log_date };
 }
 
@@ -50,8 +53,9 @@ export async function createFieldTodo(formData: FormData) {
 
   const fieldLogId = formData.get("field_log_id") as string;
 
+  const projectId = formData.get("project_id") as string;
   await supabase.from("field_todos").insert({
-    project_id: formData.get("project_id") as string,
+    project_id: projectId,
     field_log_id: fieldLogId || null,
     description: formData.get("description") as string,
     priority: (formData.get("priority") as string) || "normal",
@@ -59,7 +63,7 @@ export async function createFieldTodo(formData: FormData) {
     status: "open",
     created_by: user.id,
   });
-  revalidatePath("/field-logs");
+  revalidateAfterTodoMutation(projectId);
 }
 
 export async function updateTodoStatus(id: string, status: string) {
@@ -73,7 +77,7 @@ export async function updateTodoStatus(id: string, status: string) {
     update.resolved_date = null;
   }
   await supabase.from("field_todos").update(update).eq("id", id);
-  revalidatePath("/field-logs");
+  revalidateAfterTodoMutation();
 }
 
 export async function deleteTodo(id: string) {
@@ -81,7 +85,7 @@ export async function deleteTodo(id: string) {
   if (!adminCheck.authorized) throw new Error(adminCheck.error);
   const supabase = await createClient();
   await supabase.from("field_todos").delete().eq("id", id);
-  revalidatePath("/field-logs");
+  revalidateAfterTodoMutation();
 }
 
 export async function updateFieldTodo(
@@ -99,7 +103,7 @@ export async function updateFieldTodo(
       due_date: input.due_date || null,
     })
     .eq("id", id);
-  revalidatePath("/field-logs");
+  revalidateAfterTodoMutation();
 }
 
 export async function updateFieldLog(
@@ -124,8 +128,7 @@ export async function deleteFieldLog(id: string) {
   await supabase.from("field_todos").delete().eq("field_log_id", id);
   const { error } = await supabase.from("field_logs").delete().eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/field-logs");
-  if (data?.project_id) revalidatePath(`/projects/${data.project_id}`);
+  revalidateAfterFieldLogMutation(data?.project_id ?? undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,9 +186,7 @@ export async function uploadFieldLogPhoto(formData: FormData) {
     throw new Error(`Could not record photo: ${insertError.message}`);
   }
 
-  revalidatePath(`/projects/${projectId}/field-logs/${fieldLogId}`);
-  revalidatePath(`/projects/${projectId}/field-logs`);
-  revalidatePath("/documents");
+  revalidateAfterFieldLogMutation(projectId);
 }
 
 export async function deleteFieldLogPhoto(
@@ -210,8 +211,7 @@ export async function deleteFieldLogPhoto(
     .eq("id", documentId)
     .eq("uploaded_by", user.id);
 
-  revalidatePath("/field-logs");
-  revalidatePath("/documents");
+  revalidateAfterFieldLogMutation();
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +245,7 @@ export async function createProjectFieldLog(
 
   if (error || !data) throw new Error(error?.message ?? "Failed to create field log");
 
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterFieldLogMutation(projectId);
   return { id: data.id, log_date };
 }
 
@@ -271,7 +271,7 @@ export async function createProjectFieldTodo(
     status: "open",
     created_by: user.id,
   });
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterTodoMutation(projectId);
 }
 
 export async function updateProjectTodoStatus(
@@ -286,5 +286,5 @@ export async function updateProjectTodoStatus(
   if (status === "done") update.resolved_date = new Date().toISOString().split("T")[0];
   else update.resolved_date = null;
   await supabase.from("field_todos").update(update).eq("id", todoId);
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterTodoMutation(projectId);
 }

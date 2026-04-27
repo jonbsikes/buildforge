@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import FinancialSummaryClient from "@/components/financial/FinancialSummaryClient";
 
-export const dynamic = "force-dynamic";
 
 export default function FinancialSummaryPage() {
   return (

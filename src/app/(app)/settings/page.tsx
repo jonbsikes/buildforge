@@ -6,7 +6,6 @@ import { getUserProfile } from "@/lib/auth";
 import ProfileForm from "./ProfileForm";
 import { Tags, ChevronRight, User, Building2, Bell, Database } from "lucide-react";
 
-export const dynamic = "force-dynamic";
 
 const SECTIONS = [
   { id: "profile", label: "Profile", icon: User },

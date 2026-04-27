@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import TodosClient from "./TodosClient";
 
-export const dynamic = "force-dynamic";
 
 export default async function ProjectTodosPage({
   params,

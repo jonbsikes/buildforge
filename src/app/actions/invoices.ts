@@ -1,11 +1,14 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
 import { getAccountIdMap } from "@/lib/gl/accounts";
 import { postJournalEntry } from "@/lib/gl/postEntry";
+import {
+  revalidateAfterInvoiceMutation,
+  revalidateAfterJournalEntry,
+} from "@/lib/cache";
 
 export interface LineItemInput {
   cost_code: string; // text code, e.g. "47"
@@ -188,12 +191,17 @@ export async function saveInvoice(
     if (t.error) {
       // Invoice row and line items exist but status advance failed — surface error,
       // leave row in pending_review so the user can retry from the UI.
-      revalidatePath("/invoices");
+      revalidateAfterInvoiceMutation({ invoiceId: invoice.id });
       return { error: t.error, invoiceId: invoice.id };
     }
   }
 
-  revalidatePath("/invoices");
+  // Status transition (if any) may have posted JEs; cover the financial surfaces too.
+  if (desiredStatus === "pending_review") {
+    revalidateAfterInvoiceMutation({ invoiceId: invoice.id });
+  } else {
+    revalidateAfterJournalEntry({ invoiceId: invoice.id });
+  }
   return { invoiceId: invoice.id };
 }
 
@@ -475,7 +483,7 @@ export async function approveInvoice(
     }
   }
 
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry({ invoiceId, projectId: invoice.project_id ?? undefined });
   return { success: true };
 }
 
@@ -497,7 +505,7 @@ export async function setPendingDraw(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/invoices");
+  revalidateAfterInvoiceMutation({ invoiceId });
   return {};
 }
 
@@ -520,7 +528,7 @@ export async function setInvoiceStatus(
   const t = await applyStatusTransition(invoiceId, status as InvoiceStatus);
   if (t.error) return { error: t.error };
 
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry({ invoiceId });
   return {};
 }
 
@@ -538,6 +546,7 @@ export async function markManuallyReviewed(
     .eq("id", invoiceId);
 
   if (error) return { error: error.message };
+  revalidateAfterInvoiceMutation({ invoiceId });
   return {};
 }
 
@@ -1086,8 +1095,7 @@ export async function updateInvoice(
   if (input.status && input.status !== prevStatus) {
     const t = await applyStatusTransition(invoiceId, input.status);
     if (t.error) {
-      revalidatePath(`/invoices/${invoiceId}`);
-      revalidatePath("/invoices");
+      revalidateAfterInvoiceMutation({ invoiceId, projectId: headerProjectId ?? undefined });
       return { error: t.error };
     }
   }
@@ -1097,8 +1105,9 @@ export async function updateInvoice(
     await supabase.storage.from("invoices").remove([oldFilePath]);
   }
 
-  revalidatePath(`/invoices/${invoiceId}`);
-  revalidatePath("/invoices");
+  // Edits can change line item amounts/projects which affects WIP/AP rollups,
+  // and a status transition may have posted JEs — invalidate financial surfaces too.
+  revalidateAfterJournalEntry({ invoiceId, projectId: headerProjectId ?? undefined });
   return {};
 }
 
@@ -1162,7 +1171,8 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
   const { error } = await supabase.from("invoices").delete().eq("id", invoiceId);
   if (error) return { error: error.message };
 
-  revalidatePath("/invoices");
+  // Deleting an approved/disputed invoice voids posted JEs, so financial surfaces shift.
+  revalidateAfterJournalEntry({ invoiceId });
   redirect("/invoices");
 }
 
@@ -1190,8 +1200,7 @@ export async function disputeInvoice(
   const t = await applyStatusTransition(invoiceId, "disputed");
   if (t.error) return { error: t.error };
 
-  revalidatePath(`/invoices/${invoiceId}`);
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry({ invoiceId });
   return {};
 }
 
@@ -1204,8 +1213,7 @@ export async function voidInvoice(
   const t = await applyStatusTransition(invoiceId, "void");
   if (t.error) return { error: t.error };
 
-  revalidatePath(`/invoices/${invoiceId}`);
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry({ invoiceId });
   return { success: true };
 }
 
@@ -1218,8 +1226,7 @@ export async function voidAfterDraw(
   const t = await applyStatusTransition(invoiceId, "void");
   if (t.error) return { error: t.error };
 
-  revalidatePath(`/invoices/${invoiceId}`);
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry({ invoiceId });
   return { success: true };
 }
 
@@ -1426,7 +1433,7 @@ export async function advanceInvoiceStatus(
     }
   }
 
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry({ invoiceId, projectId: invoice.project_id ?? undefined });
   return {};
 }
 
@@ -1585,7 +1592,6 @@ export async function payInvoiceAutoDraft(
     });
   }
 
-  revalidatePath("/invoices");
-  revalidatePath("/banking/payments");
+  revalidateAfterJournalEntry({ invoiceId, projectId: invoice.project_id ?? undefined });
   return { success: true };
 }

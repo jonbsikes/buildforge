@@ -1,9 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateAfterContractMutation } from "@/lib/cache";
 
 export interface ContractInput {
   project_id: string;
@@ -31,7 +31,7 @@ export async function createContract(input: ContractInput): Promise<{ error?: st
     notes: input.notes.trim() || null,
   });
   if (error) return { error: error.message };
-  revalidatePath("/contracts");
+  revalidateAfterContractMutation(input.project_id);
   return {};
 }
 
@@ -53,8 +53,7 @@ export async function updateContract(id: string, input: ContractInput): Promise<
     })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/contracts");
-  revalidatePath(`/contracts/${id}/edit`);
+  revalidateAfterContractMutation(input.project_id);
   return {};
 }
 
@@ -64,6 +63,6 @@ export async function deleteContract(id: string): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { error } = await supabase.from("contracts").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/contracts");
+  revalidateAfterContractMutation();
   redirect("/contracts");
 }

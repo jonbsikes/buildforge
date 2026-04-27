@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import SelectionsReportClient from "@/components/reports/SelectionsReportClient";
 
-export const dynamic = "force-dynamic";
 
 export default function SelectionsReportPage() {
   return (

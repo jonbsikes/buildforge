@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import LandDevForm from "@/components/projects/LandDevForm";
 
-export const dynamic = "force-dynamic";
 
 export default async function NewLandDevPage() {
   const supabase = await createClient();

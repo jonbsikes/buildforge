@@ -8,6 +8,7 @@ import {
 } from "@/lib/stage-schedules";
 import { mintLoanCoaAccount } from "./banking";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateAfterProjectMutation } from "@/lib/cache";
 
 export interface SubdivisionMatch {
   matched: boolean;
@@ -169,6 +170,7 @@ export async function createHomeConstructionProject(
     // a loan without it is unusable downstream.
     const coa = await mintLoanCoaAccount(supabase, project.id, loanNum);
     if (coa.error || !coa.coaAccountId) {
+      revalidateAfterProjectMutation(project.id);
       return { projectId: project.id, error: `Project created, but loan COA account failed: ${coa.error}` };
     }
 
@@ -185,10 +187,12 @@ export async function createHomeConstructionProject(
     // Roll back the orphaned COA account, then surface the error.
     if (loanError) {
       await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
+      revalidateAfterProjectMutation(project.id);
       return { projectId: project.id, error: `Project created, but loan record failed: ${loanError.message}` };
     }
   }
 
+  revalidateAfterProjectMutation(project.id);
   return { projectId: project.id };
 }
 
@@ -296,6 +300,7 @@ export async function createLandDevProject(
 
     const coa = await mintLoanCoaAccount(supabase, project.id, loanNum);
     if (coa.error || !coa.coaAccountId) {
+      revalidateAfterProjectMutation(project.id);
       return { projectId: project.id, error: `Project created, but loan COA account failed: ${coa.error}` };
     }
 
@@ -310,9 +315,11 @@ export async function createLandDevProject(
     });
     if (loanError) {
       await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
+      revalidateAfterProjectMutation(project.id);
       return { projectId: project.id, error: `Project created, but loan record failed: ${loanError.message}` };
     }
   }
 
+  revalidateAfterProjectMutation(project.id);
   return { projectId: project.id };
 }

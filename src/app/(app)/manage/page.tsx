@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 
-export const dynamic = "force-dynamic";
 
 function daysUntil(d: string | null) {
   if (!d) return null;

@@ -7,7 +7,6 @@ import DrawsTableClient from "@/components/draws/DrawsTableClient";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 import AdminOnly from "@/components/ui/AdminOnly";
 
-export const dynamic = "force-dynamic";
 
 function fmt(n: number | null) {
   if (n == null) return "—";

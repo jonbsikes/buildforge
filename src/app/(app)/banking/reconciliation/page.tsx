@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import ReconciliationClient from "@/components/banking/ReconciliationClient";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 
-export const dynamic = "force-dynamic";
 
 export default async function ReconciliationPage() {
   const supabase = await createClient();

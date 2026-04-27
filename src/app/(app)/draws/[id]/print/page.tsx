@@ -5,7 +5,6 @@ import { drawDisplayName } from "@/lib/draws";
 import { fetchDrawSummary, formatDrawDateShort } from "@/lib/draws-summary";
 import DrawPrintClient from "@/components/draws/DrawPrintClient";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

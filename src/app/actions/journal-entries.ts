@@ -1,9 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { postJournalEntry } from "@/lib/gl/postEntry";
+import { revalidateAfterJournalEntry } from "@/lib/cache";
 
 export interface JournalLineInput {
   account_id: string;
@@ -57,7 +57,7 @@ export async function createJournalEntry(input: JournalEntryInput) {
 
   if (result.error || !result.id) throw new Error(result.error ?? "Failed to post journal entry");
 
-  revalidatePath("/financial/journal-entries");
+  revalidateAfterJournalEntry();
   return { id: result.id };
 }
 
@@ -133,7 +133,7 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
     .update({ status: "void" })
     .eq("id", id);
 
-  revalidatePath("/financial/journal-entries");
+  revalidateAfterJournalEntry();
   return { id: result.id };
 }
 
@@ -167,6 +167,6 @@ export async function voidJournalEntry(id: string) {
       .eq("id", entry.source_id);
   }
 
-  revalidatePath("/financial/journal-entries");
+  revalidateAfterJournalEntry();
   return { success: true };
 }

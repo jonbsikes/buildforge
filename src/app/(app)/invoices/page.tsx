@@ -8,7 +8,6 @@ import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 import AdminOnly from "@/components/ui/AdminOnly";
 import EmptyState from "@/components/ui/EmptyState";
 
-export const dynamic = "force-dynamic";
 
 
 export default async function InvoicesPage() {

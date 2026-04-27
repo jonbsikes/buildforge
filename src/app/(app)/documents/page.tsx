@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import DocumentsClient from "./DocumentsClient";
 
-export const dynamic = "force-dynamic";
 
 export default async function DocumentsPage() {
   const supabase = await createClient();

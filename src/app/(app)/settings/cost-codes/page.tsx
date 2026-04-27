@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import CostCodesClient from "./CostCodesClient";
 
-export const dynamic = "force-dynamic";
 
 export default async function CostCodesSettingsPage() {
   const supabase = await createClient();

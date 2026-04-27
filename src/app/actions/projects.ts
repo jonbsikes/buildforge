@@ -1,9 +1,13 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth";
+import {
+  revalidateAfterProjectMutation,
+  revalidateAfterDocumentMutation,
+  revalidateAfterSelectionMutation,
+} from "@/lib/cache";
 import { mintLoanCoaAccount } from "./banking";
 
 // ---------------------------------------------------------------------------
@@ -59,7 +63,7 @@ export async function updateHomeProject(
     })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${id}`);
+  revalidateAfterProjectMutation(id);
   return {};
 }
 
@@ -85,7 +89,7 @@ export async function updateLandProject(
     })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${id}`);
+  revalidateAfterProjectMutation(id);
   return {};
 }
 
@@ -144,7 +148,7 @@ export async function deleteProject(id: string): Promise<{ error?: string }> {
   const supabase = await createClient();
   const { error } = await supabase.from("projects").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/projects");
+  revalidateAfterProjectMutation();
   redirect("/projects");
 }
 
@@ -165,7 +169,7 @@ export async function updatePhaseLotsSold(
     .update({ lots_sold: lotsSold })
     .eq("id", phaseId);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -204,7 +208,7 @@ export async function saveDocument(data: {
     .single();
 
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${data.projectId}`);
+  revalidateAfterDocumentMutation(data.projectId);
   return { id: doc.id };
 }
 
@@ -225,7 +229,7 @@ export async function addProjectCostCode(
     budgeted_amount: 0,
   });
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -249,7 +253,7 @@ export async function addProjectCostCodes(
   }));
   const { error } = await supabase.from("project_cost_codes").insert(rows);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -264,11 +268,17 @@ export async function updateCostCodeBudget(
   if (!adminCheck.authorized) return { error: adminCheck.error };
 
   const supabase = await createClient();
+  const { data: pcc } = await supabase
+    .from("project_cost_codes")
+    .select("project_id")
+    .eq("id", pccId)
+    .single();
   const { error } = await supabase
     .from("project_cost_codes")
     .update({ budgeted_amount: amount })
     .eq("id", pccId);
   if (error) return { error: error.message };
+  revalidateAfterProjectMutation(pcc?.project_id ?? undefined);
   return {};
 }
 
@@ -288,7 +298,7 @@ export async function removeProjectCostCode(
     .delete()
     .eq("id", pccId);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -322,7 +332,7 @@ export async function createPhase(
     notes: data.notes?.trim() || null,
   });
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -359,7 +369,7 @@ export async function updatePhase(
     })
     .eq("id", phaseId);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -379,7 +389,7 @@ export async function deletePhase(
     .delete()
     .eq("id", phaseId);
   if (error) return { error: error.message };
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterProjectMutation(projectId);
   return {};
 }
 
@@ -467,7 +477,7 @@ export async function createSelection(projectId: string, formData: FormData) {
     notes: (formData.get("notes") as string) || null,
   });
   if (error) throw new Error(error.message);
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterSelectionMutation(projectId);
 }
 
 export async function updateSelectionStatus(
@@ -484,7 +494,7 @@ export async function updateSelectionStatus(
     .update({ status })
     .eq("id", selectionId);
   if (error) throw new Error(error.message);
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterSelectionMutation(projectId);
 }
 
 export async function deleteSelection(projectId: string, selectionId: string) {
@@ -497,7 +507,7 @@ export async function deleteSelection(projectId: string, selectionId: string) {
     .delete()
     .eq("id", selectionId);
   if (error) throw new Error(error.message);
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterSelectionMutation(projectId);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +534,6 @@ export async function deleteDocument(
     .remove([storagePath]);
   if (storageErr) return { error: storageErr.message };
 
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterDocumentMutation(projectId);
   return {};
 }

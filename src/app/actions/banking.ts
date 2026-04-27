@@ -1,9 +1,12 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { getAccountIdMap } from "@/lib/gl/accounts";
+import {
+  revalidateAfterBankingMutation,
+  revalidateAfterJournalEntry,
+} from "@/lib/cache";
 import { postJournalEntry } from "@/lib/gl/postEntry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
@@ -124,7 +127,7 @@ export async function createBankAccount(
     .select("id")
     .single();
   if (error) return { error: error.message };
-  revalidatePath("/banking/accounts");
+  revalidateAfterBankingMutation();
   return { id: data.id };
 }
 
@@ -153,7 +156,7 @@ export async function updateBankAccount(
     })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/banking/accounts");
+  revalidateAfterBankingMutation();
   return {};
 }
 
@@ -167,7 +170,7 @@ export async function deleteBankAccount(id: string): Promise<{ error?: string }>
 
   const { error } = await supabase.from("bank_accounts").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/banking/accounts");
+  revalidateAfterBankingMutation();
   return {};
 }
 
@@ -243,7 +246,7 @@ export async function createLoan(
     await supabase.from("chart_of_accounts").delete().eq("id", coa.coaAccountId);
     return { error: error.message };
   }
-  revalidatePath("/banking/loans");
+  revalidateAfterBankingMutation();
   return { id: data.id };
 }
 
@@ -294,7 +297,7 @@ export async function updateLoan(
     .update(updatePayload)
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/banking/loans");
+  revalidateAfterBankingMutation();
   return {};
 }
 
@@ -365,7 +368,7 @@ export async function deleteLoan(id: string): Promise<{ error?: string }> {
     await supabase.from("chart_of_accounts").delete().eq("id", loan.coa_account_id);
   }
 
-  revalidatePath("/banking/loans");
+  revalidateAfterBankingMutation();
   return {};
 }
 
@@ -452,8 +455,7 @@ export async function accrueConstructionInterest(
 
   if (result.error || !result.id) return { error: result.error ?? "Failed to post journal entry" };
 
-  revalidatePath("/banking/loans");
-  if (input.project_id) revalidatePath(`/projects/${input.project_id}/loans`);
+  revalidateAfterJournalEntry({ projectId: input.project_id ?? undefined });
   return { journalEntryId: result.id };
 }
 
@@ -603,9 +605,7 @@ export async function recordLotCost(
     return { error: result.error ?? "Failed to post journal entry" };
   }
 
-  // Revalidate paths
-  revalidatePath("/banking/loans");
-  revalidatePath(`/projects/${input.project_id}`);
+  revalidateAfterJournalEntry({ projectId: input.project_id });
 
   return { journalEntryId: result.id };
 }

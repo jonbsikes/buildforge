@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import TaxExportClient from "@/components/financial/TaxExportClient";
 
-export const dynamic = "force-dynamic";
 
 export default function TaxExportPage() {
   return (

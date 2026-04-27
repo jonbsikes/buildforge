@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import InvoiceUploadForm from "./InvoiceUploadForm";
 
-export const dynamic = "force-dynamic";
 
 export default async function InvoiceUploadPage() {
   const supabase = await createClient();

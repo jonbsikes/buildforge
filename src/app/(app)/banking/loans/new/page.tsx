@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import LoanForm from "@/components/banking/LoanForm";
 
-export const dynamic = "force-dynamic";
 
 export default async function NewLoanPage() {
   const supabase = await createClient();

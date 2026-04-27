@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import ContactsClient from "@/components/contacts/ContactsClient";
 
-export const dynamic = "force-dynamic";
 
 export default async function ContactsPage() {
   const supabase = await createClient();

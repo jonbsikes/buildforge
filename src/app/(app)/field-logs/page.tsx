@@ -2,7 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import FieldLogsClient from "./FieldLogsClient";
 
-export const dynamic = "force-dynamic";
 
 export default async function FieldLogsPage() {
   const supabase = await createClient();

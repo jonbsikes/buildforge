@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import InvoiceForm from "@/components/invoices/InvoiceForm";
 
-export const dynamic = "force-dynamic";
 
 export default async function NewInvoicePage() {
   const supabase = await createClient();

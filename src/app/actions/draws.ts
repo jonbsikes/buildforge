@@ -1,9 +1,12 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { drawDisplayName } from "@/lib/draws";
 import { requireAdmin } from "@/lib/auth";
+import {
+  revalidateAfterDrawAssembly,
+  revalidateAfterJournalEntry,
+} from "@/lib/cache";
 import { getAccountIdMap } from "@/lib/gl/accounts";
 import { postJournalEntry } from "@/lib/gl/postEntry";
 
@@ -319,7 +322,7 @@ export async function createDraw(
     .insert(invoiceIds.map((id) => ({ draw_id: draw.id, invoice_id: id })));
   if (linkErr) return { error: linkErr.message };
 
-  revalidatePath("/draws");
+  revalidateAfterDrawAssembly(draw.id);
   return { drawId: draw.id };
 }
 
@@ -373,8 +376,7 @@ export async function removeInvoiceFromDraw(
     .update({ total_amount: newTotal })
     .eq("id", drawId);
 
-  revalidatePath(`/draws/${drawId}`);
-  revalidatePath("/draws");
+  revalidateAfterDrawAssembly(drawId);
   return {};
 }
 
@@ -414,7 +416,7 @@ export async function deleteDraw(drawId: string): Promise<{ error?: string }> {
     .eq("id", drawId);
   if (error) return { error: error.message };
 
-  revalidatePath("/draws");
+  revalidateAfterDrawAssembly();
   return {};
 }
 
@@ -492,8 +494,7 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
     );
   }
 
-  revalidatePath("/draws");
-  revalidatePath(`/draws/${drawId}`);
+  revalidateAfterJournalEntry({ drawId });
   return {};
 }
 
@@ -972,8 +973,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     };
   }
 
-  revalidatePath("/draws");
-  revalidatePath(`/draws/${drawId}`);
+  revalidateAfterJournalEntry({ drawId });
   return {};
 }
 
@@ -1285,9 +1285,7 @@ export async function markVendorPaymentPaid(
       .eq("id", vp.draw_id);
   }
 
-  revalidatePath(`/draws/${vp.draw_id}`);
-  revalidatePath("/draws");
-  revalidatePath("/banking/payments");
+  revalidateAfterJournalEntry({ drawId: vp.draw_id });
   return {};
 }
 
@@ -1463,7 +1461,7 @@ export async function adjustVendorPaymentAmount(
     }
   }
 
-  revalidatePath(`/draws/${vp.draw_id}`);
+  revalidateAfterJournalEntry({ drawId: vp.draw_id });
   return { newAmount };
 }
 
@@ -1534,6 +1532,6 @@ export async function deleteVendorPaymentAdjustment(
       .in("id", jeIds);
   }
 
-  revalidatePath(`/draws/${vp.draw_id}`);
+  revalidateAfterJournalEntry({ drawId: vp.draw_id });
   return {};
 }

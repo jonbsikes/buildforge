@@ -1,9 +1,12 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { approveInvoice } from "@/app/actions/invoices";
+import {
+  revalidateAfterInvoiceMutation,
+  revalidateAfterJournalEntry,
+} from "@/lib/cache";
 
 /**
  * Approve multiple invoices at once. Skips any that are not in pending_review
@@ -25,7 +28,9 @@ export async function approveInvoicesBatch(
       if (r.error) errors.push(`${id.slice(0, 8)}: ${r.error}`);
     }
   }
-  revalidatePath("/invoices");
+  // Each successful approveInvoice already invalidated; this final pass guarantees
+  // the financial surfaces reflect the batch when only some succeeded.
+  revalidateAfterJournalEntry();
   return { approved, skipped, errors };
 }
 
@@ -46,6 +51,6 @@ export async function setPendingDrawBatch(
     .in("id", invoiceIds)
     .select("id");
   if (error) return { error: error.message, updated: 0 };
-  revalidatePath("/invoices");
+  revalidateAfterInvoiceMutation();
   return { updated: data?.length ?? 0 };
 }

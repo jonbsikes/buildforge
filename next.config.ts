@@ -7,6 +7,14 @@ const nextConfig: NextConfig = {
       // the default 1 MB limit rejected them before they reached Supabase Storage.
       bodySizeLimit: "25mb",
     },
+    // Keep RSC payloads for visited dynamic routes warm so back/forward and
+    // revisits feel instant. revalidatePath calls in src/lib/cache.ts still
+    // bust the cache the moment a mutation changes data.
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
+    optimizePackageImports: ["lucide-react"],
   },
   serverExternalPackages: [
     "@react-pdf/renderer",

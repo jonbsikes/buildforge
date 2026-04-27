@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateAfterContactMutation } from "@/lib/cache";
 
 export interface ContactInput {
   name: string;
@@ -36,7 +36,7 @@ export async function createContact(
     .single();
 
   if (error) return { error: error.message };
-  revalidatePath("/contacts");
+  revalidateAfterContactMutation();
   return { id: row.id };
 }
 
@@ -66,7 +66,7 @@ export async function updateContact(
     .eq("user_id", user.id);
 
   if (error) return { error: error.message };
-  revalidatePath("/contacts");
+  revalidateAfterContactMutation();
   return {};
 }
 
@@ -125,6 +125,6 @@ export async function deleteContact(
     .eq("user_id", user.id);
 
   if (error) return { error: error.message };
-  revalidatePath("/contacts");
+  revalidateAfterContactMutation();
   return {};
 }

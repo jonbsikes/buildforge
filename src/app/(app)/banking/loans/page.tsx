@@ -12,7 +12,6 @@ import DateValue from "@/components/ui/DateValue";
 import CapacityBar from "@/components/ui/CapacityBar";
 import EmptyState from "@/components/ui/EmptyState";
 
-export const dynamic = "force-dynamic";
 
 const STATUS_KIND: Record<string, StatusKind> = {
   active: "active",

@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import BankAccountsClient from "@/components/banking/BankAccountsClient";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 
-export const dynamic = "force-dynamic";
 
 export default async function BankAccountsPage() {
   const supabase = await createClient();

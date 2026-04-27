@@ -1,9 +1,9 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import crypto from "crypto";
+import { revalidateAfterBankTransactionMutation } from "@/lib/cache";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -238,8 +238,7 @@ export async function importBankTransactions(
   // Now run auto-matching
   const matchResult = await autoMatchTransactions(bankAccountId);
 
-  revalidatePath("/banking/accounts");
-  revalidatePath("/banking/reconciliation");
+  revalidateAfterBankTransactionMutation(bankAccountId);
 
   return {
     imported: newRows.length,
@@ -560,7 +559,7 @@ export async function matchTransaction(
     .eq("id", transactionId);
 
   if (error) return { error: error.message };
-  revalidatePath("/banking/reconciliation");
+  revalidateAfterBankTransactionMutation();
   return {};
 }
 
@@ -581,7 +580,7 @@ export async function unmatchTransaction(transactionId: string): Promise<{ error
     .eq("id", transactionId);
 
   if (error) return { error: error.message };
-  revalidatePath("/banking/reconciliation");
+  revalidateAfterBankTransactionMutation();
   return {};
 }
 
@@ -600,7 +599,7 @@ export async function ignoreTransaction(transactionId: string, notes?: string): 
     .eq("id", transactionId);
 
   if (error) return { error: error.message };
-  revalidatePath("/banking/reconciliation");
+  revalidateAfterBankTransactionMutation();
   return {};
 }
 

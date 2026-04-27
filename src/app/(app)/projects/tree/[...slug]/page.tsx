@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { getProjectsTree, type TreeNode } from "@/lib/projects/tree";
 import ProjectsTree from "@/components/projects/ProjectsTree";
 
-export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ slug: string[] }>;

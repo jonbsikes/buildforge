@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import VendorSpendClient from "@/components/financial/VendorSpendClient";
 
-export const dynamic = "force-dynamic";
 
 export default function VendorSpendPage() {
   return (

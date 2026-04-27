@@ -5,7 +5,6 @@ import { Plus, FileText, Pencil } from "lucide-react";
 import DeleteContractButton from "@/components/contracts/DeleteContractButton";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
-export const dynamic = "force-dynamic";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);

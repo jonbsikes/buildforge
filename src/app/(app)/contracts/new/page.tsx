@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import ContractForm from "@/components/contracts/ContractForm";
 
-export const dynamic = "force-dynamic";
 
 export default async function NewContractPage() {
   const supabase = await createClient();

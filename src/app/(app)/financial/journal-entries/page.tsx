@@ -2,7 +2,6 @@ import Header from "@/components/layout/Header";
 import JournalEntriesClient from "@/components/financial/JournalEntriesClient";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 
-export const dynamic = "force-dynamic";
 
 export default function JournalEntriesPage() {
   return (

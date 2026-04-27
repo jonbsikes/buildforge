@@ -11,7 +11,6 @@ import Money from "@/components/ui/Money";
 import DateValue from "@/components/ui/DateValue";
 import LifecycleStepper, { type LifecycleStep } from "@/components/ui/LifecycleStepper";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

@@ -18,7 +18,6 @@ import ProjectCard from "@/components/dashboard/ProjectCard";
 import Money from "@/components/ui/Money";
 import DateValue from "@/components/ui/DateValue";
 
-export const dynamic = "force-dynamic";
 
 export default async function ProjectsHubPage() {
   const supabase = await createClient();

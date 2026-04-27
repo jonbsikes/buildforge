@@ -3,7 +3,6 @@ import Header from "@/components/layout/Header";
 import Link from "next/link";
 import VendorForm, { type CostCodeOption } from "@/components/vendors/VendorForm";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   searchParams: Promise<{ name?: string; returnTo?: string; vendorCardIdx?: string }>;

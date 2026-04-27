@@ -4,7 +4,6 @@ import PageTransition from "@/components/layout/PageTransition";
 import CommandPalette from "@/components/layout/CommandPalette";
 import { UserRoleProvider } from "@/components/layout/UserRoleContext";
 
-export const dynamic = "force-dynamic";
 
 export default function AppLayout({
   children,

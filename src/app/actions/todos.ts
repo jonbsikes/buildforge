@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth";
+import { revalidateAfterTodoMutation } from "@/lib/cache";
 
 export async function createTodo(input: {
   project_id: string;
@@ -27,8 +27,7 @@ export async function createTodo(input: {
   });
 
   if (error) return { error: error.message };
-  revalidatePath("/todos");
-  revalidatePath("/projects/" + input.project_id);
+  revalidateAfterTodoMutation(input.project_id);
   return {};
 }
 
@@ -41,8 +40,7 @@ export async function completeTodo(todoId: string, projectId: string): Promise<{
     .update({ status: "done", resolved_date: new Date().toISOString().split("T")[0] })
     .eq("id", todoId);
   if (error) return { error: error.message };
-  revalidatePath("/todos");
-  revalidatePath("/projects/" + projectId);
+  revalidateAfterTodoMutation(projectId);
   return {};
 }
 
@@ -55,8 +53,7 @@ export async function reopenTodo(todoId: string, projectId: string): Promise<{ e
     .update({ status: "open", resolved_date: null })
     .eq("id", todoId);
   if (error) return { error: error.message };
-  revalidatePath("/todos");
-  revalidatePath("/projects/" + projectId);
+  revalidateAfterTodoMutation(projectId);
   return {};
 }
 
@@ -66,8 +63,7 @@ export async function deleteTodo(todoId: string, projectId: string): Promise<{ e
   const supabase = await createClient();
   const { error } = await supabase.from("field_todos").delete().eq("id", todoId);
   if (error) return { error: error.message };
-  revalidatePath("/todos");
-  revalidatePath("/projects/" + projectId);
+  revalidateAfterTodoMutation(projectId);
   return {};
 }
 
@@ -88,8 +84,6 @@ export async function updateTodo(
     })
     .eq("id", todoId);
   if (error) return { error: error.message };
-  revalidatePath("/todos");
-  revalidatePath("/projects/" + projectId);
-  revalidatePath("/field-logs");
+  revalidateAfterTodoMutation(projectId);
   return {};
 }

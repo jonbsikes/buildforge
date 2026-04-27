@@ -1,7 +1,6 @@
 import Header from "@/components/layout/Header";
 import FieldLogsReportClient from "@/components/reports/FieldLogsReportClient";
 
-export const dynamic = "force-dynamic";
 
 export default function FieldLogsReportPage() {
   return (

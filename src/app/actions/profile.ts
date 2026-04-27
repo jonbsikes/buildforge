@@ -1,7 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { revalidateAfterProfileMutation } from "@/lib/cache";
 
 export async function updateDisplayName(displayName: string): Promise<void> {
   const trimmed = displayName.trim();
@@ -32,5 +32,5 @@ export async function updateDisplayName(displayName: string): Promise<void> {
     if (upsertError) throw new Error(upsertError.message);
   }
 
-  revalidatePath("/", "layout");
+  revalidateAfterProfileMutation();
 }

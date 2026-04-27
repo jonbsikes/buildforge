@@ -10,7 +10,6 @@ import React from "react";
 import { drawDisplayName } from "@/lib/draws";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
-export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;

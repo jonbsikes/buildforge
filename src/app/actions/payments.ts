@@ -1,11 +1,11 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { approveInvoice } from "./invoices";
 import { getAccountIdMap } from "@/lib/gl/accounts";
 import { postJournalEntry } from "@/lib/gl/postEntry";
+import { revalidateAfterJournalEntry } from "@/lib/cache";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -464,13 +464,12 @@ export async function createPayment(
     );
   }
 
-  revalidatePath("/banking/payments");
-  revalidatePath("/invoices");
   if (affectedDrawIds.size > 0) {
-    revalidatePath("/draws");
     for (const drawId of affectedDrawIds) {
-      revalidatePath(`/draws/${drawId}`);
+      revalidateAfterJournalEntry({ drawId });
     }
+  } else {
+    revalidateAfterJournalEntry();
   }
   return { paymentId: payment.id };
 }
@@ -575,8 +574,7 @@ export async function clearPayment(
     );
   }
 
-  revalidatePath("/banking/payments");
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry();
   return {};
 }
 
@@ -705,8 +703,7 @@ export async function voidPayment(
     }
   }
 
-  revalidatePath("/banking/payments");
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry();
   return {};
 }
 
@@ -1020,7 +1017,6 @@ export async function backfillPayment(input: {
 
   // No GL posting — the DR AP / CR 2050 entries already exist from advanceInvoiceStatus.
 
-  revalidatePath("/banking/payments");
-  revalidatePath("/invoices");
+  revalidateAfterJournalEntry();
   return { paymentId: payment.id };
 }

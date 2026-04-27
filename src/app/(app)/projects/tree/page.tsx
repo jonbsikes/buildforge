@@ -4,7 +4,6 @@ import { Plus } from "lucide-react";
 import { getProjectsTree } from "@/lib/projects/tree";
 import ProjectsTree from "@/components/projects/ProjectsTree";
 
-export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
   const { root, orgRollup } = await getProjectsTree();

@@ -6,7 +6,6 @@ import { ArrowLeft, Calendar } from "lucide-react";
 import TodoList from "./TodoList";
 import FieldLogPhotos, { type FieldLogPhoto } from "../FieldLogPhotos";
 
-export const dynamic = "force-dynamic";
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });

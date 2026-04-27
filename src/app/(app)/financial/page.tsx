@@ -23,7 +23,6 @@ import Money from "@/components/ui/Money";
 import StatusBadge from "@/components/ui/StatusBadge";
 import DateValue from "@/components/ui/DateValue";
 
-export const dynamic = "force-dynamic";
 
 export default async function FinancialHubPage() {
   const supabase = await createClient();
