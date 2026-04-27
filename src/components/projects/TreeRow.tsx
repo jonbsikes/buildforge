@@ -145,19 +145,23 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
 
       {/* Name + subtitle */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 min-w-0">
+        <div className="flex flex-col md:flex-row md:items-baseline md:gap-2 min-w-0">
           <span
             className={`${nameSize} ${isSectionHeader ? "font-bold text-gray-500" : "font-semibold"} truncate`}
           >
             {node.name}
           </span>
-          {node.subtitle && (
-            <span className={`text-[11px] ${subColor} truncate`}>{node.subtitle}</span>
-          )}
-          {isLot && node.lot?.currentStage && (
-            <span className={`text-[11px] ${subColor} truncate hidden md:inline`}>
-              · {node.lot.currentStage}
-            </span>
+          {(node.subtitle || (isLot && node.lot?.currentStage)) && (
+            <div className="flex items-baseline gap-2 min-w-0">
+              {node.subtitle && (
+                <span className={`text-[11px] ${subColor} truncate`}>{node.subtitle}</span>
+              )}
+              {isLot && node.lot?.currentStage && (
+                <span className={`text-[11px] ${subColor} truncate hidden md:inline`}>
+                  · {node.lot.currentStage}
+                </span>
+              )}
+            </div>
           )}
         </div>
         {node.kind === "subdivision" && node.dotScan && node.dotScan.length > 0 && (

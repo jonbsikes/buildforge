@@ -95,22 +95,22 @@ const TAB_ICONS: Record<string, React.ElementType> = {
 };
 
 const HOME_TABS = [
-  { id: "gantt",        label: "Gantt" },
   { id: "stage-report", label: "Stages" },
   { id: "cost-items",   label: "Job Costs" },
   { id: "budget",       label: "Budget" },
-  { id: "selections",   label: "Selections" },
+  { id: "gantt",        label: "Gantt" },
   { id: "field-logs",   label: "Logs" },
+  { id: "selections",   label: "Selections" },
   { id: "documents",    label: "Docs" },
 ] as const;
 
 const LAND_TABS = [
-  { id: "gantt",        label: "Gantt" },
   { id: "stage-report", label: "Stages" },
   { id: "cost-items",   label: "Job Costs" },
   { id: "budget",       label: "Budget" },
-  { id: "phases",       label: "Phases" },
+  { id: "gantt",        label: "Gantt" },
   { id: "field-logs",   label: "Logs" },
+  { id: "phases",       label: "Phases" },
   { id: "documents",    label: "Docs" },
 ] as const;
 
@@ -139,7 +139,7 @@ export default function ProjectTabs({
     "field-logs": { count: fieldLogsCount },
     "selections": { count: selectionsPendingCount },
   };
-  const [activeTab, setActiveTab] = useState<TabId>("gantt");
+  const [activeTab, setActiveTab] = useState<TabId>("stage-report");
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
 

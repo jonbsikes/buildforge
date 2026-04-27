@@ -102,6 +102,18 @@ function addDaysStr(dateStr: string, days: number): string {
 
 function hasOutOfSpecDates(stages: StageRow[], startDate: string | null): boolean {
   if (!startDate) return false;
+  // Only flag a fresh, untouched schedule that no longer matches start_date —
+  // i.e. start_date was edited after creation. Once any stage is started or
+  // completed, later not_started stages get legitimately shifted by the
+  // delta, so the schedule will diverge from a pure start-date calculation
+  // and a "Reset" banner would be misleading.
+  const anyTouched = stages.some(
+    (s) =>
+      (s.status !== "not_started" && s.status !== "skipped") ||
+      s.actual_start_date ||
+      s.actual_end_date,
+  );
+  if (anyTouched) return false;
   const stage55 = stages.find((s) => s.stage_number === 55);
   if (!stage55 || !stage55.planned_end_date) return false;
   const expectedEnd = addDaysStr(startDate, 151);

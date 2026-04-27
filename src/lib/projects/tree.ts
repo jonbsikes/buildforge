@@ -194,10 +194,10 @@ function isActiveStatus(s: string): boolean {
   return s === "active" || s === "pre_construction";
 }
 
-function lotLabel(p: ProjectRow): string {
+function lotLabel(p: ProjectRow): string | null {
   if (p.block && p.lot) return `Block ${p.block}, Lot ${p.lot}`;
   if (p.lot) return `Lot ${p.lot}`;
-  return p.address ?? p.name;
+  return null;
 }
 
 export async function getProjectsTree(): Promise<{
@@ -279,8 +279,13 @@ export async function getProjectsTree(): Promise<{
       id: `home:${p.id}`,
       depth: 2,
       kind: "lot-home",
-      name: lotLabel(p),
-      subtitle: [p.plan, p.home_size_sf ? `${p.home_size_sf.toLocaleString()} SF` : null, p.address]
+      name: p.name,
+      subtitle: [
+        lotLabel(p),
+        p.plan,
+        p.home_size_sf ? `${p.home_size_sf.toLocaleString()} SF` : null,
+        p.address && p.address !== p.name ? p.address : null,
+      ]
         .filter(Boolean)
         .join(" · ") || undefined,
       href: `/projects/${p.id}`,
