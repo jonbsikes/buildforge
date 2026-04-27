@@ -127,8 +127,11 @@ export async function getData(p: ReportParams): Promise<SubdivisionOverviewData>
   let totalSpend = 0;
 
   const homes: HomeRow[] = (projectsData ?? []).map((proj) => {
-    const stages = stagesByProject[proj.id] ?? [];
-    const doneCount = stages.filter((s) => s.status === "complete").length;
+    const allStages = stagesByProject[proj.id] ?? [];
+    const stages = allStages.filter((s) => s.status !== "skipped");
+    const doneCount = stages.filter(
+      (s) => s.status === "complete" || s.status === "completed",
+    ).length;
     const pct = stages.length > 0 ? (doneCount / stages.length) * 100 : 0;
     const contractPrice = proj.total_budget ?? 0;
     const spend = spendByProject[proj.id] ?? 0;

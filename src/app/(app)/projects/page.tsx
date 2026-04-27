@@ -122,8 +122,9 @@ export default async function ProjectsHubPage() {
     .slice(0, 6)
     .map((p) => {
       const stages = stagesByProject.get(p.id) ?? [];
-      const total = stages.length;
-      const complete = stages.filter((s) => isComplete(s.status)).length;
+      const activeStages = stages.filter((s) => s.status !== "skipped");
+      const total = activeStages.length;
+      const complete = activeStages.filter((s) => isComplete(s.status)).length;
       const progress = total > 0 ? Math.round((complete / total) * 100) : 0;
       const current =
         stages.find((s) => s.status === "in_progress") ??

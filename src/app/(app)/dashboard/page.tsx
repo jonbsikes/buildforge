@@ -83,8 +83,14 @@ export default async function DashboardPage() {
     return st.find((s) => s.status === "in_progress") ?? st.find((s) => s.status === "delayed") ?? st.find((s) => s.status === "not_started") ?? null;
   }
   function getStageProgress(pid: string) {
-    const st = stagesByProject[pid] ?? [];
-    return st.length === 0 ? 0 : Math.round((st.filter((s) => s.status === "complete").length / st.length) * 100);
+    const active = (stagesByProject[pid] ?? []).filter((s) => s.status !== "skipped");
+    return active.length === 0
+      ? 0
+      : Math.round(
+          (active.filter((s) => s.status === "complete" || s.status === "completed").length /
+            active.length) *
+            100,
+        );
   }
   function getNextStage(pid: string) {
     const st = stagesByProject[pid] ?? [];

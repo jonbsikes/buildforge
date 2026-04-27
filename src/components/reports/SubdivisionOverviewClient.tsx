@@ -97,8 +97,11 @@ export default function SubdivisionOverviewClient() {
 
       const subdivMap: Record<string, HomeData[]> = {};
       for (const p of projects) {
-        const stages = stagesByProject[p.id] ?? [];
-        const doneStages = stages.filter((s) => s.status === "complete").length;
+        const allStages = stagesByProject[p.id] ?? [];
+        const stages = allStages.filter((s) => s.status !== "skipped");
+        const doneStages = stages.filter(
+          (s) => s.status === "complete" || s.status === "completed",
+        ).length;
         const inProgressStage = stages.find((s) => s.status === "in_progress");
 
         const home: HomeData = {

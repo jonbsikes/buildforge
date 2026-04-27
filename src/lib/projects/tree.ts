@@ -107,8 +107,14 @@ function computeProjectHealth(
   actual: number,
 ): ProjectHealth {
   const today = new Date().toISOString().split("T")[0]!;
-  const total = stages.length;
-  const complete = stages.filter((s) => s.status === "complete").length;
+  // Skipped stages count as done — they're stages that don't apply to this
+  // project, not stages still owed. Excluding them from the denominator keeps
+  // two projects at the same point in the build cycle showing the same %.
+  const activeStages = stages.filter((s) => s.status !== "skipped");
+  const total = activeStages.length;
+  const complete = activeStages.filter(
+    (s) => s.status === "complete" || s.status === "completed",
+  ).length;
   const progressPct = total > 0 ? Math.round((complete / total) * 100) : 0;
 
   const inProgressStage = stages.find((s) => s.status === "in_progress");
