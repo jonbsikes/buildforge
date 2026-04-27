@@ -1,12 +1,12 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import {
   calculateHomeConstructionDates,
   calculateLandDevDates,
 } from "@/lib/stage-schedules";
+import { revalidateAfterStageMutation } from "@/lib/cache";
 
 // ---------------------------------------------------------------------------
 // updateStage
@@ -29,16 +29,11 @@ export async function updateStage(
 
   const supabase = await createClient();
 
-  // Fetch the current stage for planned_end_date and stage_number
-  const { data: current } = await supabase
-    .from("build_stages")
-    .select("stage_number, planned_end_date, status")
-    .eq("id", stageId)
-    .single();
-
-  if (!current) return { error: "Stage not found" };
-
-  // Apply the update
+  // Planned dates are the project's locked schedule once construction is
+  // underway — only actuals/status/notes change as work progresses. Variance
+  // is captured by comparing actual vs. planned, not by mutating planned.
+  // To rebaseline the schedule (e.g. after editing the project start date),
+  // use `resetSchedule` explicitly.
   const { error: updateErr } = await supabase
     .from("build_stages")
     .update({
@@ -51,62 +46,7 @@ export async function updateStage(
 
   if (updateErr) return { error: updateErr.message };
 
-  // When marking complete with an actual_end_date, shift subsequent not_started stages
-  if (
-    input.status === "complete" &&
-    input.actual_end_date &&
-    current.planned_end_date
-  ) {
-    // delta: negative = finished early (shift earlier), positive = finished late (shift later)
-    // UTC-based diff — `Date.parse(YYYY-MM-DD)` is interpreted as UTC midnight,
-    // which sidesteps the local-DST drift the previous `Date(.. + "T00:00:00")`
-    // construction caused (a stage transition across a DST boundary used to
-    // produce a delta of N±1, skewing every later stage).
-    const delta = diffCalendarDays(input.actual_end_date, current.planned_end_date);
-
-    if (delta !== 0) {
-      // Fetch all not_started stages for this project with higher stage_number
-      const { data: laterStages } = await supabase
-        .from("build_stages")
-        .select("id, planned_start_date, planned_end_date")
-        .eq("project_id", projectId)
-        .eq("status", "not_started")
-        .gt("stage_number", current.stage_number);
-
-      if (laterStages && laterStages.length > 0) {
-        // Batch all stage shifts concurrently
-        const shiftResults = await Promise.all(
-          laterStages
-            .filter((s) => s.planned_start_date && s.planned_end_date)
-            .map((stage) =>
-              supabase
-                .from("build_stages")
-                .update({
-                  planned_start_date: shiftDate(stage.planned_start_date!, delta),
-                  planned_end_date:   shiftDate(stage.planned_end_date!, delta),
-                })
-                .eq("id", stage.id)
-            )
-        );
-
-        const failed = shiftResults.filter((r) => r.error);
-        if (failed.length > 0) {
-          // Log every failure so the user can see the full set; surface the
-          // first message in the returned error. Without the full log, only
-          // the first failure was visible and the user couldn't tell which
-          // stages were left in a partially-shifted state.
-          for (const f of failed) {
-            console.error("[stages.updateStage] shift failed:", f.error);
-          }
-          return {
-            error: `${failed.length} of ${shiftResults.length} stage(s) failed to shift: ${failed[0].error!.message}`,
-          };
-        }
-      }
-    }
-  }
-
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterStageMutation(projectId);
   return {};
 }
 
@@ -187,37 +127,12 @@ export async function resetSchedule(
     for (const f of failures) {
       console.error(`[stages.resetSchedule] ${f.op} stage #${f.stage} failed:`, f.message);
     }
-    revalidatePath(`/projects/${projectId}`);
+    revalidateAfterStageMutation(projectId);
     return {
       error: `${failures.length} of ${stages.length} stage(s) failed (first: stage #${failures[0].stage} ${failures[0].op} — ${failures[0].message}). Reload to see the partial state.`,
     };
   }
 
-  revalidatePath(`/projects/${projectId}`);
+  revalidateAfterStageMutation(projectId);
   return {};
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// All date math here is done in UTC to dodge DST-boundary off-by-one errors.
-// Inputs are assumed to be YYYY-MM-DD calendar dates with no time component.
-
-function parseYmd(dateStr: string): [number, number, number] {
-  const [y, m, d] = dateStr.split("-").map((p) => parseInt(p, 10));
-  return [y, m, d];
-}
-
-function diffCalendarDays(later: string, earlier: string): number {
-  const [y1, m1, d1] = parseYmd(later);
-  const [y2, m2, d2] = parseYmd(earlier);
-  const ms = Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2);
-  return Math.round(ms / 86400000);
-}
-
-function shiftDate(dateStr: string, days: number): string {
-  const [y, m, d] = parseYmd(dateStr);
-  const shifted = new Date(Date.UTC(y, m - 1, d + days));
-  return shifted.toISOString().split("T")[0];
 }
