@@ -3,17 +3,19 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export type UserRole = "admin" | "project_manager";
+export type UserRole = "admin" | "project_lead" | "project_manager";
 
 interface UserRoleContextValue {
   role: UserRole;
   isAdmin: boolean;
+  canEdit: boolean;
   loading: boolean;
 }
 
 const UserRoleContext = createContext<UserRoleContextValue>({
   role: "project_manager",
   isAdmin: false,
+  canEdit: false,
   loading: true,
 });
 
@@ -43,8 +45,11 @@ export function UserRoleProvider({ children }: { children: React.ReactNode }) {
     fetchRole();
   }, []);
 
+  const isAdmin = role === "admin";
+  const canEdit = role === "admin" || role === "project_lead";
+
   return (
-    <UserRoleContext.Provider value={{ role, isAdmin: role === "admin", loading }}>
+    <UserRoleContext.Provider value={{ role, isAdmin, canEdit, loading }}>
       {children}
     </UserRoleContext.Provider>
   );

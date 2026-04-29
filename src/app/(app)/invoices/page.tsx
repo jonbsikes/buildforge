@@ -5,7 +5,7 @@ import { Plus, AlertTriangle, Receipt } from "lucide-react";
 import InvoicesTable from "@/components/invoices/InvoicesTable";
 import PollEmailButton from "@/components/invoices/PollEmailButton";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
-import AdminOnly from "@/components/ui/AdminOnly";
+import EditorOnly from "@/components/ui/EditorOnly";
 import EmptyState from "@/components/ui/EmptyState";
 
 
@@ -105,7 +105,7 @@ export default async function InvoicesPage() {
       <Header title="Accounts Payable" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
         <div className="max-w-7xl mx-auto">
-          <ReadOnlyBanner />
+          <ReadOnlyBanner audience="editor" />
 
           {/* Unified "Needs attention" strip — fires when an invoice is
               missing any of the three required-from-dropdown fields (vendor,
@@ -148,7 +148,7 @@ export default async function InvoicesPage() {
             <h2 className="text-lg font-bold text-gray-900">
               {rows.length} Invoice{rows.length !== 1 ? "s" : ""}
             </h2>
-            <AdminOnly>
+            <EditorOnly>
               <div className="flex items-center gap-3">
                 <PollEmailButton />
                 <Link
@@ -159,7 +159,7 @@ export default async function InvoicesPage() {
                   New Invoice
                 </Link>
               </div>
-            </AdminOnly>
+            </EditorOnly>
           </div>
 
           {rows.length === 0 ? (

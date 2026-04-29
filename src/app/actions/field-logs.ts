@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import {
   revalidateAfterFieldLogMutation,
   revalidateAfterTodoMutation,
@@ -14,8 +14,8 @@ import {
 export async function createFieldLog(
   formData: FormData
 ): Promise<{ id: string; project_id: string; log_date: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -43,8 +43,8 @@ export async function createFieldLog(
 }
 
 export async function createFieldTodo(formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -67,8 +67,8 @@ export async function createFieldTodo(formData: FormData) {
 }
 
 export async function updateTodoStatus(id: string, status: string) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const update: Record<string, string | null> = { status };
   if (status === "done") {
@@ -81,8 +81,8 @@ export async function updateTodoStatus(id: string, status: string) {
 }
 
 export async function deleteTodo(id: string) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   await supabase.from("field_todos").delete().eq("id", id);
   revalidateAfterTodoMutation();
@@ -92,8 +92,8 @@ export async function updateFieldTodo(
   id: string,
   input: { description: string; priority: string; due_date: string | null }
 ) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   await supabase
     .from("field_todos")
@@ -116,8 +116,8 @@ export async function updateFieldLog(
 }
 
 export async function deleteFieldLog(id: string) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const { data } = await supabase
     .from("field_logs")
@@ -222,8 +222,8 @@ export async function createProjectFieldLog(
   projectId: string,
   formData: FormData
 ): Promise<{ id: string; log_date: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -254,8 +254,8 @@ export async function createProjectFieldTodo(
   logId: string | null,
   formData: FormData
 ) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -279,8 +279,8 @@ export async function updateProjectTodoStatus(
   todoId: string,
   status: string
 ) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const update: Record<string, string | null> = { status };
   if (status === "done") update.resolved_date = new Date().toISOString().split("T")[0];

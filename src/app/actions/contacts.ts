@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { requireEditor } from "@/lib/auth";
 import { revalidateAfterContactMutation } from "@/lib/cache";
 
 export interface ContactInput {
@@ -15,6 +16,9 @@ export interface ContactInput {
 export async function createContact(
   data: ContactInput
 ): Promise<{ error?: string; id?: string }> {
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -44,6 +48,9 @@ export async function updateContact(
   id: string,
   data: ContactInput
 ): Promise<{ error?: string }> {
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -73,6 +80,9 @@ export async function updateContact(
 export async function deleteContact(
   id: string
 ): Promise<{ error?: string }> {
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
+
   const supabase = await createClient();
   const {
     data: { user },

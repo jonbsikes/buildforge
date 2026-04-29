@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-export type UserRole = "admin" | "project_manager";
+export type UserRole = "admin" | "project_lead" | "project_manager";
 
 export interface UserProfile {
   id: string;
@@ -44,8 +44,9 @@ export async function getUserProfile(): Promise<UserProfile | null> {
 }
 
 /**
- * Returns true if the current user has the 'admin' role.
- * Use this in server actions to guard financial write operations.
+ * Returns authorized=true only for the 'admin' role.
+ * Use this to guard financial write operations (invoice approval/release/clear,
+ * draws, banking, journal entries, payments, bank transactions).
  */
 export async function requireAdmin(): Promise<{ authorized: boolean; error?: string }> {
   const profile = await getUserProfile();
@@ -55,6 +56,27 @@ export async function requireAdmin(): Promise<{ authorized: boolean; error?: str
   }
 
   if (profile.role !== "admin") {
+    return { authorized: false, error: "You don't have permission to perform this action" };
+  }
+
+  return { authorized: true };
+}
+
+/**
+ * Returns authorized=true for 'admin' or 'project_lead'.
+ * Use this to guard non-financial edits: projects, stages, contracts, cost-code
+ * config, field logs, todos, vendors, contacts, documents, and invoice intake
+ * (create/edit while pending_review). Approving or releasing invoices still
+ * requires requireAdmin().
+ */
+export async function requireEditor(): Promise<{ authorized: boolean; error?: string }> {
+  const profile = await getUserProfile();
+
+  if (!profile) {
+    return { authorized: false, error: "Not authenticated" };
+  }
+
+  if (profile.role !== "admin" && profile.role !== "project_lead") {
     return { authorized: false, error: "You don't have permission to perform this action" };
   }
 

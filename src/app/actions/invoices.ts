@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, requireEditor } from "@/lib/auth";
 import { getAccountIdMap } from "@/lib/gl/accounts";
 import { postJournalEntry } from "@/lib/gl/postEntry";
 import {
@@ -49,8 +49,8 @@ export interface SaveInvoiceInput {
 export async function saveInvoice(
   input: SaveInvoiceInput
 ): Promise<{ error?: string; invoiceId?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const {
@@ -491,8 +491,8 @@ export async function setPendingDraw(
   invoiceId: string,
   pending: boolean
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -952,8 +952,8 @@ export async function updateInvoice(
   invoiceId: string,
   input: UpdateInvoiceInput
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

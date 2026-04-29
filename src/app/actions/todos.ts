@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import { revalidateAfterTodoMutation } from "@/lib/cache";
 
 export async function createTodo(input: {
@@ -10,8 +10,8 @@ export async function createTodo(input: {
   priority: string;
   due_date: string | null;
 }): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized" };
@@ -32,8 +32,8 @@ export async function createTodo(input: {
 }
 
 export async function completeTodo(todoId: string, projectId: string): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("field_todos")
@@ -45,8 +45,8 @@ export async function completeTodo(todoId: string, projectId: string): Promise<{
 }
 
 export async function reopenTodo(todoId: string, projectId: string): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("field_todos")
@@ -58,8 +58,8 @@ export async function reopenTodo(todoId: string, projectId: string): Promise<{ e
 }
 
 export async function deleteTodo(todoId: string, projectId: string): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const { error } = await supabase.from("field_todos").delete().eq("id", todoId);
   if (error) return { error: error.message };
@@ -72,8 +72,8 @@ export async function updateTodo(
   projectId: string,
   input: { description: string; priority: string; due_date: string | null }
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("field_todos")

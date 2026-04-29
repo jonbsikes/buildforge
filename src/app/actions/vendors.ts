@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import { revalidateAfterVendorMutation } from "@/lib/cache";
 
 export interface VendorFormData {
@@ -31,8 +31,8 @@ export interface VendorFormData {
 export async function createVendor(
   data: VendorFormData
 ): Promise<{ error?: string; vendorId?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const {
     data: { user },
@@ -82,8 +82,8 @@ export async function updateVendor(
   id: string,
   data: VendorFormData
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
 
   const { error } = await supabase
@@ -122,8 +122,8 @@ export async function updateVendor(
 // deactivateVendor
 // ---------------------------------------------------------------------------
 export async function deactivateVendor(id: string): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
   const { error } = await supabase
     .from("vendors")
@@ -139,8 +139,8 @@ export async function deactivateVendor(id: string): Promise<{ error?: string }> 
 // dependent invoices/contracts; RLS + FKs will block unsafe deletes.
 // ---------------------------------------------------------------------------
 export async function deleteVendor(id: string): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
 
   const {
@@ -162,8 +162,8 @@ export async function deleteVendor(id: string): Promise<{ error?: string }> {
 // runNotifications — called on page load to refresh expiry notifications
 // ---------------------------------------------------------------------------
 export async function runNotifications(): Promise<void> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return;
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return;
   const supabase = await createClient();
   await supabase.rpc("generate_notifications");
 }

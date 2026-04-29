@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import {
   calculateHomeConstructionDates,
   calculateLandDevDates,
@@ -24,8 +24,8 @@ export async function updateStage(
   input: UpdateStageInput,
   projectId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
 
@@ -58,8 +58,8 @@ export async function updateStage(
 export async function resetSchedule(
   projectId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
 

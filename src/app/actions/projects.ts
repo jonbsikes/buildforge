@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import {
   revalidateAfterProjectMutation,
   revalidateAfterDocumentMutation,
@@ -42,8 +42,8 @@ export async function updateHomeProject(
   id: string,
   input: UpdateHomeInput
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -71,8 +71,8 @@ export async function updateLandProject(
   id: string,
   input: UpdateLandInput
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -101,8 +101,8 @@ export async function ensureLoan(
   loanNumber: string,
   lenderId: string
 ): Promise<{ error?: string; created?: boolean }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const loanNum = loanNumber.trim();
@@ -142,8 +142,8 @@ export async function ensureLoan(
 // deleteProject
 // ---------------------------------------------------------------------------
 export async function deleteProject(id: string): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase.from("projects").delete().eq("id", id);
@@ -160,8 +160,8 @@ export async function updatePhaseLotsSold(
   lotsSold: number,
   projectId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -184,8 +184,8 @@ export async function saveDocument(data: {
   fileSizeKb: number;
   mimeType: string;
 }): Promise<{ error?: string; id?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const {
@@ -219,8 +219,8 @@ export async function addProjectCostCode(
   projectId: string,
   costCodeId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase.from("project_cost_codes").insert({
@@ -242,8 +242,8 @@ export async function addProjectCostCodes(
 ): Promise<{ error?: string }> {
   if (!costCodeIds.length) return {};
 
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const rows = costCodeIds.map((costCodeId) => ({
@@ -264,8 +264,8 @@ export async function updateCostCodeBudget(
   pccId: string,
   amount: number
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { data: pcc } = await supabase
@@ -289,8 +289,8 @@ export async function removeProjectCostCode(
   pccId: string,
   projectId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -317,8 +317,8 @@ export async function createPhase(
     notes?: string | null;
   }
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase.from("project_phases").insert({
@@ -352,8 +352,8 @@ export async function updatePhase(
     notes?: string | null;
   }
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -380,8 +380,8 @@ export async function deletePhase(
   phaseId: string,
   projectId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -465,8 +465,8 @@ export async function getInvoicesForCostCode(
 // ---------------------------------------------------------------------------
 
 export async function createSelection(projectId: string, formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Not authorized");
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error ?? "Not authorized");
 
   const supabase = await createClient();
   const { error } = await supabase.from("selections").insert({
@@ -485,8 +485,8 @@ export async function updateSelectionStatus(
   selectionId: string,
   status: string
 ) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Not authorized");
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error ?? "Not authorized");
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -498,8 +498,8 @@ export async function updateSelectionStatus(
 }
 
 export async function deleteSelection(projectId: string, selectionId: string) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error ?? "Not authorized");
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error ?? "Not authorized");
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -518,8 +518,8 @@ export async function deleteDocument(
   storagePath: string,
   projectId: string
 ): Promise<{ error?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
 
   const supabase = await createClient();
 

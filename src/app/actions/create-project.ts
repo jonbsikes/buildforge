@@ -7,7 +7,7 @@ import {
   calculateLandDevDates,
 } from "@/lib/stage-schedules";
 import { mintLoanCoaAccount } from "./banking";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import { revalidateAfterProjectMutation } from "@/lib/cache";
 
 export interface SubdivisionMatch {
@@ -73,8 +73,8 @@ export interface CreateHomeConstructionInput {
 export async function createHomeConstructionProject(
   input: CreateHomeConstructionInput
 ): Promise<{ error?: string; projectId?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
 
   const {
@@ -212,8 +212,8 @@ export interface CreateLandDevInput {
 export async function createLandDevProject(
   input: CreateLandDevInput
 ): Promise<{ error?: string; projectId?: string }> {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error };
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) return { error: editorCheck.error };
   const supabase = await createClient();
 
   const {

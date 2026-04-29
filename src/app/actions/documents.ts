@@ -1,15 +1,15 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireEditor } from "@/lib/auth";
 import { revalidateAfterDocumentMutation } from "@/lib/cache";
 
 const ALLOWED_FOLDERS = ["Plans", "Permits", "Contracts", "Lender", "Inspections", "Photos", "Field Photos", "Other"];
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export async function uploadDocument(formData: FormData) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -64,8 +64,8 @@ export async function uploadDocument(formData: FormData) {
 }
 
 export async function deleteDocument(id: string, storagePath: string | null) {
-  const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) throw new Error(adminCheck.error);
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
