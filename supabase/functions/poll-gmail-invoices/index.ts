@@ -1,5 +1,9 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+// Gmail API returns attachment bodies as base64URL (RFC 4648 §5: `-` and `_`
+// instead of `+` and `/`). The standard `decodeBase64` rejects those chars,
+// so attachments whose encoded form happens to include them fail with
+// "Failed to decode base64". Use the URL-safe decoder.
+import { decodeBase64Url } from "https://deno.land/std@0.224.0/encoding/base64url.ts";
 
 // Read env at request time (not module load) so a missing variable produces a
 // clean JSON error response instead of a Deno boot crash. A boot crash returns
@@ -235,7 +239,7 @@ async function downloadAttachment(
   );
   const data = await resp.json();
   if (!data.data) throw new Error("No attachment data");
-  return decodeBase64(data.data);
+  return decodeBase64Url(data.data);
 }
 
 // Chunked base64 encoder. The previous one-liner
@@ -251,11 +255,24 @@ function uint8ToBase64(buffer: Uint8Array): string {
   return btoa(binary);
 }
 
+/**
+ * Extract invoices from a PDF buffer.
+ *
+ * Returns either the parsed list (possibly empty if the PDF genuinely has no
+ * invoices) or a structured failure that the caller can surface as a
+ * per-message diagnostic. Earlier versions returned `[]` for every failure
+ * mode and `console.error`d the reason — that made it impossible to tell from
+ * the response body whether Claude failed, the PDF was empty, or the JSON
+ * was malformed.
+ */
+type ExtractionResult =
+  | { ok: true; invoices: ExtractedData[] }
+  | { ok: false; reason: string };
+
 async function extractInvoicesFromPdf(
   buffer: Uint8Array,
   anthropicApiKey: string,
-): Promise<ExtractedData[]> {
-  // Send to Anthropic with base64 encoding
+): Promise<ExtractionResult> {
   const base64Data = uint8ToBase64(buffer);
   const mediaType = "application/pdf";
 
@@ -269,9 +286,6 @@ async function extractInvoicesFromPdf(
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
-      // Cache the ~3KB system prompt — ephemeral TTL is ~5 minutes, so steady-state
-      // polling reads from cache instead of re-sending the cost-code reference on
-      // every invoice extraction.
       system: [
         {
           type: "text",
@@ -303,23 +317,35 @@ async function extractInvoicesFromPdf(
 
   const data = await response.json();
   if (!response.ok) {
+    const apiErr = data?.error?.message || JSON.stringify(data).slice(0, 200);
     console.error("Claude API error:", data);
-    return [];
+    return { ok: false, reason: `Claude API ${response.status}: ${apiErr}` };
   }
 
   const textBlock = data.content?.[0];
   if (!textBlock || textBlock.type !== "text") {
     console.error("No text response from Claude");
-    return [];
+    return { ok: false, reason: "Claude returned no text block (stop_reason=" + (data?.stop_reason ?? "unknown") + ")" };
   }
 
+  // Claude sometimes wraps JSON output in ```json fences despite instructions.
+  // Strip any fenced wrapper before parsing.
+  let raw = String(textBlock.text).trim();
+  const fenceMatch = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fenceMatch) raw = fenceMatch[1].trim();
+
+  let parsed: { invoices?: ExtractedData[] };
   try {
-    const parsed = JSON.parse(textBlock.text);
-    return parsed.invoices || [];
+    parsed = JSON.parse(raw);
   } catch (e) {
-    console.error("Failed to parse extraction response:", e, textBlock.text);
-    return [];
+    console.error("Failed to parse extraction response:", e, raw);
+    return {
+      ok: false,
+      reason: `JSON parse failed: ${(e as Error).message}. First 120 chars: ${raw.slice(0, 120)}`,
+    };
   }
+
+  return { ok: true, invoices: parsed.invoices ?? [] };
 }
 
 async function findProjectByHint(
@@ -389,6 +415,28 @@ Deno.serve(async (req: Request) => {
   let processed = 0;
   let skipped = 0;
   let errors = 0;
+
+  // Per-message diagnostic trail returned in the response body so the AP page
+  // button can surface exactly why an email didn't come through. Without this,
+  // operators only see aggregate counts and have to dig through dashboard logs
+  // to find the reason for a skip or error.
+  type MessageResult =
+    | "processed"
+    | "duplicate_message_id"
+    | "no_supported_attachment"
+    | "duplicate_invoice"
+    | "extraction_empty"
+    | "db_insert_failed"
+    | "line_items_failed"
+    | "storage_upload_failed"
+    | "exception";
+  const details: Array<{
+    id: string;
+    from?: string;
+    subject?: string;
+    result: MessageResult;
+    reason?: string;
+  }> = [];
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -461,6 +509,8 @@ Deno.serve(async (req: Request) => {
     console.log(`Found ${messages.length} messages since ${lastCheckedAt.toISOString()}`);
 
     for (const msg of messages) {
+      let msgFrom: string | undefined;
+      let msgSubject: string | undefined;
       try {
         // ---------------------------------------------------------------------------
         // Secondary dedup guard: skip if we already have an invoice from this
@@ -477,6 +527,7 @@ Deno.serve(async (req: Request) => {
         if (existing?.length) {
           console.log(`Message ${msg.id} already processed; skipping`);
           skipped++;
+          details.push({ id: msg.id, result: "duplicate_message_id" });
           continue;
         }
 
@@ -492,16 +543,36 @@ Deno.serve(async (req: Request) => {
         const payload = msgData.payload || {};
         const headers = payload.headers || [];
         const fromHeader = headers.find((h: { name: string }) => h.name === "From");
+        const subjectHeader = headers.find((h: { name: string }) => h.name === "Subject");
         const fromEmail = fromHeader?.value || "unknown";
+        msgFrom = fromEmail;
+        msgSubject = subjectHeader?.value;
 
         // Collect attachments
         const attachments = collectAttachments(payload);
 
         if (attachments.length === 0) {
+          // Surface the MIME types we DID see — most "no attachments" cases are
+          // actually inline images, calendar invites, or unsupported types like
+          // .docx. Without this, the user gets a generic skip with no clue why.
+          const sawMimes = new Set<string>();
+          const collectMimes = (p: GmailPart) => {
+            if (p.mimeType) sawMimes.add(p.mimeType);
+            if (p.parts) p.parts.forEach(collectMimes);
+          };
+          collectMimes(payload);
+          const mimeList = Array.from(sawMimes).join(", ") || "none";
           console.log(
-            `Message ${msg.id} from ${fromEmail} has no supported attachments; skipping`
+            `Message ${msg.id} from ${fromEmail} has no supported attachments; skipping (saw: ${mimeList})`
           );
           skipped++;
+          details.push({
+            id: msg.id,
+            from: fromEmail,
+            subject: msgSubject,
+            result: "no_supported_attachment",
+            reason: `MIME types seen: ${mimeList}`,
+          });
           continue;
         }
 
@@ -518,7 +589,35 @@ Deno.serve(async (req: Request) => {
             );
 
             // Extract invoices
-            const extractedInvoices = await extractInvoicesFromPdf(buffer, ANTHROPIC_API_KEY);
+            const extractionResult = await extractInvoicesFromPdf(buffer, ANTHROPIC_API_KEY);
+
+            if (!extractionResult.ok) {
+              errors++;
+              details.push({
+                id: msg.id,
+                from: msgFrom,
+                subject: msgSubject,
+                result: "extraction_empty",
+                reason: `${attachment.filename || "attachment"}: ${extractionResult.reason}`,
+              });
+              continue;
+            }
+
+            const extractedInvoices = extractionResult.invoices;
+            if (extractedInvoices.length === 0) {
+              // Claude succeeded but found no invoices — likely a non-invoice
+              // attachment (statement, payment receipt, marketing). Surface so
+              // the user knows to drag-drop manually if needed.
+              errors++;
+              details.push({
+                id: msg.id,
+                from: msgFrom,
+                subject: msgSubject,
+                result: "extraction_empty",
+                reason: `Claude found no invoices in ${attachment.filename || "attachment"} — may not be an invoice`,
+              });
+              continue;
+            }
 
             for (const inv of extractedInvoices) {
               // Find project
@@ -550,6 +649,13 @@ Deno.serve(async (req: Request) => {
                     `Skipping ${inv.vendor} #${inv.invoice_number} ($${inv.total_amount}): already in system`
                   );
                   skipped++;
+                  details.push({
+                    id: msg.id,
+                    from: msgFrom,
+                    subject: msgSubject,
+                    result: "duplicate_invoice",
+                    reason: `${inv.vendor} #${inv.invoice_number} ($${inv.total_amount}) already in system`,
+                  });
                   continue;
                 }
               }
@@ -642,6 +748,13 @@ Deno.serve(async (req: Request) => {
                   invoiceError
                 );
                 errors++;
+                details.push({
+                  id: msg.id,
+                  from: msgFrom,
+                  subject: msgSubject,
+                  result: "db_insert_failed",
+                  reason: invoiceError?.message ?? "unknown DB error",
+                });
                 continue;
               }
 
@@ -668,6 +781,13 @@ Deno.serve(async (req: Request) => {
                   );
                   await supabase.from("invoices").delete().eq("id", invRow.id);
                   errors++;
+                  details.push({
+                    id: msg.id,
+                    from: msgFrom,
+                    subject: msgSubject,
+                    result: "line_items_failed",
+                    reason: liErr.message,
+                  });
                   continue;
                 }
               }
@@ -696,6 +816,13 @@ Deno.serve(async (req: Request) => {
                 await supabase.from("invoice_line_items").delete().eq("invoice_id", invRow.id);
                 await supabase.from("invoices").delete().eq("id", invRow.id);
                 errors++;
+                details.push({
+                  id: msg.id,
+                  from: msgFrom,
+                  subject: msgSubject,
+                  result: "storage_upload_failed",
+                  reason: uploadErr?.message ?? "unknown storage error",
+                });
                 continue;
               }
 
@@ -717,6 +844,13 @@ Deno.serve(async (req: Request) => {
                 `Created invoice ${inv.invoice_number} from ${inv.vendor}`
               );
               processed++;
+              details.push({
+                id: msg.id,
+                from: msgFrom,
+                subject: msgSubject,
+                result: "processed",
+                reason: `${inv.vendor} #${inv.invoice_number} ($${inv.total_amount})`,
+              });
             }
           } catch (attachError) {
             console.error(
@@ -724,6 +858,13 @@ Deno.serve(async (req: Request) => {
               attachError
             );
             errors++;
+            details.push({
+              id: msg.id,
+              from: msgFrom,
+              subject: msgSubject,
+              result: "exception",
+              reason: (attachError as Error)?.message ?? String(attachError),
+            });
           }
         }
 
@@ -741,27 +882,57 @@ Deno.serve(async (req: Request) => {
       } catch (msgError) {
         console.error(`Error processing message ${msg.id}:`, msgError);
         errors++;
+        details.push({
+          id: msg.id,
+          from: msgFrom,
+          subject: msgSubject,
+          result: "exception",
+          reason: (msgError as Error)?.message ?? String(msgError),
+        });
       }
     }
 
     // ---------------------------------------------------------------------------
-    // Advance the watermark. We upsert rather than update so the function
-    // works correctly even on the very first run before migration 020 seeds
-    // the row.
+    // Advance the watermark — but ONLY if every message in the window was
+    // accounted for cleanly. If anything errored (DB insert, storage, AI
+    // extraction), leave the watermark put so the failed messages stay
+    // visible in the next window for retry. The email_message_id dedup guard
+    // above prevents successfully-processed messages from being re-ingested.
+    //
+    // Without this guard, an errored message is permanently lost — the
+    // watermark advances past its received date and Gmail's `after:` filter
+    // excludes it from every future run.
     // ---------------------------------------------------------------------------
-    const { error: upsertError } = await supabase
-      .from("gmail_sync_state")
-      .upsert(
-        { id: 1, last_checked_at: runStartedAt, updated_at: runStartedAt },
-        { onConflict: "id" }
-      );
+    let watermarkAdvanced = false;
+    if (errors === 0) {
+      const { error: upsertError } = await supabase
+        .from("gmail_sync_state")
+        .upsert(
+          { id: 1, last_checked_at: runStartedAt, updated_at: runStartedAt },
+          { onConflict: "id" }
+        );
 
-    if (upsertError) {
-      console.warn("Could not update gmail_sync_state:", upsertError);
+      if (upsertError) {
+        console.warn("Could not update gmail_sync_state:", upsertError);
+      } else {
+        watermarkAdvanced = true;
+      }
+    } else {
+      console.log(
+        `Watermark NOT advanced — ${errors} error(s) in this run; failed messages will be retried next run`
+      );
     }
 
     return new Response(
-      JSON.stringify({ success: true, processed, skipped, errors }),
+      JSON.stringify({
+        success: true,
+        processed,
+        skipped,
+        errors,
+        watermarkAdvanced,
+        messagesScanned: messages.length,
+        details,
+      }),
       {
         status: 200,
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
@@ -770,7 +941,7 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     console.error("Function error:", err);
     return new Response(
-      JSON.stringify({ error: String(err), processed, skipped, errors }),
+      JSON.stringify({ error: String(err), processed, skipped, errors, details }),
       {
         status: 500,
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
