@@ -1,14 +1,20 @@
 import Header from "@/components/layout/Header";
 import PaymentRegisterClient from "@/components/payments/PaymentRegisterClient";
-import { getPayments, getPayableInvoices, getReleasedUnlinkedInvoices } from "@/app/actions/payments";
+import {
+  getPayments,
+  getPayableInvoices,
+  getReleasedUnlinkedInvoices,
+  getOwnerEquityAccounts,
+} from "@/app/actions/payments";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
 
 
 export default async function PaymentRegisterPage() {
-  const [paymentsResult, payableResult, releasedResult] = await Promise.all([
+  const [paymentsResult, payableResult, releasedResult, ownerEquityResult] = await Promise.all([
     getPayments(),
     getPayableInvoices(),
     getReleasedUnlinkedInvoices(),
+    getOwnerEquityAccounts(),
   ]);
 
   return (
@@ -20,6 +26,7 @@ export default async function PaymentRegisterPage() {
           initialPayments={paymentsResult.payments ?? []}
           payableInvoices={payableResult.invoices ?? []}
           releasedUnlinkedInvoices={releasedResult.invoices ?? []}
+          ownerEquityAccounts={ownerEquityResult.accounts ?? []}
         />
       </main>
     </>

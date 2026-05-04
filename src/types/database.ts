@@ -1277,6 +1277,7 @@ export type Database = {
           funding_source: string
           id: string
           notes: string | null
+          owner_equity_account_id: string | null
           payee: string
           payment_date: string
           payment_method: string
@@ -1296,6 +1297,7 @@ export type Database = {
           funding_source?: string
           id?: string
           notes?: string | null
+          owner_equity_account_id?: string | null
           payee: string
           payment_date: string
           payment_method: string
@@ -1315,6 +1317,7 @@ export type Database = {
           funding_source?: string
           id?: string
           notes?: string | null
+          owner_equity_account_id?: string | null
           payee?: string
           payment_date?: string
           payment_method?: string
@@ -1330,6 +1333,13 @@ export type Database = {
             columns: ["draw_id"]
             isOneToOne: false
             referencedRelation: "loan_draws"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_owner_equity_account_id_fkey"
+            columns: ["owner_equity_account_id"]
+            isOneToOne: false
+            referencedRelation: "chart_of_accounts"
             referencedColumns: ["id"]
           },
           {
@@ -1890,6 +1900,7 @@ export type Database = {
       generate_notifications: { Args: never; Returns: Json }
       get_my_role: { Args: never; Returns: Json }
       get_user_role: { Args: never; Returns: string }
+      is_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       cost_category:
@@ -1920,14 +1931,6 @@ export type Database = {
         | "cancelled"
         | "pre_construction"
       project_type: "land_development" | "home_construction" | "general_admin"
-      sale_type:
-        | "lot_sale"
-        | "house_sale"
-        | "progress_payment"
-        | "deposit"
-        | "variation"
-        | "other"
-      stage_status: "not_started" | "in_progress" | "completed" | "blocked"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2085,15 +2088,6 @@ export const Constants = {
         "pre_construction",
       ],
       project_type: ["land_development", "home_construction", "general_admin"],
-      sale_type: [
-        "lot_sale",
-        "house_sale",
-        "progress_payment",
-        "deposit",
-        "variation",
-        "other",
-      ],
-      stage_status: ["not_started", "in_progress", "completed", "blocked"],
     },
   },
 } as const

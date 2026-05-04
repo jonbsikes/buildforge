@@ -26,6 +26,10 @@ export interface CreatePaymentInput {
   payment_date: string;            // ISO date
   cleared_date: string | null;     // For ACH/wire — set at creation; checks — set later
   funding_source: "bank_funded" | "owner_funded" | "dda";
+  // Required when funding_source === 'owner_funded'. Points to the member
+  // capital account (chart_of_accounts.id, subtype = 'capital') for the owner
+  // who paid the vendor directly. Credit leg goes here instead of cash.
+  owner_equity_account_id: string | null;
   draw_id: string | null;
   vendor_payment_id: string | null;
   notes: string | null;
@@ -77,6 +81,14 @@ export interface PaymentRow {
 //   ach    → DR AP (2000) / CR Cash (1000)                 — status: cleared
 //   wire   → DR AP (2000) / CR Cash (1000)                 — status: cleared
 //   auto_draft → DR AP (2000) / CR Cash (1000)             — status: cleared
+//
+// Funding-source override: if funding_source === 'owner_funded', the credit
+// leg is redirected from 2050/1000 to the selected Member Capital account
+// (3010 Sikes / 3020 VeVea — passed as owner_equity_account_id). The owner
+// paid the vendor directly out of personal funds, so no company cash moves
+// and no check is in flight; status is forced to 'cleared' immediately and
+// the invoice advances directly to 'cleared'. payment_method still records
+// how the owner paid (ACH/check/wire) for register completeness.
 // ---------------------------------------------------------------------------
 
 export async function createPayment(
@@ -113,7 +125,15 @@ export async function createPayment(
   }
   const netAmount = Math.round((input.amount - discount) * 100) / 100;
 
-  const isCheck = input.payment_method === "check";
+  const isOwnerFunded = input.funding_source === "owner_funded";
+  if (isOwnerFunded && !input.owner_equity_account_id) {
+    return { error: "Select which owner paid for owner-funded payments" };
+  }
+
+  // Owner-funded payments never use a check or AP-aging hop (2050) — the
+  // owner paid the vendor directly, so the company books just clear AP
+  // against the owner's capital account in a single step.
+  const isCheck = input.payment_method === "check" && !isOwnerFunded;
   const paymentStatus = isCheck ? "outstanding" : "cleared";
   const clearedDate = isCheck ? null : (input.cleared_date ?? input.payment_date);
   const newInvoiceStatus = isCheck ? "released" : "cleared";
@@ -196,6 +216,7 @@ export async function createPayment(
       cleared_date: clearedDate,
       status: paymentStatus,
       funding_source: input.funding_source,
+      owner_equity_account_id: isOwnerFunded ? input.owner_equity_account_id : null,
       draw_id: input.draw_id || null,
       vendor_payment_id: input.vendor_payment_id || null,
       notes: input.notes?.trim() || null,
@@ -399,9 +420,15 @@ export async function createPayment(
 
   // ---------------------------------------------------------------------------
   // Post GL entries
-  // DR AP (full amount) / CR 2050 or 1000 (net) / CR WIP per project (discount)
+  // DR AP (full amount) / CR 2050 or 1000 or Member Capital (net) / CR WIP per project (discount)
   // ---------------------------------------------------------------------------
-  const glNeeded = isCheck ? ["2000", "2050"] : ["2000", "1000"];
+  // Owner-funded skips both 2050 and 1000 — the credit goes to the member's
+  // capital account (looked up by id, not by account number).
+  const glNeeded = isOwnerFunded
+    ? ["2000"]
+    : isCheck
+    ? ["2000", "2050"]
+    : ["2000", "1000"];
   if (discount > 0) {
     for (const d of discountsByWip) {
       if (!glNeeded.includes(d.accountNumber)) glNeeded.push(d.accountNumber);
@@ -409,13 +436,21 @@ export async function createPayment(
   }
   const accounts = await getAccountIdMap(supabase, glNeeded);
 
-  const creditAccount = isCheck ? accounts.get("2050") : accounts.get("1000");
+  const creditAccount = isOwnerFunded
+    ? input.owner_equity_account_id
+    : isCheck
+    ? accounts.get("2050")
+    : accounts.get("1000");
   const debitAccount = accounts.get("2000");
 
   if (debitAccount && creditAccount) {
     const ref = input.payment_number?.trim()
       ? `${isCheck ? "CHK" : input.payment_method.toUpperCase()}-${input.payment_number.trim()}`
       : `PMT-${payment.id.slice(0, 8)}`;
+
+    const creditLegDescription = isOwnerFunded
+      ? `Owner contribution — ${ref} — ${input.payee}`
+      : `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`;
 
     const lines: Array<{
       account_id: string;
@@ -434,7 +469,7 @@ export async function createPayment(
       {
         account_id: creditAccount,
         project_id: null,
-        description: `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`,
+        description: creditLegDescription,
         debit: 0,
         credit: netAmount,
       },
@@ -456,16 +491,22 @@ export async function createPayment(
       }
     }
 
+    const verbBase = isOwnerFunded
+      ? "Owner direct payment"
+      : isCheck
+      ? "Check issued"
+      : `${input.payment_method.toUpperCase()} payment`;
+
     await postJournalEntry(
       supabase,
       {
         entry_date: input.payment_date,
         reference: ref,
         description: discount > 0
-          ? `${isCheck ? "Check issued" : input.payment_method.toUpperCase() + " payment"} w/ $${discount.toFixed(2)} early-pay discount — ${input.payee}`
-          : `${isCheck ? "Check issued" : input.payment_method.toUpperCase() + " payment"} — ${input.payee}`,
+          ? `${verbBase} w/ $${discount.toFixed(2)} early-pay discount — ${input.payee}`
+          : `${verbBase} — ${input.payee}`,
         status: "posted",
-        source_type: "invoice_payment",
+        source_type: isOwnerFunded ? "owner_contribution" : "invoice_payment",
         source_id: payment.id,
         user_id: user.id,
       },
@@ -885,6 +926,31 @@ export async function getPayments(filters?: {
   });
 
   return { payments: result };
+}
+
+// ---------------------------------------------------------------------------
+// getOwnerEquityAccounts
+// Returns the member capital accounts (subtype = 'capital') used to credit
+// owner-funded direct payments. Excludes the combined "Opening" account so
+// users only see the per-member options (e.g. Sikes / VeVea).
+// ---------------------------------------------------------------------------
+
+export async function getOwnerEquityAccounts(): Promise<{
+  error?: string;
+  accounts?: { id: string; account_number: string; name: string }[];
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("chart_of_accounts")
+    .select("id, account_number, name")
+    .eq("type", "equity")
+    .eq("subtype", "capital")
+    .eq("is_active", true)
+    .neq("account_number", "3000")
+    .order("account_number", { ascending: true });
+
+  if (error) return { error: error.message };
+  return { accounts: data ?? [] };
 }
 
 // ---------------------------------------------------------------------------

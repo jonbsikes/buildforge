@@ -49,10 +49,17 @@ interface ReleasedInvoice extends PayableInvoice {
   payment_method: string | null;
 }
 
+interface OwnerEquityAccount {
+  id: string;
+  account_number: string;
+  name: string;
+}
+
 interface Props {
   initialPayments: PaymentRow[];
   payableInvoices: PayableInvoice[];
   releasedUnlinkedInvoices: ReleasedInvoice[];
+  ownerEquityAccounts: OwnerEquityAccount[];
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +111,7 @@ export default function PaymentRegisterClient({
   initialPayments,
   payableInvoices,
   releasedUnlinkedInvoices,
+  ownerEquityAccounts,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -663,6 +671,7 @@ export default function PaymentRegisterClient({
       {showNewPayment && (
         <NewPaymentModal
           payableInvoices={payableInvoices}
+          ownerEquityAccounts={ownerEquityAccounts}
           prefillInvoiceId={prefillInvoiceId}
           onClose={() => {
             setShowNewPayment(false);
@@ -924,11 +933,13 @@ function Modal({
 
 function NewPaymentModal({
   payableInvoices,
+  ownerEquityAccounts,
   prefillInvoiceId,
   onClose,
   onCreated,
 }: {
   payableInvoices: PayableInvoice[];
+  ownerEquityAccounts: OwnerEquityAccount[];
   prefillInvoiceId?: string | null;
   onClose: () => void;
   onCreated: () => void;
@@ -943,8 +954,26 @@ function NewPaymentModal({
     new Date().toISOString().split("T")[0]
   );
   const [fundingSource, setFundingSource] = useState<"bank_funded" | "owner_funded" | "dda">("dda");
+  const [ownerEquityAccountId, setOwnerEquityAccountId] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [discountAmount, setDiscountAmount] = useState("");
+
+  const isOwnerFunded = fundingSource === "owner_funded";
+
+  // Force a non-check method when switching to owner-funded — there is no
+  // company check in flight, so 'outstanding' status doesn't make sense.
+  useEffect(() => {
+    if (isOwnerFunded && method === "check") {
+      setMethod("ach");
+    }
+    if (!isOwnerFunded) {
+      setOwnerEquityAccountId("");
+    }
+  }, [isOwnerFunded, method]);
+
+  const selectedOwnerName = useMemo(() => {
+    return ownerEquityAccounts.find((a) => a.id === ownerEquityAccountId)?.name ?? null;
+  }, [ownerEquityAccounts, ownerEquityAccountId]);
 
   // Invoice selection (pre-selects deep-linked invoice from AP)
   const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(() => {
@@ -1033,6 +1062,10 @@ function NewPaymentModal({
       setError("Payment date is required");
       return;
     }
+    if (isOwnerFunded && !ownerEquityAccountId) {
+      setError("Select which owner paid the vendor");
+      return;
+    }
 
     const invoiceInputs = payableInvoices
       .filter((inv) => selectedInvoices.has(inv.id))
@@ -1059,8 +1092,9 @@ function NewPaymentModal({
       amount: Math.round(selectedTotal * 100) / 100,
       discount_amount: parsedDiscount,
       payment_date: paymentDate,
-      cleared_date: method !== "check" ? paymentDate : null,
+      cleared_date: method !== "check" || isOwnerFunded ? paymentDate : null,
       funding_source: fundingSource,
+      owner_equity_account_id: isOwnerFunded ? ownerEquityAccountId : null,
       draw_id: null,
       vendor_payment_id: null,
       notes: notes.trim() || null,
@@ -1107,10 +1141,10 @@ function NewPaymentModal({
             onChange={(e) => setMethod(e.target.value as typeof method)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
           >
-            <option value="check">Check</option>
+            {!isOwnerFunded && <option value="check">Check</option>}
             <option value="ach">ACH</option>
             <option value="wire">Wire</option>
-            <option value="auto_draft">Auto-Draft</option>
+            {!isOwnerFunded && <option value="auto_draft">Auto-Draft</option>}
           </select>
         </div>
         <div>
@@ -1153,6 +1187,30 @@ function NewPaymentModal({
           </select>
         </div>
       </div>
+
+      {/* Paid By — only visible for owner-funded payments */}
+      {isOwnerFunded && (
+        <div className="mb-5">
+          <label className="block text-xs font-medium text-gray-600 mb-1">
+            Paid By <span className="text-red-500">*</span>
+          </label>
+          <select
+            value={ownerEquityAccountId}
+            onChange={(e) => setOwnerEquityAccountId(e.target.value)}
+            className="w-full sm:w-1/2 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]/30"
+          >
+            <option value="">Select owner...</option>
+            {ownerEquityAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.account_number})
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            The owner who paid this vendor directly. Their member capital account will be credited instead of cash.
+          </p>
+        </div>
+      )}
 
       {/* Notes + Discount row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
@@ -1298,11 +1356,14 @@ function NewPaymentModal({
       {/* GL posting info */}
       <div className="bg-gray-50 rounded-lg px-4 py-3 mb-5 text-xs text-gray-500">
         <span className="font-medium text-gray-600">GL posting:</span>{" "}
-        {isCheck
+        {isOwnerFunded
+          ? `DR Accounts Payable (2000) / CR ${selectedOwnerName ?? "Member Capital"}${parsedDiscount > 0 ? " / CR WIP (discount)" : ""}`
+          : isCheck
           ? `DR Accounts Payable (2000) / CR Checks Outstanding (2050)${parsedDiscount > 0 ? " / CR WIP (discount)" : ""}`
           : `DR Accounts Payable (2000) / CR Cash (1000)${parsedDiscount > 0 ? " / CR WIP (discount)" : ""}`}
-        {!isCheck && " \u2014 invoices will be marked Cleared immediately."}
-        {isCheck && " \u2014 invoices will be marked Released (use Mark Cleared when check clears bank)."}
+        {isOwnerFunded && " \u2014 owner paid vendor directly; no company cash moves. Invoices marked Cleared immediately."}
+        {!isOwnerFunded && !isCheck && " \u2014 invoices will be marked Cleared immediately."}
+        {!isOwnerFunded && isCheck && " \u2014 invoices will be marked Released (use Mark Cleared when check clears bank)."}
         {parsedDiscount > 0 && (
           <span className="block mt-1 text-green-600">
             Discount of {fmt(parsedDiscount)} will credit WIP/CIP accounts, reducing job cost.
@@ -1324,7 +1385,7 @@ function NewPaymentModal({
                 )}
               </p>
               <p className="font-semibold text-gray-900">
-                Net Check: {fmt(netTotal)}
+                {isOwnerFunded ? "Net Owner Contribution" : "Net Check"}: {fmt(netTotal)}
               </p>
             </div>
           )}
