@@ -57,6 +57,14 @@ export interface PaymentRow {
     project_name: string | null;
     cost_code: string | null;
   }[];
+  credits: {
+    id: string;
+    credit_id: string;
+    credit_number: string | null;
+    credit_date: string | null;
+    reason: string | null;
+    amount_applied: number;
+  }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -779,6 +787,68 @@ export async function getPayments(filters?: {
     }
   }
 
+  // Fetch credit applications linked to any of these invoices.
+  // We map each credit application back to its payment via the invoice → payment link.
+  type CreditAppRow = {
+    id: string;
+    credit_id: string;
+    invoice_id: string;
+    amount_applied: number;
+    vendor_credits: {
+      id: string;
+      credit_number: string | null;
+      credit_date: string | null;
+      reason: string | null;
+    } | null;
+  };
+  const creditsByPaymentId = new Map<
+    string,
+    {
+      id: string;
+      credit_id: string;
+      credit_number: string | null;
+      credit_date: string | null;
+      reason: string | null;
+      amount_applied: number;
+    }[]
+  >();
+  if (invoiceIds.length > 0) {
+    const { data: creditApps } = await supabase
+      .from("credit_applications")
+      .select(
+        "id, credit_id, invoice_id, amount_applied, vendor_credits ( id, credit_number, credit_date, reason )"
+      )
+      .in("invoice_id", invoiceIds);
+
+    // Build invoice_id → [payment_id] index from allLinks (one invoice can
+    // only be on one non-void payment, but be defensive about the data shape).
+    const invoiceToPayments = new Map<string, string[]>();
+    for (const link of allLinks ?? []) {
+      if (!invoiceToPayments.has(link.invoice_id)) invoiceToPayments.set(link.invoice_id, []);
+      invoiceToPayments.get(link.invoice_id)!.push(link.payment_id);
+    }
+
+    const seen = new Set<string>();
+    for (const ca of (creditApps ?? []) as unknown as CreditAppRow[]) {
+      const paymentIdsForInvoice = invoiceToPayments.get(ca.invoice_id) ?? [];
+      const vc = ca.vendor_credits;
+      for (const pid of paymentIdsForInvoice) {
+        const dedupeKey = `${pid}:${ca.id}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        if (!creditsByPaymentId.has(pid)) creditsByPaymentId.set(pid, []);
+        creditsByPaymentId.get(pid)!.push({
+          id: ca.id,
+          credit_id: ca.credit_id,
+          credit_number: vc?.credit_number ?? null,
+          credit_date: vc?.credit_date ?? null,
+          reason: vc?.reason ?? null,
+          amount_applied: Number(ca.amount_applied ?? 0),
+        });
+      }
+    }
+  }
+
   // Build response
   const result: PaymentRow[] = payments.map((p) => {
     const linkedInvoices = (allLinks ?? [])
@@ -810,6 +880,7 @@ export async function getPayments(filters?: {
       notes: p.notes,
       created_at: p.created_at,
       invoices: linkedInvoices,
+      credits: creditsByPaymentId.get(p.id) ?? [],
     };
   });
 

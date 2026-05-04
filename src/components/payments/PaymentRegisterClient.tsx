@@ -483,7 +483,7 @@ export default function PaymentRegisterClient({
                       ariaLabel="Void Payment"
                     />
                   )}
-                  {p.invoices.length > 0 && (
+                  {(p.invoices.length > 0 || p.credits.length > 0) && (
                     <button
                       onClick={() => toggleRow(p.id)}
                       className="p-1.5 text-gray-400"
@@ -497,8 +497,8 @@ export default function PaymentRegisterClient({
                   )}
                 </div>
 
-                {/* Expanded: linked invoices */}
-                {expanded && p.invoices.length > 0 && (
+                {/* Expanded: linked invoices + applied credits */}
+                {expanded && (p.invoices.length > 0 || p.credits.length > 0) && (
                   <div className="mt-2 border-t border-gray-100 pt-2 space-y-1.5">
                     {p.invoices.map((inv) => (
                       <div
@@ -516,6 +516,27 @@ export default function PaymentRegisterClient({
                         </div>
                         <span className="font-mono text-gray-700 ml-2 flex-shrink-0">
                           {fmt(inv.amount)}
+                        </span>
+                      </div>
+                    ))}
+                    {p.credits.map((c) => (
+                      <div
+                        key={c.id}
+                        className="flex items-center justify-between text-xs text-blue-700 px-1"
+                      >
+                        <div className="min-w-0 flex-1 inline-flex items-center gap-1">
+                          <Tag size={10} />
+                          <span className="font-mono">
+                            Credit {c.credit_number ? `#${c.credit_number}` : ""}
+                          </span>
+                          {c.reason && (
+                            <span className="text-gray-400 ml-1 truncate">
+                              / {c.reason}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono ml-2 flex-shrink-0">
+                          ({fmt(c.amount_applied)})
                         </span>
                       </div>
                     ))}
@@ -702,7 +723,7 @@ function PaymentTableRow({
         onClick={onToggle}
       >
         <td className="px-3 py-3">
-          {p.invoices.length > 0 && (
+          {(p.invoices.length > 0 || p.credits.length > 0) && (
             expanded ? (
               <ChevronDown size={14} className="text-gray-400" />
             ) : (
@@ -803,7 +824,7 @@ function PaymentTableRow({
           </div>
         </td>
       </tr>
-      {/* Expanded: linked invoices */}
+      {/* Expanded: linked invoices + applied credits */}
       {expanded &&
         p.invoices.map((inv) => (
           <tr
@@ -827,6 +848,36 @@ function PaymentTableRow({
             <td />
             <td className="px-3 py-2 text-gray-500 font-mono" colSpan={2}>
               Inv #{inv.invoice_number ?? "\u2014"}
+            </td>
+            <td colSpan={4} />
+          </tr>
+        ))}
+      {expanded &&
+        p.credits.map((c) => (
+          <tr
+            key={c.id}
+            className="bg-blue-50/40 border-b border-gray-100 text-xs"
+          >
+            <td />
+            <td />
+            <td />
+            <td className="px-3 py-2 text-blue-700">
+              <span className="inline-flex items-center gap-1">
+                <Tag size={10} />
+                Credit {c.credit_number ? `#${c.credit_number}` : ""}
+                {c.reason && (
+                  <span className="text-gray-400 ml-1">/ {c.reason}</span>
+                )}
+              </span>
+            </td>
+            <td className="px-3 py-2 text-right font-mono text-blue-700">
+              ({fmt(c.amount_applied)})
+            </td>
+            <td />
+            <td />
+            <td />
+            <td className="px-3 py-2 text-gray-500 font-mono" colSpan={2}>
+              {c.credit_date ? fmtDate(c.credit_date) : ""}
             </td>
             <td colSpan={4} />
           </tr>
