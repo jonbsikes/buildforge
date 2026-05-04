@@ -719,11 +719,17 @@ export async function voidPayment(
     .eq("status", "posted");
 
   for (const origJE of origJEs ?? []) {
-    // Void the original
-    await supabase
+    // Void the original. The DB constraint is 'voided', not 'void' — must
+    // match exactly or this update silently fails the CHECK and the entry
+    // stays 'posted'. Capture errors so future constraint mismatches are
+    // visible instead of silently leaving the audit trail wrong.
+    const { error: voidErr } = await supabase
       .from("journal_entries")
-      .update({ status: "void" })
+      .update({ status: "voided" })
       .eq("id", origJE.id);
+    if (voidErr) {
+      return { error: `Failed to mark original JE voided: ${voidErr.message}` };
+    }
 
     // Get original lines to create reversals
     const { data: origLines } = await supabase

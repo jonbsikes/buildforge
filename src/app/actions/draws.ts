@@ -1302,11 +1302,12 @@ export async function markVendorPaymentPaid(
       discountLines
     );
     if (discountResult.error) {
-      // Roll back the primary JE by voiding it before returning the error
+      // Roll back the primary JE by voiding it before returning the error.
+      // DB CHECK constraint requires 'voided' (not 'void').
       if (primary.id) {
         await supabase
           .from("journal_entries")
-          .update({ status: "void" })
+          .update({ status: "voided" })
           .eq("id", primary.id);
       }
       return { error: `Discount JE posting failed: ${discountResult.error}` };
@@ -1627,10 +1628,12 @@ export async function deleteVendorPaymentAdjustment(
 
   if (relatedJEs && relatedJEs.length > 0) {
     const jeIds = relatedJEs.map((je) => je.id);
-    await supabase
+    // DB CHECK constraint requires 'voided' (not 'void').
+    const { error: voidErr } = await supabase
       .from("journal_entries")
-      .update({ status: "void" })
+      .update({ status: "voided" })
       .in("id", jeIds);
+    if (voidErr) return { error: `Failed to void related JEs: ${voidErr.message}` };
   }
 
   revalidateAfterJournalEntry({ drawId: vp.draw_id });

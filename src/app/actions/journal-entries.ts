@@ -127,11 +127,13 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
 
   if (result.error || !result.id) throw new Error(result.error ?? "Failed to post reversing entry");
 
-  // Void the original entry now that the reversal is posted
-  await supabase
+  // Void the original entry now that the reversal is posted. DB CHECK
+  // constraint requires 'voided' (not 'void').
+  const { error: voidErr } = await supabase
     .from("journal_entries")
-    .update({ status: "void" })
+    .update({ status: "voided" })
     .eq("id", id);
+  if (voidErr) throw new Error(`Failed to void original JE: ${voidErr.message}`);
 
   revalidateAfterJournalEntry();
   return { id: result.id };
@@ -154,7 +156,7 @@ export async function voidJournalEntry(id: string) {
 
   const { error } = await supabase
     .from("journal_entries")
-    .update({ status: "void" })
+    .update({ status: "voided" })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

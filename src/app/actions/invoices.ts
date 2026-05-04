@@ -1138,12 +1138,14 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
   if (inv && inv.status !== "pending_review" && inv.status !== "disputed") {
     // If approved+, void first to reverse JEs properly
     if (inv.wip_ap_posted) {
-      // Void any posted JEs for this invoice
-      await supabase
+      // Void any posted JEs for this invoice. DB constraint requires
+      // 'voided' (not 'void'); capture errors instead of silently failing.
+      const { error: voidErr } = await supabase
         .from("journal_entries")
-        .update({ status: "void" })
+        .update({ status: "voided" })
         .eq("source_id", invoiceId)
         .eq("status", "posted");
+      if (voidErr) return { error: `Failed to void invoice JEs: ${voidErr.message}` };
 
       // Reset wip_ap_posted
       await supabase
