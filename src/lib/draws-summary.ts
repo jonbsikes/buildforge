@@ -80,7 +80,7 @@ export async function fetchDrawSummary(
   if (invoiceIds.length > 0) {
     const { data: lineItems } = await supabase
       .from("invoice_line_items")
-      .select(`invoice_id, amount, project_id, cost_codes ( description ), projects ( id, name )`)
+      .select(`invoice_id, amount, project_id, cost_codes ( description:name ), projects ( id, name )`)
       .in("invoice_id", invoiceIds);
     for (const li of (lineItems ?? []) as unknown as LineItem[]) {
       if (!lineItemsByInvoice.has(li.invoice_id)) lineItemsByInvoice.set(li.invoice_id, []);

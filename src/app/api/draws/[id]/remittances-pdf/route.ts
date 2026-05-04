@@ -61,7 +61,7 @@ export async function GET(
 
   const { data: vendorPayments } = await supabase
     .from("vendor_payments")
-    .select("id, vendor_name, amount, check_number, payment_date, status")
+    .select("id, vendor_id, vendor_name, amount, check_number, payment_date, status")
     .eq("draw_id", id)
     .order("vendor_name");
 
@@ -79,7 +79,7 @@ export async function GET(
       `vendor_payment_id,
        invoices (
          id, invoice_number, invoice_date, amount,
-         cost_codes ( description ),
+         cost_codes ( description:name ),
          projects ( name, address )
        )`
     )
@@ -92,6 +92,40 @@ export async function GET(
     .select("vendor_payment_id, description, amount")
     .in("vendor_payment_id", vpIds)
     .order("created_at");
+
+  // ── Fetch available vendor credits (informational — applied at payment) ──
+
+  const vendorIds = vendorPayments
+    .map((vp) => (vp as any).vendor_id as string | null)
+    .filter((v): v is string => !!v);
+
+  const { data: availableCredits } = vendorIds.length
+    ? await supabase
+        .from("vendor_credits")
+        .select("id, vendor_id, credit_date, credit_number, amount, applied_amount, reason")
+        .in("vendor_id", vendorIds)
+        .eq("status", "available")
+        .order("credit_date")
+    : { data: [] as any[] };
+
+  type CreditRow = {
+    credit_date: string;
+    credit_number: string | null;
+    remaining: number;
+    reason: string | null;
+  };
+  const creditsByVendor = new Map<string, CreditRow[]>();
+  for (const c of (availableCredits ?? []) as any[]) {
+    const remaining = Number(c.amount ?? 0) - Number(c.applied_amount ?? 0);
+    if (remaining <= 0.005) continue;
+    if (!creditsByVendor.has(c.vendor_id)) creditsByVendor.set(c.vendor_id, []);
+    creditsByVendor.get(c.vendor_id)!.push({
+      credit_date: c.credit_date,
+      credit_number: c.credit_number ?? null,
+      remaining,
+      reason: c.reason ?? null,
+    });
+  }
 
   // ── Group by vendor_payment_id ────────────────────────────────────────────
 
@@ -452,48 +486,104 @@ export async function GET(
       y -= 8;
     }
 
-    // ── Signature Block (fixed position near bottom) ──────────────────────────
-    const sigTop = 160;
-    page.drawLine({
-      start: { x: ML, y: sigTop },
-      end: { x: PAGE_W - MR, y: sigTop },
-      thickness: 0.5,
-      color: light,
-    });
+    // ── Available Vendor Credits ──────────────────────────────────────────────
+    const vendorCredits = (vp as any).vendor_id
+      ? creditsByVendor.get((vp as any).vendor_id) ?? []
+      : [];
+    if (vendorCredits.length > 0) {
+      y -= 10;
+      page.drawText("AVAILABLE VENDOR CREDITS", {
+        x: ML,
+        y,
+        size: 7.5,
+        font: fontReg,
+        color: gray,
+      });
+      y -= 6;
+      page.drawLine({
+        start: { x: ML, y },
+        end: { x: PAGE_W - MR, y },
+        thickness: 1,
+        color: light,
+      });
+      y -= 4;
 
-    const halfW = (INNER_W - 32) / 2;
+      let creditsTotal = 0;
+      for (const c of vendorCredits) {
+        y -= 14;
+        creditsTotal += c.remaining;
+        const left = trunc(
+          [c.credit_number ? `Credit #${c.credit_number}` : "Credit", fmtDate(c.credit_date), c.reason ?? null]
+            .filter(Boolean)
+            .join(" · "),
+          68
+        );
+        const amtStr = `(${fmt(c.remaining)})`;
+        page.drawText(left, {
+          x: ML,
+          y,
+          size: 9,
+          font: fontReg,
+          color: dark,
+        });
+        page.drawText(amtStr, {
+          x: PAGE_W - MR - fontReg.widthOfTextAtSize(amtStr, 9),
+          y,
+          size: 9,
+          font: fontReg,
+          color: red,
+        });
+        page.drawLine({
+          start: { x: ML, y: y - 4 },
+          end: { x: PAGE_W - MR, y: y - 4 },
+          thickness: 0.5,
+          color: rowLine,
+        });
+      }
 
-    // Signature line 1
-    const sig1BaseY = sigTop - 36;
-    page.drawLine({
-      start: { x: ML, y: sig1BaseY },
-      end: { x: ML + halfW, y: sig1BaseY },
-      thickness: 1.5,
-      color: gray,
-    });
-    page.drawText("AUTHORIZED SIGNATURE", {
-      x: ML,
-      y: sig1BaseY - 13,
-      size: 7.5,
-      font: fontReg,
-      color: gray,
-    });
+      // Total credits + net-after-credits preview
+      y -= 16;
+      page.drawLine({
+        start: { x: ML, y: y + 11 },
+        end: { x: PAGE_W - MR, y: y + 11 },
+        thickness: 1,
+        color: light,
+      });
+      page.drawText("Total Available Credits", {
+        x: ML,
+        y,
+        size: 9,
+        font: fontBold,
+        color: dark,
+      });
+      const credTotStr = `(${fmt(creditsTotal)})`;
+      page.drawText(credTotStr, {
+        x: PAGE_W - MR - fontBold.widthOfTextAtSize(credTotStr, 9),
+        y,
+        size: 9,
+        font: fontBold,
+        color: red,
+      });
 
-    // Signature line 2
-    const sig2X = ML + halfW + 32;
-    page.drawLine({
-      start: { x: sig2X, y: sig1BaseY },
-      end: { x: PAGE_W - MR, y: sig1BaseY },
-      thickness: 1.5,
-      color: gray,
-    });
-    page.drawText("DATE", {
-      x: sig2X,
-      y: sig1BaseY - 13,
-      size: 7.5,
-      font: fontReg,
-      color: gray,
-    });
+      y -= 16;
+      page.drawText("Net If All Credits Applied", {
+        x: ML,
+        y,
+        size: 10,
+        font: fontBold,
+        color: dark,
+      });
+      const netAfter = Math.max(0, vp.amount - creditsTotal);
+      const netStr = fmt(netAfter);
+      page.drawText(netStr, {
+        x: PAGE_W - MR - fontBold.widthOfTextAtSize(netStr, 10),
+        y,
+        size: 10,
+        font: fontBold,
+        color: dark,
+      });
+      y -= 8;
+    }
 
     // ── Footer ────────────────────────────────────────────────────────────────
     const footerY = 38;
@@ -505,16 +595,6 @@ export async function GET(
     });
     page.drawText(`${trunc(vp.vendor_name, 55)}  ·  Prairie Sky, LLC`, {
       x: ML,
-      y: footerY,
-      size: 8,
-      font: fontReg,
-      color: gray,
-    });
-    const genStr = `Generated ${fmtDate(
-      new Date().toISOString().split("T")[0]
-    )}`;
-    page.drawText(genStr, {
-      x: PAGE_W - MR - fontReg.widthOfTextAtSize(genStr, 8),
       y: footerY,
       size: 8,
       font: fontReg,

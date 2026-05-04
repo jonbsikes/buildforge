@@ -22,31 +22,14 @@ export default function RemittanceActions({
         flexWrap: "wrap",
       }}
     >
-      {/* Browser print — one page per vendor via CSS @page */}
-      <button
-        onClick={() => window.print()}
-        style={{
-          padding: "8px 18px",
-          background: "#4272EF",
-          color: "#fff",
-          border: "none",
-          borderRadius: "6px",
-          fontSize: "13px",
-          cursor: "pointer",
-          fontWeight: 500,
-        }}
-      >
-        Print All Remittances ({vendorCount})
-      </button>
-
       {/* PDF download — one page per vendor, saves as file */}
       <a
         href={`/api/draws/${drawId}/remittances-pdf`}
         download
         style={{
           padding: "8px 18px",
-          background: "#fff",
-          color: "#4272EF",
+          background: "#4272EF",
+          color: "#fff",
           border: "1.5px solid #4272EF",
           borderRadius: "6px",
           fontSize: "13px",

@@ -40,7 +40,7 @@ export default async function RemittancesPage({ params }: Props) {
 
   const { data: vendorPayments } = await supabase
     .from("vendor_payments")
-    .select("id, vendor_name, amount, check_number, payment_date, status")
+    .select("id, vendor_id, vendor_name, amount, check_number, payment_date, status")
     .eq("draw_id", id)
     .order("vendor_name");
 
@@ -60,7 +60,7 @@ export default async function RemittancesPage({ params }: Props) {
       vendor_payment_id,
       invoices (
         id, invoice_number, invoice_date, amount,
-        cost_codes ( description ),
+        cost_codes ( description:name ),
         projects ( name, address )
       )
     `)
@@ -75,6 +75,44 @@ export default async function RemittancesPage({ params }: Props) {
       invoicesByVp.set(link.vendor_payment_id, []);
     }
     invoicesByVp.get(link.vendor_payment_id)!.push(inv);
+  }
+
+  // Fetch available vendor credits — informational, applied at payment time
+  const vendorIds = Array.from(
+    new Set(
+      vendorPayments
+        .map((vp) => (vp as any).vendor_id as string | null)
+        .filter((v): v is string => !!v)
+    )
+  );
+  const { data: availableCredits } = vendorIds.length
+    ? await supabase
+        .from("vendor_credits")
+        .select("id, vendor_id, credit_date, credit_number, amount, applied_amount, reason")
+        .in("vendor_id", vendorIds)
+        .eq("status", "available")
+        .order("credit_date")
+    : { data: [] as any[] };
+
+  type CreditRow = {
+    id: string;
+    credit_date: string;
+    credit_number: string | null;
+    remaining: number;
+    reason: string | null;
+  };
+  const creditsByVendor = new Map<string, CreditRow[]>();
+  for (const c of (availableCredits ?? []) as any[]) {
+    const remaining = Number(c.amount ?? 0) - Number(c.applied_amount ?? 0);
+    if (remaining <= 0.005) continue;
+    if (!creditsByVendor.has(c.vendor_id)) creditsByVendor.set(c.vendor_id, []);
+    creditsByVendor.get(c.vendor_id)!.push({
+      id: c.id,
+      credit_date: c.credit_date,
+      credit_number: c.credit_number ?? null,
+      remaining,
+      reason: c.reason ?? null,
+    });
   }
 
   const lender = draw.contacts as { id: string; name: string } | null;
@@ -177,6 +215,10 @@ export default async function RemittancesPage({ params }: Props) {
         {vendorPayments.map((vp, idx) => {
           const invoices = invoicesByVp.get(vp.id) ?? [];
           const invoiceTotal = invoices.reduce((s: number, inv: any) => s + (inv.amount ?? 0), 0);
+          const vpVendorId = (vp as any).vendor_id as string | null;
+          const credits = vpVendorId ? creditsByVendor.get(vpVendorId) ?? [] : [];
+          const creditsTotal = credits.reduce((s, c) => s + c.remaining, 0);
+          const netAfterCredits = Math.max(0, vp.amount - creditsTotal);
           const isLast = idx === vendorPayments.length - 1;
 
           return (
@@ -248,22 +290,44 @@ export default async function RemittancesPage({ params }: Props) {
                 </>
               )}
 
-              {/* Signature block */}
-              <div className="signature-block">
-                <div>
-                  <div className="sig-line" />
-                  <div className="sig-label">Authorized Signature</div>
-                </div>
-                <div>
-                  <div className="sig-line" />
-                  <div className="sig-label">Date</div>
-                </div>
-              </div>
+              {/* Available vendor credits */}
+              {credits.length > 0 && (
+                <>
+                  <p className="section-label" style={{ marginBottom: "8px" }}>Available Vendor Credits</p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Credit #</th>
+                        <th>Date</th>
+                        <th>Reason</th>
+                        <th style={{ textAlign: "right" }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {credits.map((c) => (
+                        <tr key={c.id}>
+                          <td>{c.credit_number ? `#${c.credit_number}` : "—"}</td>
+                          <td>{fmtDate(c.credit_date)}</td>
+                          <td>{c.reason ?? "—"}</td>
+                          <td style={{ textAlign: "right", color: "#b91c1c" }}>
+                            ({fmt(c.remaining)})
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3}>Net If All Credits Applied</td>
+                        <td style={{ textAlign: "right" }}>{fmt(netAfterCredits)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
 
               {/* Footer */}
               <div className="footer">
                 <span>{vp.vendor_name} · Prairie Sky, LLC</span>
-                <span>Generated {fmtDate(new Date().toISOString().split("T")[0])}</span>
               </div>
             </div>
           );

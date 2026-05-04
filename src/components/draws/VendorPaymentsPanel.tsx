@@ -90,7 +90,7 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
       .select(`
         vendor_payment_id,
         invoices (
-          id, invoice_number, invoice_date, amount, cost_codes ( description ), projects ( name )
+          id, invoice_number, invoice_date, amount, cost_codes ( description:name ), projects ( name )
         )
       `)
       .in("vendor_payment_id", vpIds),
