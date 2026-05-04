@@ -127,13 +127,12 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
 
   if (result.error || !result.id) throw new Error(result.error ?? "Failed to post reversing entry");
 
-  // Void the original entry now that the reversal is posted. DB CHECK
-  // constraint requires 'voided' (not 'void').
-  const { error: voidErr } = await supabase
-    .from("journal_entries")
-    .update({ status: "voided" })
-    .eq("id", id);
-  if (voidErr) throw new Error(`Failed to void original JE: ${voidErr.message}`);
+  // Do NOT mark the original as 'voided'. In double-entry void-by-reversal,
+  // both the original and the counter-entry stay 'posted' so reports (which
+  // filter status='posted') see both and net to zero. Hiding the original
+  // would leave only the reversal visible, inverting balances. The duplicate-
+  // reversal guard at the top of this function uses the REV-* reference,
+  // not the original's status, so leaving status='posted' is safe.
 
   revalidateAfterJournalEntry();
   return { id: result.id };
