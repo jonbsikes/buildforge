@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Info } from "lucide-react";
+import { Info, Coins } from "lucide-react";
 import Link from "next/link";
 import ReportChrome from "@/components/ui/ReportChrome";
 import StatusDot from "@/components/ui/StatusDot";
@@ -47,6 +47,16 @@ interface OutstandingCheck {
   days_outstanding: number;
 }
 
+interface VendorCreditRow {
+  id: string;
+  vendor: string;
+  credit_date: string;
+  credit_number: string | null;
+  reason: string | null;
+  remaining: number;
+  project: string;
+}
+
 function getBucket(dueDate: string): AgingBucket {
   const today = new Date();
   const due = new Date(dueDate);
@@ -76,12 +86,13 @@ const BUCKET_HEADER_STYLE: Record<AgingBucket, { bg: string; text: string }> = {
 
 export default function APAgingClient() {
   const [rows, setRows] = useState<AgingRow[]>([]);
+  const [credits, setCredits] = useState<VendorCreditRow[]>([]);
   const [outstandingChecks, setOutstandingChecks] = useState<OutstandingCheck[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [vendors, setVendors] = useState<string[]>([]);
   const [filterProject, setFilterProject] = useState("");
   const [filterVendor, setFilterVendor] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -162,10 +173,41 @@ export default function APAgingClient() {
         });
       }
 
-      const allVendors = [...new Set(agingRows.map(r => r.vendor))].sort();
+      // Load vendor credits with remaining balance > 0 — these reduce the
+      // vendor's net AP. The Balance Sheet AP account already nets these
+      // (the credit posted DR AP / CR WIP at entry), so showing them here
+      // makes the report tie out to the GL.
+      const { data: creditRows } = await supabase
+        .from("vendor_credits")
+        .select(`
+          id, credit_date, credit_number, reason, amount, applied_amount,
+          vendors ( name ), projects ( name )
+        `)
+        .eq("status", "available")
+        .order("credit_date", { ascending: true });
+
+      const creditList: VendorCreditRow[] = (creditRows ?? [])
+        .map((c) => {
+          const vendor = (c.vendors as { name: string } | null)?.name ?? "Unknown Vendor";
+          const project = (c.projects as { name: string } | null)?.name ?? "No Project";
+          const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+          return {
+            id: c.id,
+            vendor,
+            credit_date: c.credit_date,
+            credit_number: c.credit_number,
+            reason: c.reason,
+            remaining,
+            project,
+          };
+        })
+        .filter((c) => c.remaining > 0.005);
+
+      const allVendors = [...new Set([...agingRows.map(r => r.vendor), ...creditList.map(c => c.vendor)])].sort();
       const { data: projectList } = await supabase.from("projects").select("id, name").order("name");
 
       setRows(agingRows);
+      setCredits(creditList);
       setOutstandingChecks(Array.from(checksMap.values()));
       setVendors(allVendors);
       setProjects(projectList ?? []);
@@ -180,6 +222,17 @@ export default function APAgingClient() {
     return true;
   }), [rows, filterProject, filterVendor]);
 
+  const filteredCredits = useMemo(() => credits.filter(c => {
+    if (filterProject && c.project !== filterProject) return false;
+    if (filterVendor && c.vendor !== filterVendor) return false;
+    return true;
+  }), [credits, filterProject, filterVendor]);
+
+  const creditsTotal = useMemo(
+    () => filteredCredits.reduce((s, c) => s + c.remaining, 0),
+    [filteredCredits]
+  );
+
   const buckets: AgingBucket[] = ["current", "1-30", "31-60", "61-90", "90+"];
 
   const bucketTotals = useMemo(() => {
@@ -189,6 +242,7 @@ export default function APAgingClient() {
   }, [filtered]);
 
   const grandTotal = filtered.reduce((s, r) => s + r.amount, 0);
+  const netAP = grandTotal - creditsTotal;
   const checksTotal = outstandingChecks.reduce((s, c) => s + c.amount, 0);
 
   const extraControls = (
@@ -291,12 +345,89 @@ export default function APAgingClient() {
                 );
               })}
               <div className="flex justify-between items-center px-5 py-3 bg-gray-50 border-t border-gray-200 font-bold">
-                <span className="text-gray-800">Total Outstanding</span>
+                <span className="text-gray-800">Invoices Outstanding (gross)</span>
                 <span className="text-gray-900 text-base tabular-nums">{fmt(grandTotal)}</span>
               </div>
             </>
           )}
         </div>
+
+        {/* Vendor Credits — reduce net AP. Match the GL Balance Sheet. */}
+        {filteredCredits.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 bg-amber-500 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Coins size={14} className="text-white" />
+                <h2 className="text-sm font-semibold text-white">
+                  Vendor Credits Available — {filteredCredits.length} credit{filteredCredits.length !== 1 ? "s" : ""}
+                </h2>
+              </div>
+              <span className="text-sm font-bold text-white tabular-nums">−{fmt(creditsTotal)}</span>
+            </div>
+            <div className="px-5 py-3 bg-amber-50 border-b border-amber-100">
+              <p className="text-xs text-amber-800">
+                Credits sit as DR balances in AP for each vendor — they reduce what you owe and auto-apply when you pay the vendor.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
+                    <th className="px-5 py-2 text-left">Vendor</th>
+                    <th className="px-5 py-2 text-left">Memo #</th>
+                    <th className="px-5 py-2 text-left">Project</th>
+                    <th className="px-5 py-2 text-left">Date</th>
+                    <th className="px-5 py-2 text-left">Reason</th>
+                    <th className="px-5 py-2 text-right">Available</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCredits.map((c, idx) => (
+                    <tr key={c.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? "bg-gray-50/50" : ""}`}>
+                      <td className="px-5 py-2 font-medium text-gray-800">{c.vendor}</td>
+                      <td className="px-5 py-2 text-gray-600">{c.credit_number ?? "—"}</td>
+                      <td className="px-5 py-2 text-gray-600">{c.project}</td>
+                      <td className="px-5 py-2 text-gray-500">{fmtDate(c.credit_date)}</td>
+                      <td className="px-5 py-2 text-gray-600 max-w-xs truncate">{c.reason ?? "—"}</td>
+                      <td className="px-5 py-2 text-right font-semibold tabular-nums text-amber-700">−{fmtFull(c.remaining)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200 bg-gray-50 font-bold">
+                    <td colSpan={5} className="px-5 py-3 text-gray-700 text-sm">Credits Subtotal</td>
+                    <td className="px-5 py-3 text-right text-amber-700 tabular-nums">−{fmt(creditsTotal)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-200">
+              <Link href="/invoices/credits" className="text-xs text-[#4272EF] hover:underline">
+                Manage vendor credits →
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Net AP — ties to GL Balance Sheet (account 2000) */}
+        {(filtered.length > 0 || filteredCredits.length > 0) && (
+          <div className="bg-white rounded-xl border-2 border-[#4272EF] overflow-hidden">
+            <div className="divide-y divide-gray-100">
+              <div className="flex justify-between items-center px-5 py-2.5 text-sm">
+                <span className="text-gray-600">Invoices outstanding</span>
+                <span className="text-gray-800 tabular-nums">{fmtFull(grandTotal)}</span>
+              </div>
+              <div className="flex justify-between items-center px-5 py-2.5 text-sm">
+                <span className="text-gray-600">Vendor credits available</span>
+                <span className="text-amber-700 tabular-nums">−{fmtFull(creditsTotal)}</span>
+              </div>
+              <div className="flex justify-between items-center px-5 py-3 bg-blue-50 font-bold">
+                <span className="text-gray-900">Net AP <span className="text-xs text-gray-500 font-normal">(matches GL · account 2000)</span></span>
+                <span className="text-gray-900 text-base tabular-nums">{fmtFull(netAP)}</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Outstanding Vendor Obligations — Checks Written But Not Cashed */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

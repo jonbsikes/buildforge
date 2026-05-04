@@ -989,7 +989,11 @@ export async function markVendorPaymentPaid(
   vendorPaymentId: string,
   checkNumber: string,
   paymentDate: string,
-  discountTaken?: number
+  discountTaken?: number,
+  // Optional vendor credits to apply against this check. Each credit's
+  // standalone DR AP balance gets cleared via a CR AP line; the check
+  // is written for the net (vp.amount − discount − sum(credits)).
+  creditApplications?: Array<{ credit_id: string; amount: number }>
 ): Promise<{ error?: string }> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.authorized) return { error: adminCheck.error };
@@ -1013,6 +1017,42 @@ export async function markVendorPaymentPaid(
   if (!paymentDate) return { error: "Payment date is required" };
 
   const discount = discountTaken && discountTaken > 0 ? discountTaken : 0;
+
+  // Validate credit applications BEFORE any write so we don't half-commit.
+  type ValidCredit = { credit_id: string; amount: number };
+  const validCredits: ValidCredit[] = [];
+  let creditsTotal = 0;
+  if (creditApplications && creditApplications.length > 0) {
+    if (!vp.vendor_id) {
+      return { error: "Cannot apply credits — vendor payment has no vendor reference." };
+    }
+    for (const app of creditApplications) {
+      if (!app.credit_id || !app.amount || app.amount <= 0) continue;
+      const { data: c } = await supabase
+        .from("vendor_credits")
+        .select("id, vendor_id, amount, applied_amount, status")
+        .eq("id", app.credit_id)
+        .single();
+      if (!c) return { error: `Credit ${app.credit_id} not found` };
+      if (c.vendor_id !== vp.vendor_id) {
+        return { error: "Credit does not belong to this vendor." };
+      }
+      if (c.status !== "available") {
+        return { error: "One or more selected credits are no longer available." };
+      }
+      const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+      if (app.amount - remaining > 0.005) {
+        return { error: `Cannot apply $${app.amount.toFixed(2)} — credit only has $${remaining.toFixed(2)} remaining.` };
+      }
+      validCredits.push({ credit_id: c.id, amount: app.amount });
+      creditsTotal += app.amount;
+    }
+    if (creditsTotal - (vp.amount - discount) > 0.005) {
+      return {
+        error: `Credits applied ($${creditsTotal.toFixed(2)}) exceed payment net of discount ($${(vp.amount - discount).toFixed(2)}).`,
+      };
+    }
+  }
 
   // Mark the vendor payment record as paid
   const { error: vpErr } = await supabase
@@ -1099,7 +1139,7 @@ export async function markVendorPaymentPaid(
     }
   }
 
-  const netAmount = vp.amount - totalDiscount;
+  const netAmount = vp.amount - totalDiscount - creditsTotal;
 
   // Guard: if a discount was requested but couldn't be allocated to any WIP
   // account (e.g. no linked invoices were found), abort before posting any JE
@@ -1133,37 +1173,87 @@ export async function markVendorPaymentPaid(
   }
 
   // Primary JE: clear AP and record outstanding check at the NET cash amount.
-  // This mirrors the CLAUDE.md spec exactly: DR AP / CR 2050 for the amount
-  // of cash that actually leaves (or will leave) the bank.
+  // With credits applied, also CR AP for each credit's standalone DR balance.
+  // Net debits = (vp.amount − discount); credits split between AP (credits)
+  // and 2050 (cash check).
+  const apDebit = vp.amount - totalDiscount; // clears invoice AP minus discount
+  const primaryLines: Array<{ account_id: string; project_id: string | null; description: string; debit: number; credit: number }> = [
+    {
+      account_id: acct2000,
+      project_id: null,
+      description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
+      debit: apDebit,
+      credit: 0,
+    },
+  ];
+  if (creditsTotal > 0) {
+    primaryLines.push({
+      account_id: acct2000,
+      project_id: null,
+      description: `Vendor credits applied — ${vp.vendor_name}`,
+      debit: 0,
+      credit: creditsTotal,
+    });
+  }
+  primaryLines.push({
+    account_id: acct2050,
+    project_id: null,
+    description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
+    debit: 0,
+    credit: netAmount,
+  });
+
+  const primaryDescParts = [`Check issued`];
+  if (creditsTotal > 0) primaryDescParts.push(`credits $${creditsTotal.toFixed(2)}`);
+  const primaryDesc = `${primaryDescParts.join(" w/ ")} — ${vp.vendor_name}`;
+
   const primary = await postJournalEntry(
     supabase,
     {
       entry_date: paymentDate,
       reference: checkRef,
-      description: `Check issued — ${vp.vendor_name}`,
+      description: primaryDesc,
       status: "posted",
       source_type: "invoice_payment",
       source_id: vendorPaymentId,
       user_id: user.id,
     },
-    [
-      {
-        account_id: acct2000,
-        project_id: null,
-        description: `AP cleared — ${checkRef} — ${vp.vendor_name}`,
-        debit: netAmount,
-        credit: 0,
-      },
-      {
-        account_id: acct2050,
-        project_id: null,
-        description: `Check issued — ${checkRef} — ${vp.vendor_name}`,
-        debit: 0,
-        credit: netAmount,
-      },
-    ]
+    primaryLines
   );
   if (primary.error) return { error: `Check JE posting failed: ${primary.error}` };
+
+  // Persist credit applications (linked to one of the invoices in this
+  // vendor payment — pick the first one as the anchor since credits at
+  // payment time aren't tied to a specific invoice line).
+  if (validCredits.length > 0 && invoiceIds.length > 0) {
+    const anchorInvoiceId = invoiceIds[0];
+    await supabase.from("credit_applications").insert(
+      validCredits.map((c) => ({
+        credit_id: c.credit_id,
+        invoice_id: anchorInvoiceId,
+        amount_applied: c.amount,
+        applied_by: user.id,
+      }))
+    );
+    for (const c of validCredits) {
+      const { data: cur } = await supabase
+        .from("vendor_credits")
+        .select("amount, applied_amount")
+        .eq("id", c.credit_id)
+        .single();
+      if (cur) {
+        const next = Number(cur.applied_amount ?? 0) + Number(c.amount);
+        const fully = Math.abs(next - Number(cur.amount)) < 0.005;
+        await supabase
+          .from("vendor_credits")
+          .update({
+            applied_amount: next,
+            status: fully ? "fully_applied" : "available",
+          })
+          .eq("id", c.credit_id);
+      }
+    }
+  }
 
   // Discount JE (separate, only when a discount was taken): clear the
   // residual AP (the discount we no longer owe) against WIP/CIP per project
@@ -1227,6 +1317,17 @@ export async function markVendorPaymentPaid(
   // Auto-create a payments register record so this check shows in the register.
   // Status "outstanding" = check cut but not yet cleared at bank.
   // ---------------------------------------------------------------------------
+  // Payment Register row reflects actual cash outflow:
+  //   payments.amount      = gross check (vp.amount − credits applied)
+  //   payments.discount_amount = early-pay discount
+  // So amount − discount = net cash that hits the bank — required for recon.
+  const noteParts: string[] = [];
+  if (totalDiscount > 0) noteParts.push(`$${totalDiscount.toFixed(2)} early-pay discount`);
+  if (creditsTotal > 0) noteParts.push(`$${creditsTotal.toFixed(2)} vendor credits applied`);
+  const paymentNote = noteParts.length > 0
+    ? `Draw check w/ ${noteParts.join(", ")}`
+    : `Draw check — ${vp.vendor_name}`;
+
   const { data: paymentRecord } = await supabase
     .from("payments")
     .insert({
@@ -1234,7 +1335,7 @@ export async function markVendorPaymentPaid(
       payment_method: "check",
       payee: vp.vendor_name,
       vendor_id: vp.vendor_id ?? null,
-      amount: vp.amount,
+      amount: vp.amount - creditsTotal,
       discount_amount: totalDiscount,
       payment_date: paymentDate,
       cleared_date: null,
@@ -1242,9 +1343,7 @@ export async function markVendorPaymentPaid(
       funding_source: "bank_funded",
       draw_id: vp.draw_id,
       vendor_payment_id: vendorPaymentId,
-      notes: totalDiscount > 0
-        ? `Draw check w/ $${totalDiscount.toFixed(2)} early-pay discount`
-        : `Draw check — ${vp.vendor_name}`,
+      notes: paymentNote,
       user_id: user.id,
     })
     .select("id")

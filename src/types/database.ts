@@ -380,6 +380,48 @@ export type Database = {
           },
         ]
       }
+      credit_applications: {
+        Row: {
+          amount_applied: number
+          applied_at: string
+          applied_by: string | null
+          credit_id: string
+          id: string
+          invoice_id: string
+        }
+        Insert: {
+          amount_applied: number
+          applied_at?: string
+          applied_by?: string | null
+          credit_id: string
+          id?: string
+          invoice_id: string
+        }
+        Update: {
+          amount_applied?: number
+          applied_at?: string
+          applied_by?: string | null
+          credit_id?: string
+          id?: string
+          invoice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_applications_credit_id_fkey"
+            columns: ["credit_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_credits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_applications_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           created_at: string
@@ -1555,6 +1597,89 @@ export type Database = {
           role?: string
         }
         Relationships: []
+      }
+      vendor_credits: {
+        Row: {
+          amount: number
+          applied_amount: number
+          cost_code: string | null
+          created_at: string
+          credit_date: string
+          credit_number: string | null
+          id: string
+          journal_entry_id: string | null
+          notes: string | null
+          original_invoice_id: string | null
+          project_id: string | null
+          reason: string | null
+          status: string
+          user_id: string
+          vendor_id: string
+        }
+        Insert: {
+          amount: number
+          applied_amount?: number
+          cost_code?: string | null
+          created_at?: string
+          credit_date: string
+          credit_number?: string | null
+          id?: string
+          journal_entry_id?: string | null
+          notes?: string | null
+          original_invoice_id?: string | null
+          project_id?: string | null
+          reason?: string | null
+          status?: string
+          user_id: string
+          vendor_id: string
+        }
+        Update: {
+          amount?: number
+          applied_amount?: number
+          cost_code?: string | null
+          created_at?: string
+          credit_date?: string
+          credit_number?: string | null
+          id?: string
+          journal_entry_id?: string | null
+          notes?: string | null
+          original_invoice_id?: string | null
+          project_id?: string | null
+          reason?: string | null
+          status?: string
+          user_id?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_credits_journal_entry_id_fkey"
+            columns: ["journal_entry_id"]
+            isOneToOne: false
+            referencedRelation: "journal_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_credits_original_invoice_id_fkey"
+            columns: ["original_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_credits_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_credits_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vendor_payment_adjustments: {
         Row: {

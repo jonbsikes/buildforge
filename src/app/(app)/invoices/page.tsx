@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
-import { Plus, AlertTriangle, Receipt } from "lucide-react";
+import { Plus, AlertTriangle, Receipt, ReceiptText } from "lucide-react";
 import InvoicesTable from "@/components/invoices/InvoicesTable";
 import PollEmailButton from "@/components/invoices/PollEmailButton";
 import ReadOnlyBanner from "@/components/ui/ReadOnlyBanner";
@@ -51,9 +51,29 @@ export default async function InvoicesPage() {
     }
   }
 
+  // Per-vendor available credit balance — used to show a coin/badge on any
+  // open invoice from a vendor who has unapplied credits sitting in AP.
+  const vendorCreditBalance = new Map<string, number>();
+  {
+    const { data: openCredits } = await supabase
+      .from("vendor_credits")
+      .select("vendor_id, amount, applied_amount")
+      .eq("status", "available");
+    for (const c of openCredits ?? []) {
+      const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+      if (remaining > 0.005 && c.vendor_id) {
+        vendorCreditBalance.set(
+          c.vendor_id as string,
+          (vendorCreditBalance.get(c.vendor_id as string) ?? 0) + remaining
+        );
+      }
+    }
+  }
+
   const rows = baseRows.map((r) => ({
     ...r,
     in_draw: drawByInvoice.get(r.id) ?? null,
+    vendor_credit_available: r.vendor_id ? vendorCreditBalance.get(r.vendor_id) ?? 0 : 0,
   }));
 
   // ---------------------------------------------------------------------------
@@ -151,6 +171,13 @@ export default async function InvoicesPage() {
             <EditorOnly>
               <div className="flex items-center gap-3">
                 <PollEmailButton />
+                <Link
+                  href="/invoices/credits"
+                  className="flex items-center gap-2 px-3 py-2 border border-gray-300 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                >
+                  <ReceiptText size={16} />
+                  Vendor Credits
+                </Link>
                 <Link
                   href="/invoices/upload"
                   className="flex items-center gap-2 px-4 py-2 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"

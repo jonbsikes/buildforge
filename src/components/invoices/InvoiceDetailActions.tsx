@@ -1,13 +1,29 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
+import { Coins } from "lucide-react";
 import { advanceInvoiceStatus, disputeInvoice, voidAfterDraw, voidInvoice } from "@/app/actions/invoices";
+
+interface AvailableCredit {
+  id: string;
+  credit_date: string;
+  credit_number: string | null;
+  amount: number;
+  applied_amount: number;
+  remaining: number;
+  reason: string | null;
+}
 
 interface Props {
   invoiceId: string;
   status: string;
   invoiceAmount?: number;
   discountTaken?: number;
+  availableCredits?: AvailableCredit[];
+}
+
+function fmtMoney(n: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
 function DisputedActions({
@@ -107,7 +123,13 @@ function DisputedActions({
   );
 }
 
-export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount, discountTaken: existingDiscount }: Props) {
+export default function InvoiceDetailActions({
+  invoiceId,
+  status,
+  invoiceAmount,
+  discountTaken: existingDiscount,
+  availableCredits = [],
+}: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showClearForm, setShowClearForm] = useState(false);
@@ -115,6 +137,45 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
   const [clearDate, setClearDate] = useState(new Date().toISOString().split("T")[0]);
   const [paymentMethod, setPaymentMethod] = useState("check");
   const [discountAmount, setDiscountAmount] = useState("");
+
+  // Credit selections at Issue Check time. Default: auto-apply oldest first
+  // up to (invoice − discount). User can uncheck or reduce per-credit amounts.
+  const [creditSelections, setCreditSelections] = useState<Record<string, { selected: boolean; amount: string }>>(() => {
+    const init: Record<string, { selected: boolean; amount: string }> = {};
+    for (const c of availableCredits) {
+      init[c.id] = { selected: false, amount: c.remaining.toFixed(2) };
+    }
+    return init;
+  });
+
+  // Auto-pre-select credits oldest first when the form opens
+  function autoApplyCredits() {
+    const discount = parseFloat(discountAmount) || 0;
+    const target = Math.max(0, (invoiceAmount ?? 0) - discount);
+    let remaining = target;
+    const next: Record<string, { selected: boolean; amount: string }> = {};
+    for (const c of availableCredits) {
+      if (remaining <= 0.005) {
+        next[c.id] = { selected: false, amount: c.remaining.toFixed(2) };
+        continue;
+      }
+      const take = Math.min(c.remaining, remaining);
+      next[c.id] = { selected: true, amount: take.toFixed(2) };
+      remaining -= take;
+    }
+    setCreditSelections(next);
+  }
+
+  const creditsTotal = useMemo(() => {
+    let s = 0;
+    for (const c of availableCredits) {
+      const sel = creditSelections[c.id];
+      if (sel?.selected) s += parseFloat(sel.amount) || 0;
+    }
+    return s;
+  }, [creditSelections, availableCredits]);
+
+  const netCheck = Math.max(0, (invoiceAmount ?? 0) - (parseFloat(discountAmount) || 0) - creditsTotal);
 
   if (status === "cleared") {
     return (
@@ -150,8 +211,29 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
     const discount = parseFloat(discountAmount) || 0;
     if (discount < 0) { setError("Discount cannot be negative"); return; }
     if (invoiceAmount && discount >= invoiceAmount) { setError("Discount cannot exceed invoice amount"); return; }
+    if (invoiceAmount && discount + creditsTotal > invoiceAmount + 0.005) {
+      setError("Discount + credits exceed invoice amount");
+      return;
+    }
+    const apps = availableCredits
+      .map((c) => {
+        const sel = creditSelections[c.id];
+        if (!sel?.selected) return null;
+        const amt = parseFloat(sel.amount) || 0;
+        if (amt <= 0) return null;
+        return { credit_id: c.id, amount: amt };
+      })
+      .filter((x): x is { credit_id: string; amount: number } => x !== null);
+
     startTransition(async () => {
-      const result = await advanceInvoiceStatus(invoiceId, "released", undefined, "check", discount > 0 ? discount : undefined);
+      const result = await advanceInvoiceStatus(
+        invoiceId,
+        "released",
+        undefined,
+        "check",
+        discount > 0 ? discount : undefined,
+        apps.length > 0 ? apps : undefined
+      );
       if (result.error) setError(result.error);
       else setShowReleaseForm(false);
     });
@@ -181,7 +263,7 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
       {status === "approved" && !showClearForm && !showReleaseForm && (
         <div className="space-y-2">
           <button
-            onClick={() => setShowReleaseForm(true)}
+            onClick={() => { setShowReleaseForm(true); autoApplyCredits(); }}
             disabled={isPending}
             className="px-4 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
           >
@@ -208,14 +290,98 @@ export default function InvoiceDetailActions({ invoiceId, status, invoiceAmount,
                 className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
               />
             </div>
-            {discountAmount && parseFloat(discountAmount) > 0 && invoiceAmount && (
-              <p className="text-xs text-green-600 mt-1">
-                Check amount: {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(invoiceAmount - parseFloat(discountAmount))}
-                {" "}(saving {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(parseFloat(discountAmount))})
-              </p>
-            )}
             <p className="text-xs text-gray-400 mt-1">Discount reduces project cost (WIP/CIP). Leave blank for full payment.</p>
           </div>
+
+          {availableCredits.length > 0 && (
+            <div className="border-t border-gray-100 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-700 inline-flex items-center gap-1.5">
+                  <Coins size={12} className="text-amber-500" />
+                  Apply vendor credits
+                </p>
+                <button
+                  type="button"
+                  onClick={autoApplyCredits}
+                  className="text-[11px] text-[#4272EF] hover:underline"
+                >
+                  Auto-apply oldest first
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {availableCredits.map((c) => {
+                  const sel = creditSelections[c.id] ?? { selected: false, amount: c.remaining.toFixed(2) };
+                  return (
+                    <div key={c.id} className="flex items-center gap-2 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={sel.selected}
+                        onChange={(e) =>
+                          setCreditSelections((p) => ({
+                            ...p,
+                            [c.id]: { ...sel, selected: e.target.checked },
+                          }))
+                        }
+                        className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-gray-700">
+                          {c.credit_date}{c.credit_number ? ` · #${c.credit_number}` : ""}
+                        </span>
+                        <span className="text-gray-400 ml-1.5">
+                          (avail {fmtMoney(c.remaining)})
+                        </span>
+                      </div>
+                      <div className="relative w-24">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[11px]">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max={c.remaining}
+                          value={sel.amount}
+                          disabled={!sel.selected}
+                          onChange={(e) =>
+                            setCreditSelections((p) => ({
+                              ...p,
+                              [c.id]: { selected: sel.selected, amount: e.target.value },
+                            }))
+                          }
+                          className="w-full pl-5 pr-2 py-1 border border-gray-300 rounded text-xs tabular-nums text-right focus:outline-none focus:ring-1 focus:ring-[#4272EF] disabled:bg-gray-50 disabled:text-gray-400"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {invoiceAmount != null && (
+            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 space-y-1 text-xs tabular-nums">
+              <div className="flex justify-between text-gray-600">
+                <span>Invoice amount</span>
+                <span>{fmtMoney(invoiceAmount)}</span>
+              </div>
+              {parseFloat(discountAmount) > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>− Early-pay discount</span>
+                  <span>−{fmtMoney(parseFloat(discountAmount))}</span>
+                </div>
+              )}
+              {creditsTotal > 0 && (
+                <div className="flex justify-between text-amber-600">
+                  <span>− Vendor credits</span>
+                  <span>−{fmtMoney(creditsTotal)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-semibold text-gray-900 pt-1 border-t border-gray-200">
+                <span>Check amount</span>
+                <span>{fmtMoney(netCheck)}</span>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
               onClick={handleRelease}

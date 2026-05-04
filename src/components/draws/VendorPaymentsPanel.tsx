@@ -33,13 +33,55 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
   // Load vendor payments for this draw
   const { data: vendorPayments } = await supabase
     .from("vendor_payments")
-    .select("id, vendor_name, amount, check_number, payment_date, status")
+    .select("id, vendor_id, vendor_name, amount, check_number, payment_date, status")
     .eq("draw_id", drawId)
     .order("vendor_name");
 
   if (!vendorPayments || vendorPayments.length === 0) return null;
 
   const vpIds = vendorPayments.map((vp) => vp.id);
+
+  // Load available credits for any vendor with a pending payment in this draw
+  const pendingVendorIds = Array.from(
+    new Set(
+      vendorPayments
+        .filter((vp) => vp.status !== "paid" && vp.vendor_id)
+        .map((vp) => vp.vendor_id as string)
+    )
+  );
+  type CreditRow = {
+    id: string;
+    credit_date: string;
+    credit_number: string | null;
+    amount: number;
+    applied_amount: number;
+    remaining: number;
+    reason: string | null;
+  };
+  const creditsByVendor = new Map<string, CreditRow[]>();
+  if (pendingVendorIds.length > 0) {
+    const { data: openCredits } = await supabase
+      .from("vendor_credits")
+      .select("id, vendor_id, credit_date, credit_number, amount, applied_amount, reason")
+      .in("vendor_id", pendingVendorIds)
+      .eq("status", "available")
+      .order("credit_date", { ascending: true });
+    for (const c of openCredits ?? []) {
+      const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+      if (remaining <= 0.005) continue;
+      const vId = c.vendor_id as string;
+      if (!creditsByVendor.has(vId)) creditsByVendor.set(vId, []);
+      creditsByVendor.get(vId)!.push({
+        id: c.id as string,
+        credit_date: c.credit_date as string,
+        credit_number: (c.credit_number as string | null) ?? null,
+        amount: Number(c.amount),
+        applied_amount: Number(c.applied_amount ?? 0),
+        remaining,
+        reason: (c.reason as string | null) ?? null,
+      });
+    }
+  }
 
   // Load invoices and adjustments in parallel
   const [{ data: links }, { data: adjustments }] = await Promise.all([
@@ -213,6 +255,9 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
                     vendorPaymentId={vp.id}
                     vendorPaymentAmount={vp.amount}
                     defaultDate={today}
+                    vendorId={vp.vendor_id ?? null}
+                    vendorName={vp.vendor_name ?? null}
+                    availableCredits={(vp.vendor_id && creditsByVendor.get(vp.vendor_id)) || []}
                   />
                 </div>
               )}

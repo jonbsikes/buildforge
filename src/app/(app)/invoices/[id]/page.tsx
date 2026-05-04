@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AlertTriangle, Pencil } from "lucide-react";
+import { AlertTriangle, Pencil, Coins } from "lucide-react";
 import InvoiceDetailActions from "@/components/invoices/InvoiceDetailActions";
 import DeleteInvoiceButton from "@/components/invoices/DeleteInvoiceButton";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -23,7 +23,7 @@ export default async function InvoiceDetailPage({ params }: Props) {
   const { data: invoice } = await supabase
     .from("invoices")
     .select(`
-      id, vendor, invoice_number, invoice_date, due_date,
+      id, vendor, vendor_id, invoice_number, invoice_date, due_date,
       amount, total_amount, status, ai_confidence, ai_notes,
       pending_draw, direct_cash_payment, manually_reviewed, file_name, file_path,
       payment_date, payment_method, source, contract_id, discount_taken,
@@ -35,6 +35,60 @@ export default async function InvoiceDetailPage({ params }: Props) {
     .single();
 
   if (!invoice) notFound();
+
+  // Available vendor credits + applied credits on this invoice — passed to
+  // InvoiceDetailActions so the Issue Check form can offer credit application
+  // (auto-pre-selected oldest first, with manual override).
+  let availableCredits: Array<{
+    id: string;
+    credit_date: string;
+    credit_number: string | null;
+    amount: number;
+    applied_amount: number;
+    remaining: number;
+    reason: string | null;
+  }> = [];
+  if (invoice.vendor_id && (invoice.status === "approved" || invoice.status === "pending_review")) {
+    const { data: openCredits } = await supabase
+      .from("vendor_credits")
+      .select("id, credit_date, credit_number, amount, applied_amount, reason")
+      .eq("vendor_id", invoice.vendor_id as string)
+      .eq("status", "available")
+      .order("credit_date", { ascending: true });
+    availableCredits = (openCredits ?? [])
+      .map((c) => ({
+        id: c.id as string,
+        credit_date: c.credit_date as string,
+        credit_number: (c.credit_number as string | null) ?? null,
+        amount: Number(c.amount),
+        applied_amount: Number(c.applied_amount ?? 0),
+        remaining: Number(c.amount) - Number(c.applied_amount ?? 0),
+        reason: (c.reason as string | null) ?? null,
+      }))
+      .filter((c) => c.remaining > 0.005);
+  }
+
+  let appliedCredits: Array<{
+    id: string;
+    amount_applied: number;
+    credit_date: string;
+    credit_number: string | null;
+  }> = [];
+  if (invoice.status === "released" || invoice.status === "cleared") {
+    const { data: apps } = await supabase
+      .from("credit_applications")
+      .select("id, amount_applied, vendor_credits ( credit_date, credit_number )")
+      .eq("invoice_id", id);
+    appliedCredits = (apps ?? []).map((a) => {
+      const vc = (a as { vendor_credits: { credit_date: string; credit_number: string | null } | null }).vendor_credits;
+      return {
+        id: (a as { id: string }).id,
+        amount_applied: Number((a as { amount_applied: number }).amount_applied),
+        credit_date: vc?.credit_date ?? "",
+        credit_number: vc?.credit_number ?? null,
+      };
+    });
+  }
 
   const [lineItemsResult, drawLinksResult] = await Promise.all([
     supabase
@@ -391,12 +445,63 @@ export default async function InvoiceDetailPage({ params }: Props) {
                 )}
               </div>
 
+              {/* Vendor credit notice */}
+              {availableCredits.length > 0 && (
+                <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+                  <Coins size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                  <div>
+                    <p className="font-medium">
+                      {availableCredits.length} vendor credit{availableCredits.length === 1 ? "" : "s"} available —{" "}
+                      <Money value={availableCredits.reduce((s, c) => s + c.remaining, 0)} decimals className="text-amber-800" />
+                    </p>
+                    <p className="mt-0.5 text-amber-700 text-xs">
+                      Will be auto-applied (oldest first) when you issue the check. You can override on the Issue Check form.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {appliedCredits.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Vendor Credits Applied</h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Date</th>
+                        <th className="text-left pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Memo #</th>
+                        <th className="text-right pb-2 text-xs font-medium text-gray-400 uppercase tracking-wide">Applied</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {appliedCredits.map((a) => (
+                        <tr key={a.id}>
+                          <td className="py-1.5 text-xs text-gray-600">{a.credit_date}</td>
+                          <td className="py-1.5 text-xs text-gray-600">{a.credit_number ?? "—"}</td>
+                          <td className="py-1.5 text-right tabular-nums font-medium text-gray-900">
+                            <Money value={a.amount_applied} decimals />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-gray-200">
+                        <td colSpan={2} className="pt-2 text-sm font-semibold text-gray-700">Total credits</td>
+                        <td className="pt-2 text-right text-sm font-semibold text-gray-900">
+                          <Money value={appliedCredits.reduce((s, a) => s + a.amount_applied, 0)} decimals />
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
               {/* Actions */}
               <InvoiceDetailActions
                 invoiceId={invoice.id}
                 status={invoice.status}
                 invoiceAmount={((invoice.total_amount ?? invoice.amount) as number) ?? 0}
                 discountTaken={(invoice.discount_taken as number) ?? 0}
+                availableCredits={availableCredits}
               />
             </div>
           </div>

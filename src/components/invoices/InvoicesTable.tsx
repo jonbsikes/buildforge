@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown, Check, MoreVertical, Zap, CreditCard, FileText, Landmark } from "lucide-react";
+import { AlertTriangle, Mail, Trash2, Search, ChevronUp, ChevronDown as ChevDown, Check, MoreVertical, Zap, CreditCard, FileText, Landmark, Coins } from "lucide-react";
 import {
   deleteInvoice,
   setInvoiceStatus,
@@ -93,6 +93,7 @@ type InvoiceRow = {
     draw_date: string | null;
     status: string | null;
   } | null;
+  vendor_credit_available?: number | null;
 };
 
 export default function InvoicesTable({
@@ -587,6 +588,13 @@ export default function InvoicesTable({
                         aria-label="In draw request"
                       />
                     )}
+                    {!isPaid && (inv.vendor_credit_available ?? 0) > 0 && (
+                      <Coins
+                        size={12}
+                        className="text-amber-500"
+                        aria-label={`${fmt(inv.vendor_credit_available!)} vendor credit available`}
+                      />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">
@@ -758,6 +766,16 @@ export default function InvoicesTable({
                             className="text-[color:var(--brand-blue)] hover:text-[#3461de] transition-colors flex-shrink-0"
                           >
                             <Landmark size={13} />
+                          </Link>
+                        )}
+                        {!isPaid && (inv.vendor_credit_available ?? 0) > 0 && (
+                          <Link
+                            href="/invoices/credits"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`Vendor has ${fmt(inv.vendor_credit_available!)} credit available — auto-applies on payment`}
+                            className="text-amber-500 hover:text-amber-600 transition-colors flex-shrink-0"
+                          >
+                            <Coins size={13} />
                           </Link>
                         )}
                       </div>

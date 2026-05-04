@@ -55,6 +55,7 @@ export const navSections: NavSection[] = [
       { label: "AP aging", href: "/financial/ap-aging" },
       { label: "WIP report", href: "/financial/wip" },
       { label: "Accounts payable", href: "/invoices" },
+      { label: "Vendor credits", href: "/invoices/credits" },
       { label: "Payment register", href: "/banking/payments" },
       { label: "Banking", href: "/banking/accounts" },
       { label: "Loans", href: "/banking/loans" },

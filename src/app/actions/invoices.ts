@@ -1235,7 +1235,12 @@ export async function advanceInvoiceStatus(
   to: "released" | "cleared",
   paymentDate?: string,
   paymentMethod?: string,
-  discountTaken?: number
+  discountTaken?: number,
+  // Optional: vendor credits to apply at check-issue time. Only honored for
+  // 'released'. Each entry credits the vendor's AP balance against the
+  // invoice's AP balance — the JE clears both simultaneously and the check
+  // is written for the net amount (invoice − discount − sum(credits)).
+  creditApplications?: Array<{ credit_id: string; amount: number }>
 ): Promise<{ error?: string }> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.authorized) return { error: adminCheck.error };
@@ -1252,7 +1257,7 @@ export async function advanceInvoiceStatus(
   // (approved → released, released → cleared) to close the double-click race.
   const { data: invoice } = await supabase
     .from("invoices")
-    .select("status, amount, total_amount, project_id, vendor, invoice_number, discount_taken, projects ( project_type )")
+    .select("status, amount, total_amount, project_id, vendor, vendor_id, invoice_number, discount_taken, projects ( project_type )")
     .eq("id", invoiceId)
     .single();
 
@@ -1268,6 +1273,44 @@ export async function advanceInvoiceStatus(
     return {
       error: `Cannot advance invoice to '${to}' from status '${invoice.status}' — must be '${requiredFromStatus}'`,
     };
+  }
+
+  // Validate credit applications BEFORE any write.
+  // Only valid on the released leg. For cleared, credits were already applied
+  // at the released step — we look them up from credit_applications.
+  type ValidCredit = { credit_id: string; amount: number; remaining: number };
+  const validCredits: ValidCredit[] = [];
+  let creditsTotal = 0;
+  if (to === "released" && creditApplications && creditApplications.length > 0) {
+    if (!invoice.vendor_id) {
+      return { error: "Cannot apply credits — invoice has no vendor." };
+    }
+    for (const app of creditApplications) {
+      if (!app.credit_id || !app.amount || app.amount <= 0) continue;
+      const { data: c } = await supabase
+        .from("vendor_credits")
+        .select("id, vendor_id, amount, applied_amount, status")
+        .eq("id", app.credit_id)
+        .single();
+      if (!c) return { error: `Credit ${app.credit_id} not found` };
+      if (c.vendor_id !== invoice.vendor_id) {
+        return { error: "Credit does not belong to this vendor." };
+      }
+      if (c.status !== "available") {
+        return { error: "One or more selected credits are no longer available." };
+      }
+      const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+      if (app.amount - remaining > 0.005) {
+        return { error: `Cannot apply $${app.amount.toFixed(2)} — credit only has $${remaining.toFixed(2)} remaining.` };
+      }
+      validCredits.push({ credit_id: c.id, amount: app.amount, remaining });
+      creditsTotal += app.amount;
+    }
+    if (creditsTotal - (invoiceAmount - discount) > 0.005) {
+      return {
+        error: `Credits applied ($${creditsTotal.toFixed(2)}) exceed invoice amount net of discount ($${(invoiceAmount - discount).toFixed(2)}).`,
+      };
+    }
   }
 
   const updates: Record<string, unknown> = { status: to };
@@ -1296,7 +1339,22 @@ export async function advanceInvoiceStatus(
 
   // Re-read discount_taken if we just wrote it, else use the fetched value.
   const savedDiscount = (to === "released" && discount > 0 ? discount : (invoice.discount_taken ?? 0)) as number;
-  const netAmount = invoiceAmount - savedDiscount;
+
+  // For 'cleared', look up credits already applied at release time so the
+  // cash JE uses the same net amount the check was written for.
+  let appliedCreditsTotal = creditsTotal;
+  if (to === "cleared") {
+    const { data: prevApps } = await supabase
+      .from("credit_applications")
+      .select("amount_applied")
+      .eq("invoice_id", invoiceId);
+    appliedCreditsTotal = (prevApps ?? []).reduce(
+      (s, r) => s + Number((r as { amount_applied: number }).amount_applied || 0),
+      0
+    );
+  }
+
+  const netAmount = invoiceAmount - savedDiscount - appliedCreditsTotal;
   const desc = [invoice.vendor, invoice.invoice_number]
     .filter(Boolean)
     .join(" — Inv #") || "Invoice";
@@ -1342,14 +1400,28 @@ export async function advanceInvoiceStatus(
           debit: invoiceAmount,
           credit: 0,
         },
-        {
-          account_id: acct2050,
-          project_id: null,
-          description: `Check issued — ${desc}`,
-          debit: 0,
-          credit: netAmount,
-        },
       ];
+
+      // Apply vendor credits: each credit's standalone DR balance in AP gets
+      // cleared via a CR AP line. Net effect: AP nets out to (invoice − credits)
+      // on the debit side, which matches the smaller check we're writing.
+      if (creditsTotal > 0) {
+        lines.push({
+          account_id: acct2000,
+          project_id: null,
+          description: `Vendor credits applied — ${desc}`,
+          debit: 0,
+          credit: creditsTotal,
+        });
+      }
+
+      lines.push({
+        account_id: acct2050,
+        project_id: null,
+        description: `Check issued — ${desc}`,
+        debit: 0,
+        credit: netAmount,
+      });
 
       // Distribute discount credit across projects pro-rata
       if (savedDiscount > 0) {
@@ -1376,14 +1448,16 @@ export async function advanceInvoiceStatus(
         }
       }
 
+      const headerParts = [`Check issued`];
+      if (savedDiscount > 0) headerParts.push(`early-pay disc $${savedDiscount.toFixed(2)}`);
+      if (creditsTotal > 0) headerParts.push(`credits $${creditsTotal.toFixed(2)}`);
+
       await postJournalEntry(
         supabase,
         {
           entry_date: today,
           reference: `CHK-ISSUED-${invoiceId.slice(0, 8)}`,
-          description: savedDiscount > 0
-            ? `Check issued w/ early-pay discount $${savedDiscount.toFixed(2)} — ${desc}`
-            : `Check issued — ${desc}`,
+          description: `${headerParts.join(" w/ ")} — ${desc}`,
           status: "posted",
           source_type: "invoice_payment",
           source_id: invoiceId,
@@ -1391,6 +1465,37 @@ export async function advanceInvoiceStatus(
         },
         lines
       );
+
+      // Persist credit applications and bump applied_amount on each credit.
+      if (validCredits.length > 0) {
+        await supabase.from("credit_applications").insert(
+          validCredits.map((c) => ({
+            credit_id: c.credit_id,
+            invoice_id: invoiceId,
+            amount_applied: c.amount,
+            applied_by: user.id,
+          }))
+        );
+        for (const c of validCredits) {
+          // Re-read the credit's current applied_amount to avoid races.
+          const { data: cur } = await supabase
+            .from("vendor_credits")
+            .select("amount, applied_amount")
+            .eq("id", c.credit_id)
+            .single();
+          if (cur) {
+            const next = Number(cur.applied_amount ?? 0) + Number(c.amount);
+            const fully = Math.abs(next - Number(cur.amount)) < 0.005;
+            await supabase
+              .from("vendor_credits")
+              .update({
+                applied_amount: next,
+                status: fully ? "fully_applied" : "available",
+              })
+              .eq("id", c.credit_id);
+          }
+        }
+      }
     }
   }
 
