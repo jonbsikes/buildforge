@@ -127,6 +127,19 @@ export default function BalanceSheetClient() {
       project: { id: string; name: string } | null;
     };
 
+    // Fetch the sum of available (unapplied) vendor credits in parallel —
+    // used to split the AP line on the balance sheet into "AP Trade (gross)"
+    // and "Less: Vendor Credits Available" so the totals reconcile to what
+    // the AP invoices page shows. Pure display split; GL is unchanged.
+    const { data: openCredits } = await supabase
+      .from("vendor_credits")
+      .select("amount, applied_amount")
+      .eq("status", "available");
+    const creditsAvailable = (openCredits ?? []).reduce(
+      (s, c) => s + Math.max(0, Number(c.amount) - Number(c.applied_amount ?? 0)),
+      0
+    );
+
     // Fetch ALL journal entry lines (paginate past Supabase 1000-row default).
     // Failing to paginate silently truncates the ledger and breaks the balance sheet.
     const selectQuery = `
@@ -226,7 +239,36 @@ export default function BalanceSheetClient() {
     const nonZero = (a: AccountBalance) => Math.abs(a.balance) >= 0.005;
     const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200" && nonZero(a));
     const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200" && nonZero(a));
-    const currentLiab = accounts.filter(a => a.type === "liability" && a.account_number < "2100" && nonZero(a));
+    const currentLiabRaw = accounts.filter(a => a.type === "liability" && a.account_number < "2100" && nonZero(a));
+
+    // Split AP (account 2000) into "Trade (gross)" + "Less: Vendor Credits
+    // Available" when there are unapplied credits sitting in the AP control
+    // account. Both rows together still equal the GL balance — no GL change,
+    // just a display split so the balance sheet AP line reconciles to the
+    // gross approved-invoice total shown on the AP invoices page.
+    const currentLiab: AccountBalance[] = [];
+    for (const a of currentLiabRaw) {
+      if (a.account_number === "2000" && creditsAvailable > 0.005) {
+        const grossAp = a.balance + creditsAvailable; // net + credits_in_AP = gross
+        currentLiab.push({
+          ...a,
+          name: "Accounts Payable - Trade",
+          balance: grossAp,
+        });
+        currentLiab.push({
+          account_number: "2000-CR",
+          name: "Less: Vendor Credits Available",
+          type: "liability",
+          subtype: a.subtype,
+          debit: 0,
+          credit: 0,
+          balance: -creditsAvailable,
+          lines: [],
+        });
+      } else {
+        currentLiab.push(a);
+      }
+    }
     const longTermLiab = accounts.filter(a => a.type === "liability" && a.account_number >= "2100" && nonZero(a));
     const equityAccounts = accounts.filter(a => a.type === "equity");
 

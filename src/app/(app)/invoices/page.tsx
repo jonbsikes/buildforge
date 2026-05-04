@@ -207,6 +207,9 @@ export default async function InvoicesPage() {
             <InvoicesTable
               rows={rows as unknown as Parameters<typeof InvoicesTable>[0]["rows"]}
               needsAttentionIds={Array.from(needsAttention)}
+              totalCreditsAvailable={
+                Array.from(vendorCreditBalance.values()).reduce((s, v) => s + v, 0)
+              }
             />
           )}
         </div>

@@ -99,9 +99,11 @@ type InvoiceRow = {
 export default function InvoicesTable({
   rows,
   needsAttentionIds = [],
+  totalCreditsAvailable = 0,
 }: {
   rows: InvoiceRow[];
   needsAttentionIds?: string[];
+  totalCreditsAvailable?: number;
 }) {
   const router = useRouter();
   // Set lookup of pending-review invoices that are missing vendor, cost code,
@@ -459,6 +461,20 @@ export default function InvoicesTable({
           <span className="mx-1.5" style={{ color: "var(--status-over)", opacity: 0.4 }}>·</span>
           <span className="text-sm font-bold" style={{ color: "var(--status-over)" }}>{fmt(summaryMetrics.pastDueAmount)}</span>
         </div>
+        {totalCreditsAvailable > 0.005 && (
+          <>
+            <div>
+              <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-2">Credits</span>
+              <span className="text-sm font-bold text-green-700">−{fmt(totalCreditsAvailable)}</span>
+            </div>
+            <div className="ml-auto">
+              <span className="text-[10px] font-semibold uppercase tracking-wider mr-2" style={{ color: "var(--brand-blue)" }}>Net AP</span>
+              <span className="text-sm font-bold" style={{ color: "var(--brand-blue)" }}>
+                {fmt(summaryMetrics.approvedAmount - totalCreditsAvailable)}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Segmented status + search + project + select */}
