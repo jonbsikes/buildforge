@@ -128,46 +128,39 @@ export default function APAgingClient() {
         };
       });
 
-      // Load outstanding (written but not cashed) checks
-      // These are vendor_payments that are still "pending" after a draw is funded
-      // (check written but not yet confirmed as deposited/cashed)
-      const { data: pendingPayments } = await supabase
-        .from("vendor_payments")
+      // Load outstanding (written but not cashed) checks from the Payment Register.
+      // The `payments` table is the authoritative source: status flips from
+      // 'outstanding' → 'cleared' when a check clears the bank, matching the
+      // 2050 (Checks Issued - Outstanding) GL balance. Net amount in 2050 is
+      // amount − discount_amount − credits_applied.
+      const { data: outstandingPayments } = await supabase
+        .from("payments")
         .select(`
-          id, vendor_name, amount, check_number, payment_date, status,
+          id, payee, amount, discount_amount, credits_applied,
+          payment_number, payment_date, draw_id, payment_method, status,
           loan_draws ( id, draw_date )
         `)
-        .eq("status", "pending")
-        .order("payment_date", { ascending: true });
-
-      // Also include payments that have a check_number but not yet confirmed cleared
-      const { data: writtenChecks } = await supabase
-        .from("vendor_payments")
-        .select(`
-          id, vendor_name, amount, check_number, payment_date, status,
-          loan_draws ( id, draw_date )
-        `)
-        .not("check_number", "is", null)
-        .eq("status", "paid")
+        .eq("status", "outstanding")
+        .eq("payment_method", "check")
         .order("payment_date", { ascending: true });
 
       const checksMap = new Map<string, OutstandingCheck>();
 
-      // Merge: any check written (has check_number) that hasn't been confirmed cleared
-      for (const p of writtenChecks ?? []) {
-        if (checksMap.has(p.id)) continue;
+      for (const p of outstandingPayments ?? []) {
         const draw = p.loan_draws as { id: string; draw_date: string | null } | null;
         const payDate = p.payment_date;
         const daysOut = payDate
           ? Math.max(0, Math.floor((new Date().getTime() - new Date(payDate).getTime()) / 86400000))
           : 0;
+        const netAmount =
+          (p.amount ?? 0) - (p.discount_amount ?? 0) - (p.credits_applied ?? 0);
         checksMap.set(p.id, {
           id: p.id,
-          vendor_name: p.vendor_name,
-          check_number: p.check_number,
-          amount: p.amount ?? 0,
+          vendor_name: p.payee,
+          check_number: p.payment_number,
+          amount: netAmount,
           payment_date: p.payment_date,
-          draw_id: draw?.id ?? "",
+          draw_id: draw?.id ?? p.draw_id ?? "",
           draw_date: draw?.draw_date ?? null,
           days_outstanding: daysOut,
         });
