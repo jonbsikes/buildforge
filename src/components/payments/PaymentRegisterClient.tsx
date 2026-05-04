@@ -168,18 +168,29 @@ export default function PaymentRegisterClient({
     });
   }, [initialPayments, statusFilter, methodFilter, searchQuery]);
 
-  // Summary totals (net of discounts)
+  // Summary totals (net of discounts and applied credits)
   const totals = useMemo(() => {
+    const netOf = (p: PaymentRow) =>
+      p.amount - (p.discount_amount ?? 0) - (p.credits_applied ?? 0);
     const outstanding = initialPayments
       .filter((p) => p.status === "outstanding")
-      .reduce((s, p) => s + p.amount - (p.discount_amount ?? 0), 0);
+      .reduce((s, p) => s + netOf(p), 0);
     const cleared = initialPayments
       .filter((p) => p.status === "cleared")
-      .reduce((s, p) => s + p.amount - (p.discount_amount ?? 0), 0);
+      .reduce((s, p) => s + netOf(p), 0);
     const totalDiscount = initialPayments
       .filter((p) => p.status !== "void")
       .reduce((s, p) => s + (p.discount_amount ?? 0), 0);
-    return { outstanding, cleared, totalDiscount, count: initialPayments.length };
+    const totalCredits = initialPayments
+      .filter((p) => p.status !== "void")
+      .reduce((s, p) => s + (p.credits_applied ?? 0), 0);
+    return {
+      outstanding,
+      cleared,
+      totalDiscount,
+      totalCredits,
+      count: initialPayments.length,
+    };
   }, [initialPayments]);
 
   function toggleRow(id: string) {
@@ -249,6 +260,16 @@ export default function PaymentRegisterClient({
             </p>
             <p className="text-2xl font-semibold text-emerald-700 mt-1">
               {fmt(totals.totalDiscount)}
+            </p>
+          </div>
+        )}
+        {totals.totalCredits > 0 && (
+          <div className="bg-white rounded-xl border border-blue-200 px-5 py-4">
+            <p className="text-xs font-medium text-blue-600 uppercase tracking-wide">
+              Credits Applied
+            </p>
+            <p className="text-2xl font-semibold text-blue-700 mt-1">
+              {fmt(totals.totalCredits)}
             </p>
           </div>
         )}
@@ -346,7 +367,8 @@ export default function PaymentRegisterClient({
             const expanded = expandedRows.has(p.id);
             const MethodIcon = METHOD_ICONS[p.payment_method] ?? Banknote;
             const discountAmt = p.discount_amount ?? 0;
-            const netAmt = p.amount - discountAmt;
+            const creditsAmt = p.credits_applied ?? 0;
+            const netAmt = p.amount - discountAmt - creditsAmt;
             return (
               <div
                 key={p.id}
@@ -400,6 +422,12 @@ export default function PaymentRegisterClient({
                       <p className="text-[10px] text-green-600 mt-0.5 flex items-center gap-0.5">
                         <Tag size={9} />
                         Discount {fmt(discountAmt)}
+                      </p>
+                    )}
+                    {creditsAmt > 0 && (
+                      <p className="text-[10px] text-blue-600 mt-0.5 flex items-center gap-0.5">
+                        <Tag size={9} />
+                        Credits {fmt(creditsAmt)}
                       </p>
                     )}
                   </div>
@@ -527,6 +555,9 @@ export default function PaymentRegisterClient({
                   </th>
                   <th className="text-right px-3 py-3 font-medium text-gray-600">
                     Discount
+                  </th>
+                  <th className="text-right px-3 py-3 font-medium text-gray-600">
+                    Credits
                   </th>
                   <th className="text-right px-3 py-3 font-medium text-gray-600">
                     Net
@@ -659,7 +690,8 @@ function PaymentTableRow({
   MethodIcon: typeof Banknote;
 }) {
   const discountAmt = p.discount_amount ?? 0;
-  const netAmt = p.amount - discountAmt;
+  const creditsAmt = p.credits_applied ?? 0;
+  const netAmt = p.amount - discountAmt - creditsAmt;
 
   return (
     <>
@@ -709,6 +741,16 @@ function PaymentTableRow({
             <span className="text-green-600 inline-flex items-center gap-0.5">
               <Tag size={10} />
               ({fmt(discountAmt)})
+            </span>
+          ) : (
+            <span className="text-gray-300">{"\u2014"}</span>
+          )}
+        </td>
+        <td className="px-3 py-3 text-right font-mono">
+          {creditsAmt > 0 ? (
+            <span className="text-blue-600 inline-flex items-center gap-0.5">
+              <Tag size={10} />
+              ({fmt(creditsAmt)})
             </span>
           ) : (
             <span className="text-gray-300">{"\u2014"}</span>
@@ -780,6 +822,7 @@ function PaymentTableRow({
             <td className="px-3 py-2 text-right font-mono text-gray-600">
               {fmt(inv.amount)}
             </td>
+            <td />
             <td />
             <td />
             <td className="px-3 py-2 text-gray-500 font-mono" colSpan={2}>

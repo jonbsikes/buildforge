@@ -1318,9 +1318,10 @@ export async function markVendorPaymentPaid(
   // Status "outstanding" = check cut but not yet cleared at bank.
   // ---------------------------------------------------------------------------
   // Payment Register row reflects actual cash outflow:
-  //   payments.amount      = gross check (vp.amount − credits applied)
-  //   payments.discount_amount = early-pay discount
-  // So amount − discount = net cash that hits the bank — required for recon.
+  //   payments.amount           = gross invoice total (vp.amount, before credits/discount)
+  //   payments.discount_amount  = early-pay discount
+  //   payments.credits_applied  = vendor credits applied
+  // Net cash = amount − discount_amount − credits_applied — required for recon.
   const noteParts: string[] = [];
   if (totalDiscount > 0) noteParts.push(`$${totalDiscount.toFixed(2)} early-pay discount`);
   if (creditsTotal > 0) noteParts.push(`$${creditsTotal.toFixed(2)} vendor credits applied`);
@@ -1335,8 +1336,9 @@ export async function markVendorPaymentPaid(
       payment_method: "check",
       payee: vp.vendor_name,
       vendor_id: vp.vendor_id ?? null,
-      amount: vp.amount - creditsTotal,
+      amount: vp.amount,
       discount_amount: totalDiscount,
+      credits_applied: creditsTotal,
       payment_date: paymentDate,
       cleared_date: null,
       status: "outstanding",

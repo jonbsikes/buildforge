@@ -40,6 +40,7 @@ export interface PaymentRow {
   vendor_id: string | null;
   amount: number;
   discount_amount: number;
+  credits_applied: number;
   payment_date: string;
   cleared_date: string | null;
   status: string;
@@ -497,7 +498,7 @@ export async function clearPayment(
 
   const { data: payment } = await supabase
     .from("payments")
-    .select("id, payment_number, payee, amount, discount_amount, status, payment_method")
+    .select("id, payment_number, payee, amount, discount_amount, credits_applied, status, payment_method")
     .eq("id", paymentId)
     .single();
 
@@ -507,7 +508,8 @@ export async function clearPayment(
 
   // Net amount is what's actually in 2050 (Checks Outstanding)
   const discountAmt = (payment.discount_amount ?? 0) as number;
-  const netClearAmount = payment.amount - discountAmt;
+  const creditsAmt = (payment.credits_applied ?? 0) as number;
+  const netClearAmount = payment.amount - discountAmt - creditsAmt;
 
   // Update payment status
   const { error: updErr } = await supabase
@@ -798,6 +800,7 @@ export async function getPayments(filters?: {
       vendor_id: p.vendor_id,
       amount: p.amount,
       discount_amount: p.discount_amount ?? 0,
+      credits_applied: p.credits_applied ?? 0,
       payment_date: p.payment_date,
       cleared_date: p.cleared_date,
       status: p.status,
