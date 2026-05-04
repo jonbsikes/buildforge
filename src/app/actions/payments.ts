@@ -649,7 +649,7 @@ export async function voidPayment(
 
   const { data: payment } = await supabase
     .from("payments")
-    .select("id, payment_number, payee, amount, status, payment_method")
+    .select("id, payment_number, payee, amount, status, payment_method, funding_source")
     .eq("id", paymentId)
     .single();
 
@@ -660,6 +660,10 @@ export async function voidPayment(
   // invoice means the check has cleared the bank — voiding the payment
   // would silently rewrite that to 'approved' and erase the audit trail.
   // Mirrors the rule applied to disputeInvoice / voidInvoice in Step 4.
+  //
+  // Owner-funded direct payments never touch the bank (DR AP / CR Member
+  // Capital), so 'cleared' there just means the equity entry was posted —
+  // voiding only needs to reverse the equity credit. Skip the bank guard.
   const { data: links } = await supabase
     .from("payment_invoices")
     .select("invoice_id")
@@ -667,7 +671,7 @@ export async function voidPayment(
 
   const invoiceIds = (links ?? []).map((l) => l.invoice_id);
 
-  if (invoiceIds.length > 0) {
+  if (invoiceIds.length > 0 && payment.funding_source !== "owner_funded") {
     const { data: linkedInvoices } = await supabase
       .from("invoices")
       .select("id, status, invoice_number")
