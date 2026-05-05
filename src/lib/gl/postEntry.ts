@@ -30,12 +30,13 @@ export interface PostJournalEntryResult {
 }
 
 /**
- * Post a balanced journal entry: insert header, insert lines, roll back header
- * if lines fail. Asserts sum(debit) === sum(credit) before any write.
+ * Post a balanced journal entry atomically via Postgres RPC.
+ * The `post_journal_entry` function inserts the header and all lines in a
+ * single transaction — if anything fails, the entire operation is rolled back
+ * by Postgres (no manual DELETE needed).
  *
- * Use this in place of direct `.from("journal_entries").insert()` +
- * `.from("journal_entry_lines").insert()` pairs so the ledger can never be
- * left unbalanced.
+ * A client-side pre-check validates debits = credits (tolerance < 0.005)
+ * before the network call for fast feedback.
  */
 export async function postJournalEntry(
   supabase: Supa,
@@ -46,55 +47,38 @@ export async function postJournalEntry(
     return { error: "Journal entry has no lines" };
   }
 
+  // Client-side balance pre-check (tolerance 0.005)
   const totalDebits = lines.reduce((s, l) => s + (l.debit || 0), 0);
   const totalCredits = lines.reduce((s, l) => s + (l.credit || 0), 0);
-  if (Math.abs(totalDebits - totalCredits) > 0.01) {
+  if (Math.abs(totalDebits - totalCredits) >= 0.005) {
     return {
       error: `Journal entry does not balance: debits=${totalDebits.toFixed(2)} credits=${totalCredits.toFixed(2)}`,
     };
   }
 
-  const { data: entry, error: entryError } = await supabase
-    .from("journal_entries")
-    .insert({
-      entry_date: header.entry_date,
-      reference: header.reference ?? null,
-      description: header.description,
-      status: header.status,
-      source_type: header.source_type,
-      source_id: header.source_id ?? null,
-      loan_id: header.loan_id ?? null,
-      user_id: header.user_id,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await supabase.rpc("post_journal_entry", {
+    p_entry_date: header.entry_date,
+    p_reference: header.reference ?? null,
+    p_description: header.description,
+    p_status: header.status,
+    p_source_type: header.source_type,
+    p_source_id: header.source_id ?? null,
+    p_loan_id: header.loan_id ?? null,
+    p_user_id: header.user_id,
+    p_lines: lines.map((l) => ({
+      account_id: l.account_id,
+      project_id: l.project_id ?? null,
+      cost_code_id: l.cost_code_id ?? null,
+      loan_id: l.loan_id ?? null,
+      description: l.description ?? null,
+      debit: l.debit || 0,
+      credit: l.credit || 0,
+    })),
+  });
 
-  if (entryError || !entry) {
-    return { error: entryError?.message ?? "Failed to insert journal entry header" };
+  if (error) {
+    return { error: error.message };
   }
 
-  const rows = lines.map((l) => ({
-    journal_entry_id: entry.id,
-    account_id: l.account_id,
-    project_id: l.project_id ?? null,
-    cost_code_id: l.cost_code_id ?? null,
-    loan_id: l.loan_id ?? null,
-    description: l.description ?? null,
-    debit: l.debit || 0,
-    credit: l.credit || 0,
-  }));
-
-  const { data: inserted, error: linesError } = await supabase
-    .from("journal_entry_lines")
-    .insert(rows)
-    .select("id");
-
-  if (linesError || !inserted || inserted.length !== rows.length) {
-    const { error: rollbackErr } = await supabase.from("journal_entries").delete().eq("id", entry.id);
-    const linesMsg = linesError?.message ?? "Failed to insert all journal entry lines";
-    const rollbackMsg = rollbackErr ? ` (rollback also failed: ${rollbackErr.message})` : " — entry rolled back";
-    return { error: linesMsg + rollbackMsg };
-  }
-
-  return { id: entry.id };
+  return { id: data as string };
 }

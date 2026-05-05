@@ -721,7 +721,8 @@ async function unapproveInvoice(invoiceId: string): Promise<{ error?: string }> 
   const { error } = await supabase
     .from("invoices")
     .update({ status: "pending_review", wip_ap_posted: false })
-    .eq("id", invoiceId);
+    .eq("id", invoiceId)
+    .eq("status", "approved");
 
   if (error) return { error: error.message };
   return {};
@@ -1156,13 +1157,16 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
   }
 
   // Remove from any draft/submitted draws
-  await supabase.from("draw_invoices").delete().eq("invoice_id", invoiceId);
+  const { error: drawInvErr } = await supabase.from("draw_invoices").delete().eq("invoice_id", invoiceId);
+  if (drawInvErr) return { error: `Failed to delete draw_invoices: ${drawInvErr.message}` };
 
   // Delete payment_invoices links
-  await supabase.from("payment_invoices").delete().eq("invoice_id", invoiceId);
+  const { error: payInvErr } = await supabase.from("payment_invoices").delete().eq("invoice_id", invoiceId);
+  if (payInvErr) return { error: `Failed to delete payment_invoices: ${payInvErr.message}` };
 
   // Delete line items
-  await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+  const { error: lineItemsErr } = await supabase.from("invoice_line_items").delete().eq("invoice_id", invoiceId);
+  if (lineItemsErr) return { error: `Failed to delete invoice_line_items: ${lineItemsErr.message}` };
 
   // Clean up storage file
   if (inv?.file_path) {
@@ -1454,7 +1458,7 @@ export async function advanceInvoiceStatus(
       if (savedDiscount > 0) headerParts.push(`early-pay disc $${savedDiscount.toFixed(2)}`);
       if (creditsTotal > 0) headerParts.push(`credits $${creditsTotal.toFixed(2)}`);
 
-      await postJournalEntry(
+      const jeResult = await postJournalEntry(
         supabase,
         {
           entry_date: today,
@@ -1467,6 +1471,9 @@ export async function advanceInvoiceStatus(
         },
         lines
       );
+      if (jeResult.error) {
+        return { error: `Failed to post journal entry: ${jeResult.error}` };
+      }
 
       // Persist credit applications and bump applied_amount on each credit.
       if (validCredits.length > 0) {
@@ -1509,7 +1516,7 @@ export async function advanceInvoiceStatus(
 
     if (acct2050 && acct1000) {
       // Cleared JE is Cash-side only (DR 2050 / CR 1000) — no project split needed
-      await postJournalEntry(
+      const jeResult = await postJournalEntry(
         supabase,
         {
           entry_date: clearedDate,
@@ -1537,6 +1544,9 @@ export async function advanceInvoiceStatus(
           },
         ]
       );
+      if (jeResult.error) {
+        return { error: `Failed to post journal entry: ${jeResult.error}` };
+      }
     }
   }
 

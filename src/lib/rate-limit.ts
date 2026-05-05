@@ -1,38 +1,49 @@
 /**
- * Simple in-memory rate limiter for API routes.
- * Tracks requests per key (typically user ID) within a sliding window.
+ * Rate limiter backed by Supabase (works in serverless environments like Vercel).
+ * Tracks requests per key (typically user ID) within a sliding window using the
+ * `rate_limit_entries` table.
  */
 
-const hits = new Map<string, number[]>();
-
-/** Prune entries older than `windowMs` to prevent memory leaks. */
-function prune(key: string, windowMs: number, now: number) {
-  const timestamps = hits.get(key);
-  if (!timestamps) return;
-  const cutoff = now - windowMs;
-  const fresh = timestamps.filter((t) => t > cutoff);
-  if (fresh.length === 0) hits.delete(key);
-  else hits.set(key, fresh);
-}
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Returns `true` if the request should be allowed, `false` if rate-limited.
- * @param key      Unique identifier (e.g. user ID)
- * @param limit    Max requests per window
- * @param windowMs Window duration in milliseconds (default 60 000 = 1 minute)
+ * @param supabase  Authenticated Supabase client
+ * @param key       Unique identifier (e.g. user ID)
+ * @param limit     Max requests per window
+ * @param windowMs  Window duration in milliseconds (default 60 000 = 1 minute)
  */
-export function rateLimit(
+export async function rateLimit(
+  supabase: SupabaseClient,
   key: string,
   limit: number,
   windowMs = 60_000
-): boolean {
+): Promise<boolean> {
   const now = Date.now();
-  prune(key, windowMs, now);
+  const cutoff = now - windowMs;
 
-  const timestamps = hits.get(key) ?? [];
-  if (timestamps.length >= limit) return false;
+  // 1. Clean old entries for this key
+  await supabase
+    .from("rate_limit_entries")
+    .delete()
+    .eq("key", key)
+    .lt("timestamp", cutoff);
 
-  timestamps.push(now);
-  hits.set(key, timestamps);
+  // 2. Count recent entries
+  const { count } = await supabase
+    .from("rate_limit_entries")
+    .select("*", { count: "exact", head: true })
+    .eq("key", key)
+    .gte("timestamp", cutoff);
+
+  if ((count ?? 0) >= limit) {
+    return false;
+  }
+
+  // 3. Insert new entry
+  await supabase
+    .from("rate_limit_entries")
+    .insert({ key, timestamp: now });
+
   return true;
 }

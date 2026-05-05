@@ -30,7 +30,7 @@ Deno.serve(async (req: Request) => {
 
   const generated: string[] = [];
 
-  const { data: users } = await supabase.from("profiles").select("id").limit(500);
+  const { data: users } = await supabase.from("user_profiles").select("id").limit(500);
   let userIds: string[] = (users ?? []).map((u: { id: string }) => u.id);
   if (userIds.length === 0) {
     const { data: authUsers } = await supabase.auth.admin.listUsers();
@@ -85,7 +85,7 @@ Deno.serve(async (req: Request) => {
     .from("invoices")
     .select("id, invoice_number, vendor, due_date, amount, total_amount")
     .lt("due_date", todayStr)
-    .not("status", "in", "(paid,disputed)");
+    .not("status", "in", "(cleared,disputed)");
 
   for (const inv of pastDueInvoices ?? []) {
     const amount = fmtUSD(inv.total_amount ?? inv.amount ?? 0);
@@ -110,13 +110,13 @@ Deno.serve(async (req: Request) => {
 
   const { data: coiExpiring } = await supabase
     .from("vendors")
-    .select("id, name, coi_expiry_date")
-    .not("coi_expiry_date", "is", null)
-    .gte("coi_expiry_date", todayStr)
-    .lte("coi_expiry_date", warn30Str);
+    .select("id, name, coi_expiry")
+    .not("coi_expiry", "is", null)
+    .gte("coi_expiry", todayStr)
+    .lte("coi_expiry", warn30Str);
 
   for (const v of coiExpiring ?? []) {
-    const msg = `${v.name}'s Certificate of Insurance expires on ${v.coi_expiry_date} (within 30 days). Collect a new COI.`;
+    const msg = `${v.name}'s Certificate of Insurance expires on ${v.coi_expiry} (within 30 days). Collect a new COI.`;
     for (const uid of userIds) {
       await createNotif(uid, "coi_expiring", v.id, "vendor", msg);
     }
@@ -124,12 +124,12 @@ Deno.serve(async (req: Request) => {
 
   const { data: coiExpired } = await supabase
     .from("vendors")
-    .select("id, name, coi_expiry_date")
-    .not("coi_expiry_date", "is", null)
-    .lt("coi_expiry_date", todayStr);
+    .select("id, name, coi_expiry")
+    .not("coi_expiry", "is", null)
+    .lt("coi_expiry", todayStr);
 
   for (const v of coiExpired ?? []) {
-    const msg = `${v.name}'s Certificate of Insurance expired on ${v.coi_expiry_date}. This vendor is blocked until a new COI is provided.`;
+    const msg = `${v.name}'s Certificate of Insurance expired on ${v.coi_expiry}. This vendor is blocked until a new COI is provided.`;
     for (const uid of userIds) {
       await createNotif(uid, "coi_expired", v.id, "vendor", msg);
     }
@@ -137,13 +137,13 @@ Deno.serve(async (req: Request) => {
 
   const { data: licExpiring } = await supabase
     .from("vendors")
-    .select("id, name, license_expiry_date")
-    .not("license_expiry_date", "is", null)
-    .gte("license_expiry_date", todayStr)
-    .lte("license_expiry_date", warn30Str);
+    .select("id, name, license_expiry")
+    .not("license_expiry", "is", null)
+    .gte("license_expiry", todayStr)
+    .lte("license_expiry", warn30Str);
 
   for (const v of licExpiring ?? []) {
-    const msg = `${v.name}'s contractor license expires on ${v.license_expiry_date} (within 30 days). Verify renewal.`;
+    const msg = `${v.name}'s contractor license expires on ${v.license_expiry} (within 30 days). Verify renewal.`;
     for (const uid of userIds) {
       await createNotif(uid, "license_expiring", v.id, "vendor", msg);
     }
@@ -151,12 +151,12 @@ Deno.serve(async (req: Request) => {
 
   const { data: licExpired } = await supabase
     .from("vendors")
-    .select("id, name, license_expiry_date")
-    .not("license_expiry_date", "is", null)
-    .lt("license_expiry_date", todayStr);
+    .select("id, name, license_expiry")
+    .not("license_expiry", "is", null)
+    .lt("license_expiry", todayStr);
 
   for (const v of licExpired ?? []) {
-    const msg = `${v.name}'s contractor license expired on ${v.license_expiry_date}. Do not issue new work orders until renewed.`;
+    const msg = `${v.name}'s contractor license expired on ${v.license_expiry}. Do not issue new work orders until renewed.`;
     for (const uid of userIds) {
       await createNotif(uid, "license_expired", v.id, "vendor", msg);
     }

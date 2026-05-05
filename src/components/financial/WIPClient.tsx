@@ -40,13 +40,12 @@ export default function WIPClient() {
     async function load() {
       const supabase = createClient();
 
-      const [projectsRes, budgetsRes, contractsRes, invoicesRes, loansRes, coaRes] = await Promise.all([
+      const [projectsRes, budgetsRes, contractsRes, invoicesRes, loansRes] = await Promise.all([
         supabase.from("projects").select("id, name, project_type, status").order("name"),
         supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
         supabase.from("contracts").select("project_id, amount"),
         supabase.from("invoice_line_items").select("project_id, amount, invoices!inner ( status )").in("invoices.status", ["approved", "released", "cleared"]),
         supabase.from("loans").select("project_id, loan_amount"),
-        supabase.from("chart_of_accounts").select("id, account_number").in("account_number", ["1210", "1220", "1230"]),
       ]);
 
       const projects = projectsRes.data ?? [];
@@ -74,36 +73,20 @@ export default function WIPClient() {
         loanMap[l.project_id] = (loanMap[l.project_id] ?? 0) + (l.loan_amount ?? 0);
       }
 
-      // Pull ledger WIP balances (1210 + 1220) by project from posted journal entries
-      const wipAcctId = (coaRes.data ?? []).find((a) => a.account_number === "1210")?.id;
-      const cipAcctId = (coaRes.data ?? []).find((a) => a.account_number === "1230")?.id;
-      const intAcctId = (coaRes.data ?? []).find((a) => a.account_number === "1220")?.id;
+      // Pull ledger WIP balances (1210, 1220, 1230) by project via server-side aggregation
+      const { data: wipBalances } = await supabase.rpc("get_wip_balances");
 
       const ledgerWipMap: Record<string, number> = {};
       const capIntMap: Record<string, number> = {};
 
-      if (wipAcctId || cipAcctId || intAcctId) {
-        const acctIds = [wipAcctId, cipAcctId, intAcctId].filter(Boolean) as string[];
-        // Aliased nested join shape — narrow explicitly.
-        type WipLineRow = {
-          account_id: string;
-          project_id: string | null;
-          debit: number | null;
-          credit: number | null;
-          journal_entry: { status: string } | null;
-        };
-        const { data: ledgerLines } = await supabase
-          .from("journal_entry_lines")
-          .select("account_id, project_id, debit, credit, journal_entry:journal_entries(status)")
-          .in("account_id", acctIds);
-
-        for (const line of ((ledgerLines ?? []) as unknown as WipLineRow[])) {
-          if (line.journal_entry?.status !== "posted") continue;
-          const pid = line.project_id;
-          if (!pid) continue;
-          const net = Number(line.debit ?? 0) - Number(line.credit ?? 0);
-          if (line.account_id === wipAcctId || line.account_id === cipAcctId) ledgerWipMap[pid] = (ledgerWipMap[pid] ?? 0) + net;
-          if (line.account_id === intAcctId) capIntMap[pid] = (capIntMap[pid] ?? 0) + net;
+      for (const row of (wipBalances ?? []) as { project_id: string; account_number: string; total_debit: number; total_credit: number }[]) {
+        const pid = row.project_id;
+        const net = Number(row.total_debit) - Number(row.total_credit);
+        if (row.account_number === "1210" || row.account_number === "1230") {
+          ledgerWipMap[pid] = (ledgerWipMap[pid] ?? 0) + net;
+        }
+        if (row.account_number === "1220") {
+          capIntMap[pid] = (capIntMap[pid] ?? 0) + net;
         }
       }
 

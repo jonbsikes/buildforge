@@ -464,7 +464,7 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
   const acct2060 = accounts.get("2060");
 
   if (acct1120 && acct2060 && draw.total_amount > 0) {
-    await postJournalEntry(
+    const jeResult = await postJournalEntry(
       supabase,
       {
         entry_date: new Date().toISOString().split("T")[0],
@@ -492,6 +492,9 @@ export async function submitDraw(drawId: string): Promise<{ error?: string }> {
         },
       ]
     );
+    if (jeResult.error) {
+      return { error: `Failed to post journal entry: ${jeResult.error}` };
+    }
   }
 
   revalidateAfterJournalEntry({ drawId });
@@ -1559,7 +1562,7 @@ export async function adjustVendorPaymentAmount(
     );
 
     if (adjResult.error) {
-      console.error(`Adjustment JE failed: ${adjResult.error}`);
+      return { error: `Failed to post journal entry: ${adjResult.error}` };
     }
   }
 

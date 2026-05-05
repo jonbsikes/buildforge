@@ -403,13 +403,15 @@ Deno.serve(async (req: Request) => {
 
   // Auth gate: only allow cron / trusted callers (or signed-in app users with
   // a valid Supabase session JWT — verified by Supabase Edge Runtime via the
-  // Authorization header).
+  // Authorization header). Fail closed: if CRON_SECRET is not configured,
+  // reject all requests rather than allowing unauthenticated access.
   const cronSecret = Deno.env.get("CRON_SECRET");
-  if (cronSecret) {
-    const authHeader = req.headers.get("authorization");
-    if (authHeader !== `Bearer ${cronSecret}`) {
-      return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
-    }
+  if (!cronSecret) {
+    return new Response("Server misconfigured: CRON_SECRET not set", { status: 500, headers: CORS_HEADERS });
+  }
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
   }
 
   let processed = 0;
@@ -445,7 +447,7 @@ Deno.serve(async (req: Request) => {
     // once per run so every invoice in the batch is resolved against the same
     // reference data.
     const [{ data: vendors }, { data: costCodes }] = await Promise.all([
-      supabase.from("vendors").select("id, name").eq("is_active", true),
+      supabase.from("vendors").select("id, name"),
       supabase.from("cost_codes").select("code"),
     ]);
 

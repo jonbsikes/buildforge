@@ -28,12 +28,9 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   const { data, error } = await supabase.rpc("get_my_role");
 
   if (error || !data) {
-    // Fallback: user exists but function call failed — treat as project_manager
-    return {
-      id: user.id,
-      display_name: user.email?.split("@")[0] ?? "User",
-      role: "project_manager",
-    };
+    // Fail closed: if role lookup fails, do not silently downgrade privileges
+    console.error("get_my_role RPC failed:", error?.message ?? "no data returned");
+    return null;
   }
 
   return {

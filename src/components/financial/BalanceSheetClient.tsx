@@ -90,6 +90,48 @@ function acctToGLEntries(acct: AccountBalance): GLEntry[] {
     }));
 }
 
+/** Fetch JE lines for a specific account on demand (drill-down) */
+async function fetchAccountLines(accountNumber: string, asOf: string): Promise<JELine[]> {
+  const supabase = createClient();
+  type LineRow = {
+    id: string;
+    debit: number | null;
+    credit: number | null;
+    description: string | null;
+    journal_entry: { entry_date: string; reference: string | null; description: string | null; status: string } | null;
+    account: { account_number: string } | null;
+  };
+  let allLines: LineRow[] = [];
+  let fromIdx = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data: page } = await supabase
+      .from("journal_entry_lines")
+      .select(`
+        id, debit, credit, description,
+        journal_entry:journal_entries(entry_date, reference, description, status),
+        account:chart_of_accounts!inner(account_number)
+      `)
+      .eq("account.account_number", accountNumber)
+      .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+    if (!page || page.length === 0) break;
+    allLines = allLines.concat(page as unknown as LineRow[]);
+    if (page.length < PAGE_SIZE) break;
+    fromIdx += PAGE_SIZE;
+  }
+  return allLines
+    .filter(l => l.journal_entry?.status === "posted" && (l.journal_entry?.entry_date ?? "") <= asOf)
+    .map(l => ({
+      id: l.id,
+      entry_date: l.journal_entry?.entry_date ?? "",
+      reference: l.journal_entry?.reference ?? "",
+      je_description: l.journal_entry?.description ?? "",
+      line_description: l.description ?? "",
+      debit: Number(l.debit ?? 0),
+      credit: Number(l.credit ?? 0),
+    }));
+}
+
 export default function BalanceSheetClient() {
   const today = new Date().toISOString().split("T")[0];
   const [asOf, setAsOf] = useState(today);
@@ -97,124 +139,83 @@ export default function BalanceSheetClient() {
   const [loading, setLoading] = useState(true);
   const [drill, setDrill] = useState<DrillItem | null>(null);
 
+  const openDrill = useCallback(async (acct: AccountBalance) => {
+    // Load lines on demand for drill-down
+    const lines = await fetchAccountLines(acct.account_number, asOf);
+    const tempAcct = { ...acct, lines };
+    setDrill({
+      label: acct.name,
+      amount: acct.balance,
+      entries: acctToGLEntries(tempAcct),
+    });
+  }, [asOf]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const supabase = createClient();
-
-    // Narrow the PostgREST nested-join shape. The generic types can't infer the
-    // aliased nested relations ("account:chart_of_accounts(...)") so we declare
-    // the row shape explicitly here.
-    type LedgerRow = {
-      id: string;
-      debit: number | null;
-      credit: number | null;
-      description: string | null;
-      project_id: string | null;
-      account: {
-        account_number: string;
-        name: string;
-        type: string | null;
-        subtype: string | null;
-        is_active: boolean | null;
-      } | null;
-      journal_entry: {
-        id: string;
-        entry_date: string;
-        status: string;
-        description: string | null;
-        reference: string | null;
-      } | null;
-      project: { id: string; name: string } | null;
-    };
 
     // Fetch the sum of available (unapplied) vendor credits in parallel —
     // used to split the AP line on the balance sheet into "AP Trade (gross)"
     // and "Less: Vendor Credits Available" so the totals reconcile to what
     // the AP invoices page shows. Pure display split; GL is unchanged.
-    const { data: openCredits } = await supabase
-      .from("vendor_credits")
-      .select("amount, applied_amount")
-      .eq("status", "available");
+    const [{ data: openCredits }, { data: rpcData }] = await Promise.all([
+      supabase
+        .from("vendor_credits")
+        .select("amount, applied_amount")
+        .eq("status", "available"),
+      supabase.rpc("get_balance_sheet_data", { p_as_of_date: asOf }),
+    ]);
     const creditsAvailable = (openCredits ?? []).reduce(
       (s, c) => s + Math.max(0, Number(c.amount) - Number(c.applied_amount ?? 0)),
       0
     );
 
-    // Fetch ALL journal entry lines (paginate past Supabase 1000-row default).
-    // Failing to paginate silently truncates the ledger and breaks the balance sheet.
-    const selectQuery = `
-      id, debit, credit, description, project_id,
-      account:chart_of_accounts(account_number, name, type, subtype, is_active),
-      journal_entry:journal_entries(id, entry_date, status, description, reference),
-      project:projects(id, name)
-    `;
-    let rawLines: LedgerRow[] = [];
-    let fromIdx = 0;
-    const PAGE_SIZE = 1000;
-    while (true) {
-      const { data: page } = await supabase
-        .from("journal_entry_lines")
-        .select(selectQuery)
-        .range(fromIdx, fromIdx + PAGE_SIZE - 1);
-      if (!page || page.length === 0) break;
-      rawLines = rawLines.concat(page as unknown as LedgerRow[]);
-      if (page.length < PAGE_SIZE) break;
-      fromIdx += PAGE_SIZE;
-    }
+    // Shape returned by the RPC function
+    type RpcRow = {
+      account_number: string;
+      account_name: string;
+      account_type: string;
+      account_subtype: string | null;
+      total_debit: number;
+      total_credit: number;
+      project_id: string | null;
+      project_name: string | null;
+    };
 
-    // Filter to posted entries within date range
-    const ledgerLines = rawLines.filter((l) =>
-      l.journal_entry?.status === "posted" && (l.journal_entry?.entry_date ?? "") <= asOf
-    );
+    const rows = (rpcData ?? []) as RpcRow[];
 
-    // Aggregate by account and collect individual lines
+    // Aggregate by account (the RPC returns per-project rows, so we combine)
     const acctMap: Record<string, AccountBalance> = {};
-    for (const line of ledgerLines) {
-      const acc = line.account;
-      const je = line.journal_entry;
-      if (!acc || acc.is_active === false) continue;
-      const key = acc.account_number;
+    const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
+    const projMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
+
+    for (const row of rows) {
+      const key = row.account_number;
       if (!acctMap[key]) {
         acctMap[key] = {
-          account_number: acc.account_number,
-          name: acc.name,
-          type: acc.type ?? "",
-          subtype: acc.subtype ?? "",
+          account_number: row.account_number,
+          name: row.account_name,
+          type: row.account_type ?? "",
+          subtype: row.account_subtype ?? "",
           debit: 0,
           credit: 0,
           balance: 0,
-          lines: [],
+          lines: [], // drill-down lines loaded on demand
         };
       }
-      acctMap[key].debit += Number(line.debit ?? 0);
-      acctMap[key].credit += Number(line.credit ?? 0);
-      acctMap[key].lines.push({
-        id: line.id,
-        entry_date: je?.entry_date ?? "",
-        reference: je?.reference ?? "",
-        je_description: je?.description ?? "",
-        line_description: line.description ?? "",
-        debit: Number(line.debit ?? 0),
-        credit: Number(line.credit ?? 0),
-      });
-    }
+      acctMap[key].debit += Number(row.total_debit);
+      acctMap[key].credit += Number(row.total_credit);
 
-    // Build per-project breakdown for WIP/CIP accounts
-    const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
-    const projMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
-    for (const line of ledgerLines) {
-      const acc = line.account;
-      if (!acc || !WIP_CIP_ACCOUNTS.has(acc.account_number)) continue;
-      const pid = line.project_id;
-      if (!pid) continue;
-      const key = acc.account_number;
-      if (!projMap[key]) projMap[key] = {};
-      if (!projMap[key][pid]) {
-        const proj = line.project;
-        projMap[key][pid] = { project_id: pid, project_name: proj?.name ?? "Unknown Project", debit: 0, credit: 0 };
+      // Build per-project breakdown for WIP/CIP accounts
+      if (WIP_CIP_ACCOUNTS.has(row.account_number) && row.project_id) {
+        if (!projMap[key]) projMap[key] = {};
+        projMap[key][row.project_id] = {
+          project_id: row.project_id,
+          project_name: row.project_name ?? "Unknown Project",
+          debit: Number(row.total_debit),
+          credit: Number(row.total_credit),
+        };
       }
-      projMap[key][pid].debit += Number(line.debit ?? 0);
-      projMap[key][pid].credit += Number(line.credit ?? 0);
     }
 
     // Compute normal balances
@@ -359,12 +360,8 @@ export default function BalanceSheetClient() {
                 <BSGroup label="Current Assets" items={data.currentAssets.map(a => ({
                   label: a.name,
                   amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
+                  drillable: true,
+                  onDrill: () => openDrill(a),
                 }))} />
               )}
 
@@ -372,12 +369,8 @@ export default function BalanceSheetClient() {
                 <BSGroup label="Long-Term Assets" items={data.longTermAssets.map(a => ({
                   label: a.name,
                   amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
+                  drillable: true,
+                  onDrill: () => openDrill(a),
                   projectBreakdown: a.projectBreakdown,
                 }))} />
               )}
@@ -393,12 +386,8 @@ export default function BalanceSheetClient() {
                 ...data.currentLiabilities.map(a => ({
                   label: a.name,
                   amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
+                  drillable: true,
+                  onDrill: () => openDrill(a),
                 })),
               ]} />
 
@@ -406,12 +395,8 @@ export default function BalanceSheetClient() {
                 <BSGroup label="Long-Term Liabilities" items={data.longTermLiabilities.map(a => ({
                   label: a.name,
                   amount: a.balance,
-                  drillable: a.lines.length > 0,
-                  onDrill: () => setDrill({
-                    label: a.name,
-                    amount: a.balance,
-                    entries: acctToGLEntries(a),
-                  }),
+                  drillable: true,
+                  onDrill: () => openDrill(a),
                 }))} />
               )}
 
@@ -423,12 +408,8 @@ export default function BalanceSheetClient() {
                   ...data.equityAccounts.map(e => ({
                     label: `${e.name}`,
                     amount: e.balance,
-                    drillable: e.lines.length > 0,
-                    onDrill: () => setDrill({
-                      label: e.name,
-                      amount: e.balance,
-                      entries: acctToGLEntries(e),
-                    }),
+                    drillable: true,
+                    onDrill: () => openDrill(e),
                   })),
                   ...(Math.abs(data.retainedEarnings) > 0.01 ? [{
                     label: "Retained Earnings (Net Income)",

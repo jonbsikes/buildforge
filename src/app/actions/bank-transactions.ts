@@ -81,8 +81,8 @@ function categorize(description: string, checkRef: string | null): string {
   return "other";
 }
 
-function hashRow(date: string, debit: number, credit: number, description: string): string {
-  const raw = `${date}|${debit}|${credit}|${description}`;
+function hashRow(date: string, debit: number, credit: number, description: string, index: number): string {
+  const raw = `${date}|${debit}|${credit}|${description}|${index}`;
   return crypto.createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 
@@ -166,7 +166,7 @@ function parseBankCSV(csvText: string): {
       credit,
       balance: balance === 0 && balanceIdx === -1 ? null : balance,
       category: categorize(desc, checkRef),
-      import_hash: hashRow(txDate, debit, credit, desc),
+      import_hash: hashRow(txDate, debit, credit, desc, i),
     });
   }
 

@@ -707,13 +707,13 @@ export async function voidPayment(
     // may have been set directly to 'cleared', so we handle both states.
     await supabase
       .from("invoices")
-      .update({ status: "approved", payment_date: null, payment_method: null })
+      .update({ status: "approved", payment_date: null, payment_method: null, discount_taken: 0 })
       .in("id", invoiceIds)
       .eq("status", "released");
 
     await supabase
       .from("invoices")
-      .update({ status: "approved", payment_date: null, payment_method: null })
+      .update({ status: "approved", payment_date: null, payment_method: null, discount_taken: 0 })
       .in("id", invoiceIds)
       .eq("status", "cleared");
   }
