@@ -59,6 +59,22 @@ export async function createVendorCredit(
 
   const wipAccount = wipCreditAccountFor(input.project_id, projectType);
 
+  // Resolve cost_code_id for the WIP credit line. Tagging the credit with the
+  // same cost code that was originally debited keeps the Job Cost report in
+  // sync with the GL — without this, vendor credits reduce WIP on the balance
+  // sheet but the original invoice line items still show full gross amount in
+  // Job Cost, leaving an unreconciled gap.
+  let costCodeId: string | null = null;
+  if (input.cost_code) {
+    const { data: cc } = await supabase
+      .from("cost_codes")
+      .select("id")
+      .eq("code", input.cost_code)
+      .is("user_id", null)
+      .maybeSingle();
+    costCodeId = (cc as { id: string } | null)?.id ?? null;
+  }
+
   const { data: vendorRow } = await supabase
     .from("vendors")
     .select("name")
@@ -124,6 +140,7 @@ export async function createVendorCredit(
       {
         account_id: wipAcctId,
         project_id: input.project_id,
+        cost_code_id: costCodeId,
         description: `Cost reversal — ${label}`,
         debit: 0,
         credit: input.amount,

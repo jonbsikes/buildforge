@@ -770,6 +770,19 @@ All journal entries are posted automatically by server actions. **Never manually
 - `src/app/actions/invoices.ts` — `approveInvoice`, `advanceInvoiceStatus`, `payInvoiceAutoDraft`
 - `src/app/actions/draws.ts` — `submitDraw`, `fundDraw`, `markVendorPaymentPaid`
 
+### Manual JE conventions (no code path yet)
+
+**Lot transfers from Prairie Sky CIP to home WIP.** Currently posted via SQL. Each lot transfer must be a balanced JE with these tags so both BS WIP and Job Cost stay in sync:
+
+- DR `1210` Construction WIP, project = home, **cost_code 34 "Lot"**, amount = per-lot allocation
+- CR `1230` CIP — Land Improvements, project = Prairie Sky, **cost_code 126 "Lot Sale Allocation"**, same amount
+- Reference: `LOT-XFER-<address>` (e.g. `LOT-XFER-7081`)
+- Description on each line: `"Lot N → <full address>"` so the credit reads naturally on Prairie Sky's Job Cost report
+
+**Why cc 126 on the Prairie Sky side instead of cc 1 Raw Land:** cc 1 should always reflect the original raw-land purchase prices ($345,623.43 today) and never decrease as lots sell. cc 126 carries the running negative balance of "lots already allocated out", with one line per lot for traceability. See the [Lot Sale Allocation reconciliation history](#) — established 2026-05-04 along with the broader BS WIP / Job Cost reconciliation.
+
+**Per-lot amount** must exclude refundable items (e.g. utility deposits) — it should match the actual lot cost the home will carry on its books, not 1/32 of total Prairie Sky CIP. As of 2026-05-04 the per-lot figure is $16,350.49.
+
 ---
 
 ## Invoice Processing Rules

@@ -151,11 +151,17 @@ export default function JobCostReportClient() {
           (map[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
       }
 
-      // Add JE-based actuals (skip invoice-related to avoid double-counting)
+      // Add JE-based actuals (skip invoice approvals to avoid double-counting
+      // with invoice_line_items above). invoice_payment is NOT excluded so
+      // that early-pay discount credits to WIP — which carry a cost_code_id
+      // pointing at the paying invoice's dominant code — correctly reduce JC
+      // to match BS WIP. Standard payment legs hit AP/Cash/2050 and have no
+      // cost_code_id, so the cost_code_id IS NOT NULL filter naturally skips
+      // them.
       for (const row of jeRes.data ?? []) {
         const je = row.journal_entry as { status: string; source_type: string } | null;
         if (!je || je.status !== "posted") continue;
-        if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
+        if (je.source_type === "invoice_approval") continue;
         if (!row.cost_code_id || !row.project_id) continue;
 
         const code = ccIdToCode[row.cost_code_id];

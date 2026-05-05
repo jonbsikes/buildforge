@@ -360,13 +360,17 @@ export async function createPayment(
   // ---------------------------------------------------------------------------
   // If discount taken, distribute across invoices and determine WIP accounts
   // ---------------------------------------------------------------------------
-  type DiscountByWip = { accountNumber: string; projectId: string | null; amount: number };
+  // Discount credit lines are tagged with the paying invoice's dominant
+  // cost_code_id so the Job Cost report sees the discount net (otherwise the
+  // original invoice line items show full gross amount and the discount only
+  // reduces BS WIP, leaving the JC report overstated).
+  type DiscountByWip = { accountNumber: string; projectId: string | null; costCodeId: string | null; amount: number };
   const discountsByWip: DiscountByWip[] = [];
 
   if (discount > 0 && invoiceIds.length > 0) {
     const { data: invoiceDetails } = await supabase
       .from("invoices")
-      .select("id, total_amount, amount, project_id, projects ( project_type )")
+      .select("id, total_amount, amount, project_id, cost_code_id, projects ( project_type )")
       .in("id", invoiceIds);
 
     if (invoiceDetails && invoiceDetails.length > 0) {
@@ -411,6 +415,7 @@ export async function createPayment(
           discountsByWip.push({
             accountNumber: wipAcct,
             projectId: inv.project_id ?? null,
+            costCodeId: (inv.cost_code_id as string | null) ?? null,
             amount: share,
           });
         }
@@ -455,6 +460,7 @@ export async function createPayment(
     const lines: Array<{
       account_id: string;
       project_id: string | null;
+      cost_code_id?: string | null;
       description: string;
       debit: number;
       credit: number;
@@ -483,6 +489,7 @@ export async function createPayment(
           lines.push({
             account_id: wipAcctId,
             project_id: d.projectId,
+            cost_code_id: d.costCodeId,
             description: `Early-pay discount — ${ref} — ${input.payee}`,
             debit: 0,
             credit: d.amount,
