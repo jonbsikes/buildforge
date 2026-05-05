@@ -163,7 +163,7 @@ export default function BalanceSheetClient() {
         .from("vendor_credits")
         .select("amount, applied_amount")
         .eq("status", "available"),
-      supabase.rpc("get_balance_sheet_data", { p_as_of_date: asOf }),
+      (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: asOf }),
     ]);
     const creditsAvailable = (openCredits ?? []).reduce(
       (s, c) => s + Math.max(0, Number(c.amount) - Number(c.applied_amount ?? 0)),

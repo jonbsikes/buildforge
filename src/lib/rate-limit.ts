@@ -22,15 +22,18 @@ export async function rateLimit(
   const now = Date.now();
   const cutoff = now - windowMs;
 
+  // Cast to any — table not in generated types yet
+  const db = supabase as any;
+
   // 1. Clean old entries for this key
-  await supabase
+  await db
     .from("rate_limit_entries")
     .delete()
     .eq("key", key)
     .lt("timestamp", cutoff);
 
   // 2. Count recent entries
-  const { count } = await supabase
+  const { count } = await db
     .from("rate_limit_entries")
     .select("*", { count: "exact", head: true })
     .eq("key", key)
@@ -41,7 +44,7 @@ export async function rateLimit(
   }
 
   // 3. Insert new entry
-  await supabase
+  await db
     .from("rate_limit_entries")
     .insert({ key, timestamp: now });
 

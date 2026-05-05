@@ -56,7 +56,7 @@ export async function postJournalEntry(
     };
   }
 
-  const { data, error } = await supabase.rpc("post_journal_entry", {
+  const { data, error } = await (supabase.rpc as any)("post_journal_entry", {
     p_entry_date: header.entry_date,
     p_reference: header.reference ?? null,
     p_description: header.description,

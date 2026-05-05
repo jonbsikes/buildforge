@@ -74,7 +74,7 @@ export default function WIPClient() {
       }
 
       // Pull ledger WIP balances (1210, 1220, 1230) by project via server-side aggregation
-      const { data: wipBalances } = await supabase.rpc("get_wip_balances");
+      const { data: wipBalances } = await (supabase.rpc as any)("get_wip_balances");
 
       const ledgerWipMap: Record<string, number> = {};
       const capIntMap: Record<string, number> = {};
