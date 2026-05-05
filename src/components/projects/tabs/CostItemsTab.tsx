@@ -585,17 +585,23 @@ export default function CostItemsTab({
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {activeCodes.map((cc) => {
-                  const hasActual = (actualByCostCodeId[cc.id] ?? 0) > 0;
+                  const actualValue = actualByCostCodeId[cc.id] ?? 0;
+                  const hasActual = Math.abs(actualValue) > 0.005;
+                  // Drill-down to invoices only makes sense for positive
+                  // invoice-driven actuals. Negative actuals come from manual
+                  // JEs (e.g. cc 126 Lot Sale Allocation credits) — show the
+                  // value but don't offer the invoice drill-down for them.
+                  const drillable = actualValue > 0.005;
                   const isExpanded = expandedCodeId === cc.id;
                   return (
                     <React.Fragment key={cc.pccId || cc.code}>
                       <tr
-                        className={`transition-colors group ${hasActual ? "cursor-pointer hover:bg-blue-50/50" : "hover:bg-gray-50"} ${isExpanded ? "bg-blue-50/40" : ""}`}
-                        onClick={() => handleRowClick(cc)}
+                        className={`transition-colors group ${drillable ? "cursor-pointer hover:bg-blue-50/50" : "hover:bg-gray-50"} ${isExpanded ? "bg-blue-50/40" : ""}`}
+                        onClick={() => drillable && handleRowClick(cc)}
                       >
                         <td className="px-4 py-2.5 text-xs font-mono text-gray-500">
                           <div className="flex items-center gap-1.5">
-                            {hasActual
+                            {drillable
                               ? (isExpanded ? <ChevronDown size={12} className="text-[#4272EF] shrink-0" /> : <ChevronRight size={12} className="text-gray-400 shrink-0" />)
                               : <span className="w-[18px]" />
                             }
@@ -605,7 +611,7 @@ export default function CostItemsTab({
                         <td className="px-4 py-2.5 text-gray-900">{cc.name}</td>
                         <td className="px-4 py-2.5 text-right text-gray-800 font-medium">
                           {hasActual
-                            ? <span className={isExpanded ? "text-[#4272EF]" : ""}>{fmt(actualByCostCodeId[cc.id])}</span>
+                            ? <span className={isExpanded ? "text-[#4272EF]" : ""}>{fmt(actualValue)}</span>
                             : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>

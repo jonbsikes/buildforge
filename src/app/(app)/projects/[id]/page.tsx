@@ -208,7 +208,11 @@ export default async function ProjectDetailPage({ params }: Props) {
   for (const line of jeLinesResult.data ?? []) {
     const je = line.journal_entries as { status: string; source_type: string } | null | undefined;
     if (!je || je.status !== "posted") continue;
-    if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
+    // Mirrors JobCostReportClient: only invoice_approval is excluded.
+    // invoice_payment is allowed so cc-tagged early-pay discount credits are
+    // counted (their non-WIP legs hit AP/Cash/2050 with no cost_code_id and
+    // are filtered by the cost_code_id check below).
+    if (je.source_type === "invoice_approval") continue;
     const ccId = line.cost_code_id as string;
     if (!ccId) continue;
     const amt = (line.debit ?? 0) - (line.credit ?? 0);
