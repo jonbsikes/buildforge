@@ -15,14 +15,11 @@ CREATE INDEX IF NOT EXISTS idx_invoices_vendor_id
 CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice_id
   ON invoice_line_items (invoice_id);
 
-CREATE INDEX IF NOT EXISTS idx_journal_entries_project_id
-  ON journal_entries (project_id);
-
 CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_journal_entry_id
   ON journal_entry_lines (journal_entry_id);
 
-CREATE INDEX IF NOT EXISTS idx_project_stages_project_id
-  ON project_stages (project_id);
+CREATE INDEX IF NOT EXISTS idx_build_stages_project_id
+  ON build_stages (project_id);
 
 CREATE INDEX IF NOT EXISTS idx_field_logs_project_id
   ON field_logs (project_id);
@@ -67,8 +64,8 @@ CREATE INDEX IF NOT EXISTS idx_invoices_due_date
 CREATE INDEX IF NOT EXISTS idx_loan_draws_status
   ON loan_draws (status);
 
-CREATE INDEX IF NOT EXISTS idx_vendors_coi_expiry
-  ON vendors (coi_expiry);
+CREATE INDEX IF NOT EXISTS idx_vendors_coi_expiry_date
+  ON vendors (coi_expiry_date);
 
-CREATE INDEX IF NOT EXISTS idx_vendors_license_expiry
-  ON vendors (license_expiry);
+CREATE INDEX IF NOT EXISTS idx_vendors_license_expiry_date
+  ON vendors (license_expiry_date);
