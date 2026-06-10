@@ -50,22 +50,24 @@ export async function getData(p: ReportParams): Promise<BudgetVarianceData> {
     .eq("project_id", projectId)
     .eq("enabled", true);
 
-  // Fetch invoices (actual) — sum from line items per cost code.
-  // Aliased/nested joins aren't inferred by PostgREST types.
+  // Fetch invoices (actual) — sum from line items per cost code, filtered
+  // server-side to THIS project (the old all-rows query silently capped at
+  // PostgREST's 1,000-row limit). Aliased/nested joins aren't inferred by
+  // PostgREST types.
   type InvoiceLineRow = {
     cost_code: string | null;
     amount: number | null;
-    invoice: { project_id: string | null; status: string } | null;
+    invoice: { status: string } | null;
   };
   const { data: invoiceLineData } = await supabase
     .from("invoice_line_items")
-    .select("cost_code, amount, invoice:invoices(project_id, status)");
+    .select("cost_code, amount, invoice:invoices!inner(status)")
+    .eq("project_id", projectId)
+    .in("invoice.status", ["approved", "released", "cleared"]);
 
   const actualMap: Record<string, number> = {};
-  const allowedInvoiceStatuses = new Set(["approved", "released", "cleared"]);
   for (const il of ((invoiceLineData ?? []) as unknown as InvoiceLineRow[])) {
-    const inv = il.invoice;
-    if (inv?.project_id === projectId && inv?.status && allowedInvoiceStatuses.has(inv.status) && il.cost_code) {
+    if (il.cost_code) {
       actualMap[il.cost_code] = (actualMap[il.cost_code] ?? 0) + (il.amount ?? 0);
     }
   }

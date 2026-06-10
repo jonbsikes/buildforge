@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { FileDown, Printer } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 type DatePreset = "this_month" | "this_quarter" | "this_year" | "all_time" | "custom";
 
@@ -79,40 +80,22 @@ export default function ReportChrome({
     onAsOfChange?.(date);
   }
 
-  function buildExportUrl(forDownload: boolean): string | null {
-    if (!exportSlug) return null;
-    const qs = new URLSearchParams();
+  /** Current date selection + extra params — forwarded to the export route. */
+  function buildExportParams(): Record<string, string | undefined> {
+    const out: Record<string, string | undefined> = {};
     if (dateMode === "range") {
       const range = preset === "custom"
         ? { start: customStart, end: customEnd }
         : getPresetRange(preset);
-      if (range.start) qs.set("start", range.start);
-      if (range.end) qs.set("end", range.end);
+      if (range.start) out.start = range.start;
+      if (range.end) out.end = range.end;
     } else if (dateMode === "asOf") {
-      qs.set("asOf", asOf);
+      out.asOf = asOf;
     }
     if (exportParams) {
-      for (const [k, v] of Object.entries(exportParams)) if (v) qs.set(k, v);
+      for (const [k, v] of Object.entries(exportParams)) if (v) out[k] = v;
     }
-    if (forDownload) qs.set("download", "1");
-    return `/api/reports/${exportSlug}?${qs.toString()}`;
-  }
-
-  function handlePrint() {
-    const url = buildExportUrl(false);
-    if (!url) { window.print(); return; }
-    window.open(url, "_blank");
-  }
-
-  function handleExport() {
-    const url = buildExportUrl(true);
-    if (!url) { window.print(); return; }
-    // Trigger a download via a hidden anchor
-    const a = document.createElement("a");
-    a.href = url;
-    a.rel = "noopener";
-    a.target = "_blank";
-    a.click();
+    return out;
   }
 
   return (
@@ -125,20 +108,26 @@ export default function ReportChrome({
             {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
           </div>
           <div className="flex items-center gap-2 print:hidden">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-            >
-              <Printer size={13} />
-              Print
-            </button>
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-            >
-              <FileDown size={13} />
-              Export PDF
-            </button>
+            {exportSlug ? (
+              <ReportExportButtons slug={exportSlug} params={buildExportParams()} />
+            ) : (
+              <>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  <Printer size={13} />
+                  Print
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  <FileDown size={13} />
+                  Export PDF
+                </button>
+              </>
+            )}
           </div>
         </div>
 

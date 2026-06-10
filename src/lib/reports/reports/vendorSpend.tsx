@@ -34,19 +34,42 @@ export async function getData(p: ReportParams): Promise<VendorSpendData> {
   const start = p.start!;
   const end = p.end!;
 
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select(`
-      vendor,
-      amount,
-      total_amount,
-      status,
-      invoice_date,
-      vendors(trade)
-    `)
-    .in("status", ["approved", "released", "cleared"])
-    .gte("invoice_date", start)
-    .lte("invoice_date", end);
+  // Accrual-basis spend by invoice date (approved/released/cleared).
+  // Paginate past PostgREST's 1,000-row cap so totals never silently truncate.
+  type InvRow = {
+    vendor: string | null;
+    amount: number | null;
+    total_amount: number | null;
+    status: string;
+    invoice_date: string | null;
+    vendors: { trade: string | null } | null;
+  };
+  let invoices: InvRow[] = [];
+  {
+    let fromIdx = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const { data: page } = await supabase
+        .from("invoices")
+        .select(`
+          vendor,
+          amount,
+          total_amount,
+          status,
+          invoice_date,
+          vendors(trade)
+        `)
+        .in("status", ["approved", "released", "cleared"])
+        .gte("invoice_date", start)
+        .lte("invoice_date", end)
+        .order("invoice_date")
+        .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+      if (!page || page.length === 0) break;
+      invoices = invoices.concat(page as unknown as InvRow[]);
+      if (page.length < PAGE_SIZE) break;
+      fromIdx += PAGE_SIZE;
+    }
+  }
 
   const vendorMap: Record<string, { vendor: string; total: number; count: number; trade?: string }> = {};
 
@@ -119,7 +142,7 @@ export function Pdf({ data, params, logo }: { data: VendorSpendData; params: Rep
       subtitle={formatDateRange(params.start!, params.end!)}
       logo={logo}
     >
-      <SectionHeading>Vendors by Total Spend</SectionHeading>
+      <SectionHeading>Vendors by Total Spend (by invoice date — approved, released & paid invoices)</SectionHeading>
       <Table columns={columns} rows={data.vendors} emptyText="No approved or paid invoices for this period." />
       <TotalRow
         label="Grand Total"

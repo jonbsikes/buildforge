@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { FileDown } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
@@ -40,20 +39,20 @@ export default function WIPClient() {
     async function load() {
       const supabase = createClient();
 
-      const [projectsRes, budgetsRes, contractsRes, invoicesRes, loansRes] = await Promise.all([
+      const [projectsRes, budgetsRes, contractsRes, actualsRes, loansRes] = await Promise.all([
         supabase.from("projects").select("id, name, project_type, status").order("name"),
-        supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
+        (supabase.rpc as any)("get_project_budget_totals"),
         supabase.from("contracts").select("project_id, amount"),
-        supabase.from("invoice_line_items").select("project_id, amount, invoices!inner ( status )").in("invoices.status", ["approved", "released", "cleared"]),
+        (supabase.rpc as any)("get_invoice_line_actuals_by_project"),
         supabase.from("loans").select("project_id, loan_amount"),
       ]);
 
       const projects = projectsRes.data ?? [];
 
-      // Aggregate by project_id
+      // Server-side aggregates, keyed by project_id
       const budgetMap: Record<string, number> = {};
-      for (const b of budgetsRes.data ?? []) {
-        budgetMap[b.project_id] = (budgetMap[b.project_id] ?? 0) + (b.budgeted_amount ?? 0);
+      for (const b of (budgetsRes.data ?? []) as { project_id: string; total_budget: number }[]) {
+        budgetMap[b.project_id] = Number(b.total_budget);
       }
 
       const committedMap: Record<string, number> = {};
@@ -62,10 +61,8 @@ export default function WIPClient() {
       }
 
       const actualMap: Record<string, number> = {};
-      for (const li of invoicesRes.data ?? []) {
-        if (li.project_id) {
-          actualMap[li.project_id] = (actualMap[li.project_id] ?? 0) + (li.amount ?? 0);
-        }
+      for (const li of (actualsRes.data ?? []) as { project_id: string; total_amount: number }[]) {
+        actualMap[li.project_id] = Number(li.total_amount);
       }
 
       const loanMap: Record<string, number> = {};
@@ -172,11 +169,6 @@ export default function WIPClient() {
           <option value="on_hold">On Hold</option>
           <option value="completed">Completed</option>
         </select>
-        <div className="ml-auto">
-          <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            <FileDown size={15} /> Export PDF
-          </button>
-        </div>
       </div>
 
       {loading ? (

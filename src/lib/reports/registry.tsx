@@ -48,10 +48,24 @@ const MODULES: Record<ReportSlug, ReportModule<any>> = {
   "subdivision-overview": subdivisionOverview,
 };
 
-export async function renderReport(slug: ReportSlug, params: ReportParams): Promise<ReactElement> {
+export async function renderReport(
+  slug: ReportSlug,
+  params: ReportParams,
+  logoOverride?: Buffer
+): Promise<ReactElement> {
   const mod = MODULES[slug];
   if (!mod) throw new Error(`No module registered for report: ${slug}`);
   const data = await mod.getData(params);
-  const logo = getLogo();
+  const logo = logoOverride ?? getLogo();
   return mod.Pdf({ data, params, logo });
+}
+
+/**
+ * Run a report's data function without rendering the PDF — used by the Excel
+ * export path so PDF and XLSX are always built from the exact same numbers.
+ */
+export async function getReportData(slug: ReportSlug, params: ReportParams): Promise<unknown> {
+  const mod = MODULES[slug];
+  if (!mod) throw new Error(`No module registered for report: ${slug}`);
+  return mod.getData(params);
 }

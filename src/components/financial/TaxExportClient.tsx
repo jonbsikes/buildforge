@@ -64,11 +64,12 @@ export default function TaxExportClient() {
         };
 
         // 1. GL entries from journal_entry_lines + journal_entries + chart_of_accounts
-        //    Paginate past Supabase's 1000-row default cap; tax export can easily exceed that.
+        //    Filtered server-side to posted entries in the tax year; paginate
+        //    past Supabase's 1000-row cap since a full year can exceed it.
         const jelSelect = `
           debit, credit, description,
           account:chart_of_accounts(account_number, name, type),
-          journal_entry:journal_entries(entry_date, description, reference, status, source_type),
+          journal_entry:journal_entries!inner(entry_date, description, reference, status, source_type),
           project:projects(name)
         `;
         let jelData: GlRow[] = [];
@@ -79,6 +80,10 @@ export default function TaxExportClient() {
             const { data: page } = await supabase
               .from("journal_entry_lines")
               .select(jelSelect)
+              .eq("journal_entry.status", "posted")
+              .gte("journal_entry.entry_date", fromDate)
+              .lte("journal_entry.entry_date", toDate)
+              .order("id")
               .range(fromIdx, fromIdx + PAGE_SIZE - 1);
             if (!page || page.length === 0) break;
             jelData = jelData.concat(page as unknown as GlRow[]);
@@ -87,11 +92,7 @@ export default function TaxExportClient() {
           }
         }
 
-        const glLines = jelData.filter((l) =>
-          l.journal_entry?.status === "posted" &&
-          (l.journal_entry?.entry_date ?? "") >= fromDate &&
-          (l.journal_entry?.entry_date ?? "") <= toDate
-        );
+        const glLines = jelData;
 
         if (glLines.length > 0) {
           downloadCSV(
@@ -166,22 +167,38 @@ export default function TaxExportClient() {
           completed.push("Invoices (empty)");
         }
 
-        // 3. Vendor totals
+        // 3. Vendor totals — CASH BASIS for 1099 prep: only checks that
+        //    actually CLEARED during the year (status 'cleared', payment_date
+        //    in year). 1099s report what you paid, not what you were billed.
+        type PaidInvoiceRow = {
+          vendor: string | null;
+          amount: number | null;
+          total_amount: number | null;
+          payment_date: string | null;
+        };
+        const { data: paidData } = await supabase
+          .from("invoices")
+          .select("vendor, amount, total_amount, payment_date")
+          .eq("status", "cleared")
+          .gte("payment_date", fromDate)
+          .lte("payment_date", toDate);
+        const paidInvoices = (paidData ?? []) as PaidInvoiceRow[];
+
         const vendorMap: Record<string, number> = {};
-        for (const inv of invoices) {
+        for (const inv of paidInvoices) {
           const v = inv.vendor ?? "Unknown";
           vendorMap[v] = (vendorMap[v] ?? 0) + (Number(inv.total_amount ?? inv.amount ?? 0));
         }
         downloadCSV(
           `vendor_totals_${year}.csv`,
           toCSV(
-            ["Vendor", "Total Amount"],
+            ["Vendor", `Cash Paid in ${year} (cleared checks)`],
             Object.entries(vendorMap)
               .sort((a, b) => b[1] - a[1])
               .map(([v, amt]) => [v, amt])
           )
         );
-        completed.push("Vendor Totals");
+        completed.push("Vendor Totals (cash paid)");
 
         // 4. Account balances summary (from GL)
         const acctMap: Record<string, { number: string; name: string; type: string; debit: number; credit: number }> = {};
@@ -246,7 +263,7 @@ export default function TaxExportClient() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
-      <div className="flex justify-end print:hidden"><ReportExportButtons slug="tax-export" params={undefined} /></div>
+      <div className="flex justify-end print:hidden"><ReportExportButtons slug="tax-export" params={{ year }} /></div>
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
         <div>
           <h2 className="text-base font-semibold text-gray-900 mb-1">Tax Package Export</h2>
@@ -272,7 +289,7 @@ export default function TaxExportClient() {
           {[
             { name: `gl_entries_${year}.csv`, desc: "All posted GL journal entry lines with account details" },
             { name: `invoices_${year}.csv`, desc: "All invoices with project and cost code" },
-            { name: `vendor_totals_${year}.csv`, desc: "Total per vendor, sorted by amount" },
+            { name: `vendor_totals_${year}.csv`, desc: "Cash paid per vendor (cleared checks) — 1099 basis" },
             { name: `account_balances_${year}.csv`, desc: "Account-level debit/credit/balance summary" },
             { name: `project_wip_${year}.csv`, desc: "WIP and loan balance per project" },
           ].map((f) => (

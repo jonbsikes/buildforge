@@ -5,30 +5,24 @@ import { styles, colors } from "../pdf/styles";
 import {
   fmtMoney,
   formatDateRange,
-  SectionHeading,
   Empty,
 } from "../pdf/components";
 import type { ReportParams } from "../types";
+import {
+  parseCashFlowBuckets,
+  buildCashFlowStatementSections,
+  type CashFlowStatementSection,
+} from "../cashflow-shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface CashFlowLine {
-  label: string;
-  amount: number;
-  isSubtraction?: boolean;
-}
-
-interface CashFlowSection {
-  title: string;
-  lines: CashFlowLine[];
-  total: number;
-}
-
 export interface CashFlowData {
-  operating: CashFlowSection;
-  investing: CashFlowSection;
-  financing: CashFlowSection;
+  operating: CashFlowStatementSection;
+  investing: CashFlowStatementSection;
+  financing: CashFlowStatementSection;
   netChange: number;
+  beginningCash: number;
+  endingCash: number;
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -38,179 +32,60 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
   const start = p.start!;
   const end = p.end!;
 
-  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-  type LedgerRow = {
-    debit: number | null;
-    credit: number | null;
-    account: { account_number: string; name: string; type: string | null } | null;
-    journal_entry: {
-      id: string;
-      entry_date: string;
-      status: string;
-      source_type: string | null;
-    } | null;
-  };
+  // Direct-method statement from actual cash-account movement
+  // (get_cash_flow_statement, migration 041). Buckets partition every cash
+  // line exactly, so beginning + net change = ending = GL cash balance.
+  const { data: bucketData } = await (supabase.rpc as any)("get_cash_flow_statement", {
+    p_start: start,
+    p_end: end,
+  });
+  const b = parseCashFlowBuckets(((bucketData ?? []) as Record<string, number | string>[])[0]);
 
-  // Fetch ALL journal entry lines with JE id for grouping (paginate past Supabase 1000-row default)
-  let allLines: LedgerRow[] = [];
-  let from = 0;
-  const PAGE_SIZE = 1000;
-  while (true) {
-    const { data: page } = await supabase
-      .from("journal_entry_lines")
-      .select(`
-        debit, credit,
-        account:chart_of_accounts(account_number, name, type),
-        journal_entry:journal_entries(id, entry_date, status, source_type)
-      `)
-      .range(from, from + PAGE_SIZE - 1);
-    if (!page || page.length === 0) break;
-    allLines = allLines.concat(page as unknown as LedgerRow[]);
-    if (page.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  // ─── CASH-BASIS APPROACH ─────────────────────────────────────────
-  // Build from actual Cash (1000) movements. Group lines by JE and
-  // inspect sibling accounts to categorize — works for all JEs
-  // including migrated/historical entries regardless of source_type.
-  // ─────────────────────────────────────────────────────────────────
-
-  const filteredLines = allLines.filter((l) =>
-    l.journal_entry?.status === "posted" &&
-    (l.journal_entry?.entry_date ?? "") >= start &&
-    (l.journal_entry?.entry_date ?? "") <= end
-  );
-
-  const jeGroupsPdf = new Map<string, LedgerRow[]>();
-  for (const line of filteredLines) {
-    const jeId = line.journal_entry?.id;
-    if (!jeId) continue;
-    if (!jeGroupsPdf.has(jeId)) jeGroupsPdf.set(jeId, []);
-    jeGroupsPdf.get(jeId)!.push(line);
-  }
-
-  // Category buckets
-  const operatingInLines: LedgerRow[] = [];
-  const operatingOutLines: LedgerRow[] = [];
-  const drawInLines: LedgerRow[] = [];
-  const capitalInLines: LedgerRow[] = [];
-  const loanPayOutLines: LedgerRow[] = [];
-  const ownerDrawOutLines: LedgerRow[] = [];
-
-  for (const [, jeLines] of jeGroupsPdf) {
-    const cashLines = jeLines.filter((l) => l.account?.account_number === '1000');
-    if (cashLines.length === 0) continue;
-
-    const siblings = jeLines.filter((l) => l.account?.account_number !== '1000');
-    const siblingAccts = siblings.map((l) => l.account?.account_number ?? '');
-    const siblingTypes = siblings.map((l) => l.account?.type ?? '');
-
-    const hasLoanPayable = siblingAccts.some((a) => a.startsWith('22') || a === '2100');
-    const hasDueFromLender = siblingAccts.some((a) => a === '1120');
-    const hasEquity = siblingAccts.some((a) => a.startsWith('30')) || siblingTypes.includes('equity');
-    const hasDistributions = siblingAccts.some((a) => a.startsWith('32'));
-
-    for (const cashLine of cashLines) {
-      const debit = Number(cashLine.debit || 0);
-      const credit = Number(cashLine.credit || 0);
-
-      if (debit > 0) {
-        if (hasDueFromLender || hasLoanPayable) {
-          drawInLines.push(cashLine);
-        } else if (hasEquity) {
-          capitalInLines.push(cashLine);
-        } else {
-          operatingInLines.push(cashLine);
-        }
-      }
-
-      if (credit > 0) {
-        if (hasLoanPayable) {
-          loanPayOutLines.push(cashLine);
-        } else if (hasDistributions) {
-          ownerDrawOutLines.push(cashLine);
-        } else {
-          operatingOutLines.push(cashLine);
-        }
-      }
-    }
-  }
-
-  const sumDebit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.debit || 0), 0);
-  const sumCredit = (arr: LedgerRow[]) => arr.reduce((s, l) => s + Number(l.credit || 0), 0);
-
-  const cashFromCustomers = sumDebit(operatingInLines);
-  const cashToVendors = sumCredit(operatingOutLines);
-  const cashFromDraws = sumDebit(drawInLines);
-  const capitalContribs = sumDebit(capitalInLines);
-  const loanPayments = sumCredit(loanPayOutLines);
-  const ownerDraws = sumCredit(ownerDrawOutLines);
-
-  const operating: CashFlowSection = {
-    title: "Operating Activities",
-    lines: [
-      { label: "Cash received from customers", amount: cashFromCustomers },
-      ...(cashToVendors > 0 ? [{ label: "Cash paid to vendors & subcontractors", amount: cashToVendors, isSubtraction: true }] : []),
-    ],
-    total: cashFromCustomers - cashToVendors,
-  };
-
-  const investing: CashFlowSection = {
-    title: "Investing Activities",
-    lines: [],
-    total: 0,
-  };
-
-  const financing: CashFlowSection = {
-    title: "Financing Activities",
-    lines: [
-      ...(cashFromDraws > 0 ? [{ label: "Construction loan draws received", amount: cashFromDraws }] : []),
-      ...(capitalContribs > 0 ? [{ label: "Capital contributions", amount: capitalContribs }] : []),
-      ...(loanPayments > 0 ? [{ label: "Loan payments made", amount: loanPayments, isSubtraction: true }] : []),
-      ...(ownerDraws > 0 ? [{ label: "Owner draws & distributions", amount: ownerDraws, isSubtraction: true }] : []),
-    ],
-    total: cashFromDraws + capitalContribs - loanPayments - ownerDraws,
-  };
-
-  const netChange = operating.total + investing.total + financing.total;
+  const { operating, investing, financing, netChange } = buildCashFlowStatementSections(b);
 
   return {
     operating,
     investing,
     financing,
     netChange,
+    beginningCash: b.beginning_cash,
+    endingCash: b.ending_cash,
   };
 }
 
 // ─── PDF ──────────────────────────────────────────────────────────────────────
 
-function CashFlowSection({ section }: { section: CashFlowSection }) {
+function CashFlowSectionView({ section }: { section: CashFlowStatementSection }) {
   return (
     <View style={{ marginBottom: 12 }} wrap={false}>
       <Text style={styles.sectionHeading}>{section.title}</Text>
       {section.lines.length === 0 ? (
-        <Empty>No activity for this period.</Empty>
+        <Empty>{section.note ?? "No activity for this period."}</Empty>
       ) : (
-        section.lines.map((line, i) => (
-          <View
-            key={i}
-            style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}]}
-            wrap={false}
-          >
-            <View style={{ width: "70%" }}>
-              <Text style={styles.td}>
-                {line.isSubtraction && <Text>{" − "}</Text>}
-                {line.label}
-              </Text>
+        <>
+          {section.lines.map((line, i) => (
+            <View
+              key={line.bucket}
+              style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}]}
+              wrap={false}
+            >
+              <View style={{ width: "70%" }}>
+                <Text style={styles.td}>
+                  {line.isSubtraction && <Text>{" − "}</Text>}
+                  {line.label}
+                </Text>
+              </View>
+              <View style={{ width: "30%" }}>
+                <Text style={[styles.tdNum, line.isSubtraction ? { color: colors.red } : {}]}>
+                  {line.isSubtraction ? `(${fmtMoney(line.amount)})` : fmtMoney(line.amount)}
+                </Text>
+              </View>
             </View>
-            <View style={{ width: "30%" }}>
-              <Text style={[styles.tdNum, line.isSubtraction ? { color: colors.red } : {}]}>
-                {line.isSubtraction ? `(${fmtMoney(line.amount)})` : fmtMoney(line.amount)}
-              </Text>
-            </View>
-          </View>
-        ))
+          ))}
+          {section.note && (
+            <Text style={[styles.small, { color: colors.muted, marginTop: 2 }]}>{section.note}</Text>
+          )}
+        </>
       )}
       <View style={styles.subtotalRow} wrap={false}>
         <View style={{ width: "70%" }}>
@@ -226,6 +101,21 @@ function CashFlowSection({ section }: { section: CashFlowSection }) {
   );
 }
 
+function ReconRow({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
+  return (
+    <View style={[styles.tr]} wrap={false}>
+      <View style={{ width: "70%" }}>
+        <Text style={strong ? styles.tdStrong : styles.td}>{label}</Text>
+      </View>
+      <View style={{ width: "30%" }}>
+        <Text style={strong ? styles.tdNumStrong : styles.tdNum}>
+          {value < 0 ? `(${fmtMoney(Math.abs(value))})` : fmtMoney(value)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export function Pdf({ data, params, logo }: { data: CashFlowData; params: ReportParams; logo?: Buffer | string }) {
   return (
     <ReportDocument
@@ -233,9 +123,9 @@ export function Pdf({ data, params, logo }: { data: CashFlowData; params: Report
       subtitle={formatDateRange(params.start!, params.end!)}
       logo={logo}
     >
-      <CashFlowSection section={data.operating} />
-      <CashFlowSection section={data.investing} />
-      <CashFlowSection section={data.financing} />
+      <CashFlowSectionView section={data.operating} />
+      <CashFlowSectionView section={data.investing} />
+      <CashFlowSectionView section={data.financing} />
 
       <View style={[styles.totalRow, { borderTopColor: colors.brand, borderTopWidth: 2, marginTop: 12 }]} wrap={false}>
         <View style={{ width: "70%" }}>
@@ -250,6 +140,21 @@ export function Pdf({ data, params, logo }: { data: CashFlowData; params: Report
           >
             {data.netChange < 0 ? `(${fmtMoney(Math.abs(data.netChange))})` : fmtMoney(data.netChange)}
           </Text>
+        </View>
+      </View>
+
+      {/* Reconciliation to the GL cash balance */}
+      <View style={{ marginTop: 10 }} wrap={false}>
+        <Text style={styles.sectionHeading}>Cash Reconciliation</Text>
+        <ReconRow label="Cash at beginning of period" value={data.beginningCash} />
+        <ReconRow label="Net change in cash" value={data.netChange} />
+        <View style={styles.subtotalRow} wrap={false}>
+          <View style={{ width: "70%" }}>
+            <Text style={styles.tdStrong}>Cash at end of period (ties to GL cash accounts)</Text>
+          </View>
+          <View style={{ width: "30%" }}>
+            <Text style={styles.tdNumStrong}>{fmtMoney(data.endingCash)}</Text>
+          </View>
         </View>
       </View>
     </ReportDocument>

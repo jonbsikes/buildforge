@@ -30,7 +30,9 @@ export interface FinancialSummaryData {
   totalLoans: number;
   totalEquity: number;
   apOutstanding: number;
-  netIncome: number;
+  /** P&L for the selected period (params.start–params.end) */
+  periodRevenue: number;
+  periodNetIncome: number;
   projectRows: ProjectRow[];
 }
 
@@ -38,40 +40,53 @@ export interface FinancialSummaryData {
 
 export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
   const supabase = await createClient();
-  const start = p.start!;
-  const end = p.end!;
 
-  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-  type LedgerRow = {
-    debit: number | null;
-    credit: number | null;
+  // Server-side GL aggregation (same RPC as the Balance Sheet — per-account,
+  // per-project totals from posted entries) plus loans and projects.
+  type RpcRow = {
+    account_number: string;
+    account_name: string;
+    account_type: string | null;
+    account_subtype: string | null;
+    total_debit: number;
+    total_credit: number;
     project_id: string | null;
-    account: { account_number: string; name: string; type: string | null } | null;
-    journal_entry: { entry_date: string; status: string } | null;
+  };
+  type PnlRow = {
+    account_number: string;
+    account_type: string;
+    total_debit: number;
+    total_credit: number;
   };
 
-  const [ledgerRes, loansRes, projectsRes] = await Promise.all([
-    supabase.from("journal_entry_lines").select(`
-      debit, credit, project_id,
-      account:chart_of_accounts(account_number, name, type),
-      journal_entry:journal_entries(entry_date, status)
-    `),
+  const today = new Date().toISOString().split("T")[0];
+  const periodStart = p.start ?? `${new Date().getFullYear()}-01-01`;
+  const periodEnd = p.end ?? today;
+  const [rpcRes, pnlRes, loansRes, projectsRes] = await Promise.all([
+    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: today }),
+    (supabase.rpc as any)("get_income_statement_data", { p_start: periodStart, p_end: periodEnd }),
     supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
     supabase.from("projects").select("id, name").order("name"),
   ]);
 
-  // Filter to posted entries
-  const lines = ((ledgerRes.data ?? []) as unknown as LedgerRow[]).filter((l) => l.journal_entry?.status === "posted");
+  const rows = (rpcRes.data ?? []) as RpcRow[];
 
-  // Aggregate by account
-  const acctTotals: Record<string, { debit: number; credit: number; type: string }> = {};
-  for (const line of lines) {
-    const acc = line.account;
-    if (!acc) continue;
-    const key = acc.account_number;
-    if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: acc.type ?? "" };
-    acctTotals[key].debit += Number(line.debit ?? 0);
-    acctTotals[key].credit += Number(line.credit ?? 0);
+  // Period P&L (for the KPI cards — previously hardcoded to $0)
+  let periodRevenue = 0, periodCogs = 0, periodExpenses = 0;
+  for (const row of (pnlRes.data ?? []) as PnlRow[]) {
+    if (row.account_type === "revenue") periodRevenue += Number(row.total_credit) - Number(row.total_debit);
+    else if (row.account_type === "cogs") periodCogs += Number(row.total_debit) - Number(row.total_credit);
+    else if (row.account_type === "expense") periodExpenses += Number(row.total_debit) - Number(row.total_credit);
+  }
+  const periodNetIncome = periodRevenue - periodCogs - periodExpenses;
+
+  // Aggregate by account (the RPC returns per-account, per-project rows)
+  const acctTotals: Record<string, { debit: number; credit: number; type: string; subtype: string }> = {};
+  for (const row of rows) {
+    const key = row.account_number;
+    if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: row.account_type ?? "", subtype: row.account_subtype ?? "" };
+    acctTotals[key].debit += Number(row.total_debit);
+    acctTotals[key].credit += Number(row.total_credit);
   }
 
   const getBalance = (acctNum: string) => {
@@ -105,28 +120,23 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
     else if (a.type === "expense") expenses += balance;
   }
   const retainedEarnings = revenue - cogs - expenses;
-  const netIncome = revenue - cogs - expenses;
   const totalEquity = totalEquityAccounts + retainedEarnings;
 
-  // Loans
+  // Loans — subtype 'loan' accounts only (number-range checks wrongly caught
+  // 2110 accrued interest, 2200 customer deposits, 2300+, etc.)
   let totalLoans = 0;
-  for (const [acctNum, a] of Object.entries(acctTotals)) {
-    if (a.type === "liability" && acctNum >= "2100") {
+  for (const a of Object.values(acctTotals)) {
+    if (a.type === "liability" && a.subtype === "loan") {
       totalLoans += a.credit - a.debit;
     }
   }
 
   // WIP per project
   const projectWIP: Record<string, number> = {};
-  for (const line of lines) {
-    const acc = line.account;
-    if (!acc || !line.project_id) continue;
-    const pid = line.project_id;
-    const debit = Number(line.debit ?? 0);
-    const credit = Number(line.credit ?? 0);
-
-    if (acc.account_number === "1210" || acc.account_number === "1220" || acc.account_number === "1230") {
-      projectWIP[pid] = (projectWIP[pid] ?? 0) + debit - credit;
+  for (const row of rows) {
+    if (!row.project_id) continue;
+    if (row.account_number === "1210" || row.account_number === "1220" || row.account_number === "1230") {
+      projectWIP[row.project_id] = (projectWIP[row.project_id] ?? 0) + Number(row.total_debit) - Number(row.total_credit);
     }
   }
 
@@ -156,7 +166,8 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
     totalLoans,
     totalEquity,
     apOutstanding,
-    netIncome,
+    periodRevenue,
+    periodNetIncome,
     projectRows,
   };
 }
@@ -165,8 +176,8 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
 
 export function Pdf({ data, params, logo }: { data: FinancialSummaryData; params: ReportParams; logo?: Buffer | string }) {
   const kpis = [
-    { label: "Revenue (Period)", value: fmtMoney(0), tone: "green" as const },
-    { label: "Net Income (Period)", value: fmtMoney(data.netIncome), tone: data.netIncome >= 0 ? "green" as const : "red" as const },
+    { label: "Revenue (Period)", value: fmtMoney(data.periodRevenue), tone: "green" as const },
+    { label: "Net Income (Period)", value: fmtMoney(data.periodNetIncome), tone: data.periodNetIncome >= 0 ? "green" as const : "red" as const },
     { label: "Cash on Hand", value: fmtMoney(data.cash), tone: "brand" as const },
     { label: "Total WIP / CIP", value: fmtMoney(data.totalWIP), tone: "brand" as const },
     { label: "AP Outstanding", value: fmtMoney(data.apOutstanding), tone: "red" as const },

@@ -35,61 +35,32 @@ export default function FinancialSummaryClient() {
     async function load() {
       const supabase = createClient();
 
-      // Fetch loans and projects in parallel; paginate GL lines separately
-      // to break past Supabase's 1000-row default cap.
-      const [loansRes, projectsRes] = await Promise.all([
+      // Loans + projects + server-side GL aggregation (same RPC as the
+      // Balance Sheet — per-account, per-project totals from posted entries).
+      const [loansRes, projectsRes, rpcRes] = await Promise.all([
         supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
         supabase.from("projects").select("id, name").order("name"),
+        (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: new Date().toISOString().split("T")[0] }),
       ]);
 
-      // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-      type LedgerRow = {
-        debit: number | null;
-        credit: number | null;
+      type RpcRow = {
+        account_number: string;
+        account_name: string;
+        account_type: string | null;
+        account_subtype: string | null;
+        total_debit: number;
+        total_credit: number;
         project_id: string | null;
-        account: {
-          account_number: string;
-          name: string;
-          type: string | null;
-        } | null;
-        journal_entry: {
-          id: string;
-          entry_date: string;
-          status: string;
-        } | null;
       };
+      const rows = (rpcRes.data ?? []) as RpcRow[];
 
-      const ledgerSelect = `
-        debit, credit, project_id,
-        account:chart_of_accounts(account_number, name, type),
-        journal_entry:journal_entries(id, entry_date, status)
-      `;
-      let rawLines: LedgerRow[] = [];
-      let fromIdx = 0;
-      const PAGE_SIZE = 1000;
-      while (true) {
-        const { data: page } = await supabase
-          .from("journal_entry_lines")
-          .select(ledgerSelect)
-          .range(fromIdx, fromIdx + PAGE_SIZE - 1);
-        if (!page || page.length === 0) break;
-        rawLines = rawLines.concat(page as unknown as LedgerRow[]);
-        if (page.length < PAGE_SIZE) break;
-        fromIdx += PAGE_SIZE;
-      }
-
-      // Filter to posted entries
-      const lines = rawLines.filter((l) => l.journal_entry?.status === "posted");
-
-      // Aggregate by account
-      const acctTotals: Record<string, { debit: number; credit: number; type: string }> = {};
-      for (const line of lines) {
-        const acc = line.account;
-        if (!acc) continue;
-        const key = acc.account_number;
-        if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: acc.type ?? "" };
-        acctTotals[key].debit += Number(line.debit ?? 0);
-        acctTotals[key].credit += Number(line.credit ?? 0);
+      // Aggregate by account (RPC returns per-account, per-project rows)
+      const acctTotals: Record<string, { debit: number; credit: number; type: string; subtype: string }> = {};
+      for (const row of rows) {
+        const key = row.account_number;
+        if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: row.account_type ?? "", subtype: row.account_subtype ?? "" };
+        acctTotals[key].debit += Number(row.total_debit);
+        acctTotals[key].credit += Number(row.total_credit);
       }
 
       const getBalance = (acctNum: string) => {
@@ -105,10 +76,11 @@ export default function FinancialSummaryClient() {
       const capInterest = getBalance("1220");
       const totalWIP = wip1210 + wip1230 + capInterest;
 
-      // Construction Loans: sum all loan payable accounts (2100 fallback + 220x per-loan accounts)
+      // Construction Loans — subtype 'loan' accounts only (number-range checks
+      // wrongly caught accrued interest, customer deposits, payroll, etc.)
       let totalLoans = 0;
-      for (const [acctNum, a] of Object.entries(acctTotals)) {
-        if (a.type === "liability" && acctNum >= "2100") {
+      for (const a of Object.values(acctTotals)) {
+        if (a.type === "liability" && a.subtype === "loan") {
           totalLoans += a.credit - a.debit;
         }
       }
@@ -135,15 +107,10 @@ export default function FinancialSummaryClient() {
 
       // WIP per project from GL (1210 + 1220 + 1230)
       const projectWIP: Record<string, number> = {};
-      for (const line of lines) {
-        const acc = line.account;
-        if (!acc || !line.project_id) continue;
-        const pid = line.project_id;
-        const debit = Number(line.debit ?? 0);
-        const credit = Number(line.credit ?? 0);
-
-        if (acc.account_number === "1210" || acc.account_number === "1220" || acc.account_number === "1230") {
-          projectWIP[pid] = (projectWIP[pid] ?? 0) + debit - credit;
+      for (const row of rows) {
+        if (!row.project_id) continue;
+        if (row.account_number === "1210" || row.account_number === "1220" || row.account_number === "1230") {
+          projectWIP[row.project_id] = (projectWIP[row.project_id] ?? 0) + Number(row.total_debit) - Number(row.total_credit);
         }
       }
 

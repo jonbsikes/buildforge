@@ -36,63 +36,26 @@ export async function getData(p: ReportParams): Promise<IncomeStatementData> {
   const start = p.start!;
   const end = p.end!;
 
-  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-  type LedgerRow = {
-    id: string;
-    debit: number | null;
-    credit: number | null;
-    description: string | null;
-    account: { account_number: string; name: string; type: string | null } | null;
-    journal_entry: { entry_date: string; status: string } | null;
+  // Server-side aggregation — per-account P&L totals from posted entries.
+  type RpcRow = {
+    account_number: string;
+    account_name: string;
+    account_type: string;
+    total_debit: number;
+    total_credit: number;
   };
-
-  // Paginate to avoid Supabase's 1000-row default limit
-  const PAGE_SIZE = 1000;
-  let allLedger: LedgerRow[] = [];
-  let offset = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    const { data: batch } = await supabase
-      .from("journal_entry_lines")
-      .select(`
-        id, debit, credit, description,
-        account:chart_of_accounts(account_number, name, type),
-        journal_entry:journal_entries(entry_date, status)
-      `)
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    const rows = (batch ?? []) as unknown as LedgerRow[];
-    allLedger = allLedger.concat(rows);
-    hasMore = rows.length === PAGE_SIZE;
-    offset += PAGE_SIZE;
-  }
-
-  const posted = allLedger.filter((l) =>
-    l.journal_entry?.status === "posted" &&
-    (l.journal_entry?.entry_date ?? "") >= start &&
-    (l.journal_entry?.entry_date ?? "") <= end
-  );
-
-  const byAccount: Record<string, { account_number: string; name: string; type: string; debit: number; credit: number }> = {};
-  for (const line of posted) {
-    const acc = line.account;
-    if (!acc || !acc.type || !["revenue", "cogs", "expense"].includes(acc.type)) continue;
-    const key = acc.account_number;
-    if (!byAccount[key]) {
-      byAccount[key] = { account_number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0 };
-    }
-    byAccount[key].debit += Number(line.debit ?? 0);
-    byAccount[key].credit += Number(line.credit ?? 0);
-  }
+  const { data: rpcData } = await (supabase.rpc as any)("get_income_statement_data", { p_start: start, p_end: end });
+  const rows = (rpcData ?? []) as RpcRow[];
 
   const toLines = (type: string): AccountLine[] =>
-    Object.values(byAccount)
-      .filter((a) => a.type === type)
+    rows
+      .filter((a) => a.account_type === type)
       .map((a) => ({
         account_number: a.account_number,
-        account: `${a.account_number} · ${a.name}`,
-        total: type === "revenue" ? a.credit - a.debit : a.debit - a.credit,
+        account: `${a.account_number} · ${a.account_name}`,
+        total: type === "revenue"
+          ? Number(a.total_credit) - Number(a.total_debit)
+          : Number(a.total_debit) - Number(a.total_credit),
       }))
       .filter((a) => Math.abs(a.total) > 0.01)
       .sort((a, b) => a.account_number.localeCompare(b.account_number));

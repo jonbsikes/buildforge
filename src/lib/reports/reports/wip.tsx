@@ -18,19 +18,20 @@ import type { ReportParams } from "../types";
 interface WIPRow {
   id: string;
   name: string;
+  type: string;
   total_budget: number;
   costs_to_date: number;
-  ledger_wip: number;
-  pct_complete: number;
-  estimated_profit: number;
+  ledger_wip: number;       // 1210 + 1230 + 1220 net balance from posted JEs
+  capitalized_interest: number; // 1220 specifically
+  pct_complete: number | null;  // null when no budget entered
 }
 
 export interface WIPReportData {
   rows: WIPRow[];
-  totalContractPrice: number;
+  totalBudget: number;
   totalCosts: number;
   totalLedgerWIP: number;
-  totalEstimatedProfit: number;
+  totalCapInterest: number;
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -39,101 +40,74 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   const supabase = await createClient();
   const asOf = p.asOf!;
 
-  // Get all active projects
-  const { data: projects } = await supabase
-    .from("projects")
-    .select("id, name, status")
-    .eq("status", "active")
-    .order("name");
+  // Active projects + server-side aggregates: per-project budget totals,
+  // invoice line-item actuals, and ledger WIP balances (1210/1220/1230)
+  // as of the report date. A project appears whenever it has a budget,
+  // costs, or a ledger WIP balance — so the report total always ties to
+  // the GL WIP/CIP accounts even when budgets haven't been entered yet.
+  const [projectsRes, budgetsRes, actualsRes, wipRes] = await Promise.all([
+    supabase.from("projects").select("id, name, project_type, status").eq("status", "active").order("name"),
+    (supabase.rpc as any)("get_project_budget_totals"),
+    (supabase.rpc as any)("get_invoice_line_actuals_by_project"),
+    (supabase.rpc as any)("get_wip_balances_asof", { p_as_of: asOf }),
+  ]);
 
-  // Get per-project budget totals from project_cost_codes
-  const { data: pccRows } = await supabase
-    .from("project_cost_codes")
-    .select("project_id, budgeted_amount");
+  const projects = projectsRes.data ?? [];
 
   const budgetByProject: Record<string, number> = {};
-  for (const row of pccRows ?? []) {
-    if (row.project_id) {
-      budgetByProject[row.project_id] = (budgetByProject[row.project_id] ?? 0) + (row.budgeted_amount ?? 0);
-    }
+  for (const row of (budgetsRes.data ?? []) as { project_id: string; total_budget: number }[]) {
+    budgetByProject[row.project_id] = Number(row.total_budget);
   }
 
-  // Get approved/released/cleared invoice line items (by line item project)
-  const { data: lineItems } = await supabase
-    .from("invoice_line_items")
-    .select("project_id, amount, invoices!inner ( status )")
-    .in("invoices.status", ["approved", "released", "cleared"]);
-
-  // Get ledger WIP balances from journal entries
-  type LedgerRow = {
-    project_id: string | null;
-    debit: number | null;
-    credit: number | null;
-    account: { account_number: string } | null;
-    journal_entry: { entry_date: string; status: string } | null;
-  };
-  const { data: ledgerLines } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      project_id, debit, credit,
-      account:chart_of_accounts(account_number),
-      journal_entry:journal_entries(entry_date, status)
-    `);
-
-  // Build maps
   const invoiceMap: Record<string, number> = {};
-  for (const li of lineItems ?? []) {
-    if (li.project_id) {
-      invoiceMap[li.project_id] = (invoiceMap[li.project_id] ?? 0) + (li.amount ?? 0);
-    }
+  for (const li of (actualsRes.data ?? []) as { project_id: string; total_amount: number }[]) {
+    invoiceMap[li.project_id] = Number(li.total_amount);
   }
 
   const wipMap: Record<string, number> = {};
-  const postedLines = ((ledgerLines ?? []) as unknown as LedgerRow[]).filter((l) =>
-    l.journal_entry?.status === "posted" &&
-    (l.journal_entry?.entry_date ?? "") <= asOf
-  );
-
-  for (const line of postedLines) {
-    const acc = line.account;
-    if (!acc || !line.project_id) continue;
-    if (acc.account_number === "1210" || acc.account_number === "1230" || acc.account_number === "1220") {
-      const net = Number(line.debit ?? 0) - Number(line.credit ?? 0);
-      wipMap[line.project_id] = (wipMap[line.project_id] ?? 0) + net;
+  const capIntMap: Record<string, number> = {};
+  for (const row of (wipRes.data ?? []) as { project_id: string; account_number: string; total_debit: number; total_credit: number }[]) {
+    const net = Number(row.total_debit) - Number(row.total_credit);
+    wipMap[row.project_id] = (wipMap[row.project_id] ?? 0) + net;
+    if (row.account_number === "1220") {
+      capIntMap[row.project_id] = (capIntMap[row.project_id] ?? 0) + net;
     }
   }
 
   const rows: WIPRow[] = (projects ?? [])
-    .filter((p) => (budgetByProject[p.id] ?? 0) > 0)
     .map((p) => {
-      const contractPrice = budgetByProject[p.id] ?? 0;
-      const costsToDdate = invoiceMap[p.id] ?? 0;
+      const budget = budgetByProject[p.id] ?? 0;
+      const costsToDate = invoiceMap[p.id] ?? 0;
       const ledgerWip = wipMap[p.id] ?? 0;
-      const pctComplete = contractPrice > 0 ? (costsToDdate / contractPrice) * 100 : 0;
-      const estimatedProfit = contractPrice - costsToDdate;
+      const pctComplete = budget > 0 ? Math.min(100, Math.max(0, (costsToDate / budget) * 100)) : null;
 
       return {
         id: p.id,
         name: p.name,
-        total_budget: contractPrice,
-        costs_to_date: costsToDdate,
+        type: p.project_type === "land_development" ? "Land Dev" : "Home",
+        total_budget: budget,
+        costs_to_date: costsToDate,
         ledger_wip: ledgerWip,
-        pct_complete: Math.min(100, Math.max(0, pctComplete)),
-        estimated_profit: estimatedProfit,
+        capitalized_interest: capIntMap[p.id] ?? 0,
+        pct_complete: pctComplete,
       };
-    });
+    })
+    // Show every project that has money on it — budget, invoiced costs, or a
+    // GL WIP balance. (The old `budget > 0` filter rendered an empty report
+    // whenever budgets hadn't been entered.)
+    .filter((r) => r.total_budget > 0 || Math.abs(r.costs_to_date) > 0.004 || Math.abs(r.ledger_wip) > 0.004);
 
-  const totalContractPrice = rows.reduce((s, r) => s + r.total_budget, 0);
+  const totalBudget = rows.reduce((s, r) => s + r.total_budget, 0);
   const totalCosts = rows.reduce((s, r) => s + r.costs_to_date, 0);
   const totalLedgerWIP = rows.reduce((s, r) => s + r.ledger_wip, 0);
-  const totalEstimatedProfit = rows.reduce((s, r) => s + r.estimated_profit, 0);
+  const totalCapInterest = rows.reduce((s, r) => s + r.capitalized_interest, 0);
 
   return {
     rows,
-    totalContractPrice,
+    totalBudget,
     totalCosts,
     totalLedgerWIP,
-    totalEstimatedProfit,
+    totalCapInterest,
   };
 }
 
@@ -141,12 +115,13 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
 
 export function Pdf({ data, params, logo }: { data: WIPReportData; params: ReportParams; logo?: Buffer | string }) {
   const columns: Column<WIPRow>[] = [
-    { key: "name", label: "Project", width: 30 },
-    { key: "contract", label: "Contract Price", width: 15, align: "right", getText: (r) => fmtMoney(r.total_budget) },
-    { key: "costs", label: "Costs to Date", width: 15, align: "right", getText: (r) => fmtMoney(r.costs_to_date) },
-    { key: "pct", label: "% Complete", width: 12, align: "right", getText: (r) => fmtPct(r.pct_complete, 1) },
-    { key: "profit", label: "Estimated Profit", width: 15, align: "right", getText: (r) => fmtMoney(r.estimated_profit) },
-    { key: "wip", label: "Ledger WIP", width: 13, align: "right", getText: (r) => fmtMoney(r.ledger_wip) },
+    { key: "name", label: "Project", width: 28 },
+    { key: "type", label: "Type", width: 10, getText: (r) => r.type },
+    { key: "budget", label: "Budget", width: 14, align: "right", getText: (r) => r.total_budget > 0 ? fmtMoney(r.total_budget) : "—" },
+    { key: "costs", label: "Invoiced Costs", width: 14, align: "right", getText: (r) => fmtMoney(r.costs_to_date) },
+    { key: "wip", label: "Ledger WIP / CIP", width: 14, align: "right", getText: (r) => fmtMoney(r.ledger_wip) },
+    { key: "capint", label: "Cap. Interest", width: 10, align: "right", getText: (r) => r.capitalized_interest !== 0 ? fmtMoney(r.capitalized_interest) : "—" },
+    { key: "pct", label: "% of Budget", width: 10, align: "right", getText: (r) => r.pct_complete == null ? "—" : fmtPct(r.pct_complete, 1) },
   ];
 
   return (
@@ -155,75 +130,48 @@ export function Pdf({ data, params, logo }: { data: WIPReportData; params: Repor
       subtitle={formatAsOf(params.asOf!)}
       logo={logo}
     >
-      <SectionHeading>Active Home Construction Projects</SectionHeading>
+      <SectionHeading>Active Projects</SectionHeading>
 
       {data.rows.length === 0 ? (
-        <Empty>No active projects with contract prices.</Empty>
+        <Empty>No active projects with budgets, costs, or WIP balances.</Empty>
       ) : (
         <>
           <Table
             columns={columns}
             rows={data.rows}
-            emptyText="No active projects with contract prices."
+            emptyText="No active projects."
           />
 
           {/* Summary row */}
           <View style={{ marginTop: 12 }} wrap={false}>
             <View style={[styles.totalRow]}>
-              <View style={{ width: "30%" }}>
+              <View style={{ width: "38%" }}>
                 <Text style={[styles.tdStrong]}>Total</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={[styles.tdNumStrong]}>{fmtMoney(data.totalContractPrice)}</Text>
+              <View style={{ width: "14%" }}>
+                <Text style={[styles.tdNumStrong]}>{data.totalBudget > 0 ? fmtMoney(data.totalBudget) : "—"}</Text>
               </View>
-              <View style={{ width: "15%" }}>
+              <View style={{ width: "14%" }}>
                 <Text style={[styles.tdNumStrong]}>{fmtMoney(data.totalCosts)}</Text>
               </View>
-              <View style={{ width: "12%" }}>
-                <Text style={[styles.tdNumStrong]}>
-                  {fmtPct(data.totalContractPrice > 0 ? (data.totalCosts / data.totalContractPrice) * 100 : 0, 1)}
-                </Text>
+              <View style={{ width: "14%" }}>
+                <Text style={[styles.tdNumStrong, { color: colors.brand }]}>{fmtMoney(data.totalLedgerWIP)}</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={[styles.tdNumStrong, { color: data.totalEstimatedProfit >= 0 ? colors.green : colors.red }]}>
-                  {fmtMoney(data.totalEstimatedProfit)}
-                </Text>
+              <View style={{ width: "10%" }}>
+                <Text style={[styles.tdNumStrong]}>{data.totalCapInterest !== 0 ? fmtMoney(data.totalCapInterest) : "—"}</Text>
               </View>
-              <View style={{ width: "13%" }}>
-                <Text style={[styles.tdNumStrong]}>{fmtMoney(data.totalLedgerWIP)}</Text>
-              </View>
+              <View style={{ width: "10%" }} />
             </View>
           </View>
 
-          {/* Net summary */}
-          <View style={{ marginTop: 8 }}>
-            <Text style={styles.sectionHeading}>Summary</Text>
-            <View style={[styles.tr]} wrap={false}>
-              <View style={{ width: "50%" }}>
-                <Text style={styles.td}>Total Contract Value</Text>
-              </View>
-              <View style={{ width: "50%" }}>
-                <Text style={styles.tdNum}>{fmtMoney(data.totalContractPrice)}</Text>
-              </View>
-            </View>
-            <View style={[styles.tr, styles.trZebra]} wrap={false}>
-              <View style={{ width: "50%" }}>
-                <Text style={styles.td}>Less: Costs to Date</Text>
-              </View>
-              <View style={{ width: "50%" }}>
-                <Text style={styles.tdNum}>{fmtMoney(data.totalCosts)}</Text>
-              </View>
-            </View>
-            <View style={[styles.tr]} wrap={false}>
-              <View style={{ width: "50%" }}>
-                <Text style={[styles.tdStrong]}>Estimated Total Profit</Text>
-              </View>
-              <View style={{ width: "50%" }}>
-                <Text style={[styles.tdNumStrong, { color: data.totalEstimatedProfit >= 0 ? colors.green : colors.red }]}>
-                  {fmtMoney(data.totalEstimatedProfit)}
-                </Text>
-              </View>
-            </View>
+          {/* Tie-out note */}
+          <View style={{ marginTop: 8 }} wrap={false}>
+            <Text style={[styles.small, { color: colors.muted }]}>
+              Ledger WIP / CIP is the net balance of GL accounts 1210 (Construction WIP), 1230 (CIP — Land
+              Improvements) and 1220 (Capitalized Interest) per project, from posted journal entries through the
+              report date. The total above ties to those accounts on the Balance Sheet. Invoiced Costs counts
+              approved, released and cleared invoice line items.
+            </Text>
           </View>
         </>
       )}

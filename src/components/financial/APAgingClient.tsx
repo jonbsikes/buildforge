@@ -86,6 +86,7 @@ const BUCKET_HEADER_STYLE: Record<AgingBucket, { bg: string; text: string }> = {
 
 export default function APAgingClient() {
   const [rows, setRows] = useState<AgingRow[]>([]);
+  const [pending, setPending] = useState<AgingRow[]>([]);
   const [credits, setCredits] = useState<VendorCreditRow[]>([]);
   const [outstandingChecks, setOutstandingChecks] = useState<OutstandingCheck[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
@@ -99,16 +100,55 @@ export default function APAgingClient() {
       const supabase = createClient();
       const today = new Date().toISOString().split("T")[0];
 
-      // Load unpaid/pending invoices for AP aging
-      const { data: invoices } = await supabase
-        .from("invoices")
-        .select("id, vendor, invoice_number, invoice_date, due_date, amount, status, project_id, projects(id, name)")
-        .in("status", ["pending_review", "approved", "released"])
-        .order("due_date");
+      // Load all four independent datasets in parallel
+      const [
+        { data: invoices },
+        { data: outstandingPayments },
+        { data: creditRows },
+        { data: projectList },
+      ] = await Promise.all([
+        // AP aging = APPROVED invoices only — those are the ones sitting in
+        // GL account 2000. pending_review has no JE yet (shown separately
+        // below); released has already moved to 2050 (outstanding checks
+        // card, sourced from the payment register).
+        supabase
+          .from("invoices")
+          .select("id, vendor, invoice_number, invoice_date, due_date, amount, status, project_id, projects(id, name)")
+          .in("status", ["pending_review", "approved"])
+          .order("due_date"),
+        // Outstanding (written but not cashed) checks from the Payment Register.
+        // The `payments` table is the authoritative source: status flips from
+        // 'outstanding' → 'cleared' when a check clears the bank, matching the
+        // 2050 (Checks Issued - Outstanding) GL balance. Net amount in 2050 is
+        // amount − discount_amount − credits_applied.
+        supabase
+          .from("payments")
+          .select(`
+            id, payee, amount, discount_amount, credits_applied,
+            payment_number, payment_date, draw_id, payment_method, status,
+            loan_draws ( id, draw_date )
+          `)
+          .eq("status", "outstanding")
+          .eq("payment_method", "check")
+          .order("payment_date", { ascending: true }),
+        // Vendor credits with remaining balance > 0 — these reduce the
+        // vendor's net AP. The Balance Sheet AP account already nets these
+        // (the credit posted DR AP / CR WIP at entry), so showing them here
+        // makes the report tie out to the GL.
+        supabase
+          .from("vendor_credits")
+          .select(`
+            id, credit_date, credit_number, reason, amount, applied_amount,
+            vendors ( name ), projects ( name )
+          `)
+          .eq("status", "available")
+          .order("credit_date", { ascending: true }),
+        supabase.from("projects").select("id, name").order("name"),
+      ]);
 
       const list = invoices ?? [];
 
-      const agingRows: AgingRow[] = list.map(inv => {
+      const toRow = (inv: (typeof list)[number]): AgingRow => {
         const project = inv.projects as { id: string; name: string } | null;
         const invoiceDate = inv.invoice_date ?? today;
         const dueDate = inv.due_date ?? today;
@@ -126,23 +166,12 @@ export default function APAgingClient() {
           bucket: getBucket(dueDate),
           status: inv.status,
         };
-      });
+      };
 
-      // Load outstanding (written but not cashed) checks from the Payment Register.
-      // The `payments` table is the authoritative source: status flips from
-      // 'outstanding' → 'cleared' when a check clears the bank, matching the
-      // 2050 (Checks Issued - Outstanding) GL balance. Net amount in 2050 is
-      // amount − discount_amount − credits_applied.
-      const { data: outstandingPayments } = await supabase
-        .from("payments")
-        .select(`
-          id, payee, amount, discount_amount, credits_applied,
-          payment_number, payment_date, draw_id, payment_method, status,
-          loan_draws ( id, draw_date )
-        `)
-        .eq("status", "outstanding")
-        .eq("payment_method", "check")
-        .order("payment_date", { ascending: true });
+      // Only approved invoices are in AP (account 2000)
+      const agingRows: AgingRow[] = list.filter(inv => inv.status === "approved").map(toRow);
+      // Pending review — entered but not approved; no JE posted, not in AP yet
+      const pendingRows: AgingRow[] = list.filter(inv => inv.status === "pending_review").map(toRow);
 
       const checksMap = new Map<string, OutstandingCheck>();
 
@@ -166,19 +195,6 @@ export default function APAgingClient() {
         });
       }
 
-      // Load vendor credits with remaining balance > 0 — these reduce the
-      // vendor's net AP. The Balance Sheet AP account already nets these
-      // (the credit posted DR AP / CR WIP at entry), so showing them here
-      // makes the report tie out to the GL.
-      const { data: creditRows } = await supabase
-        .from("vendor_credits")
-        .select(`
-          id, credit_date, credit_number, reason, amount, applied_amount,
-          vendors ( name ), projects ( name )
-        `)
-        .eq("status", "available")
-        .order("credit_date", { ascending: true });
-
       const creditList: VendorCreditRow[] = (creditRows ?? [])
         .map((c) => {
           const vendor = (c.vendors as { name: string } | null)?.name ?? "Unknown Vendor";
@@ -196,10 +212,10 @@ export default function APAgingClient() {
         })
         .filter((c) => c.remaining > 0.005);
 
-      const allVendors = [...new Set([...agingRows.map(r => r.vendor), ...creditList.map(c => c.vendor)])].sort();
-      const { data: projectList } = await supabase.from("projects").select("id, name").order("name");
+      const allVendors = [...new Set([...agingRows.map(r => r.vendor), ...pendingRows.map(r => r.vendor), ...creditList.map(c => c.vendor)])].sort();
 
       setRows(agingRows);
+      setPending(pendingRows);
       setCredits(creditList);
       setOutstandingChecks(Array.from(checksMap.values()));
       setVendors(allVendors);
@@ -220,6 +236,13 @@ export default function APAgingClient() {
     if (filterVendor && c.vendor !== filterVendor) return false;
     return true;
   }), [credits, filterProject, filterVendor]);
+
+  const filteredPending = useMemo(() => pending.filter(r => {
+    if (filterProject && r.project !== filterProject) return false;
+    if (filterVendor && r.vendor !== filterVendor) return false;
+    return true;
+  }), [pending, filterProject, filterVendor]);
+  const pendingTotal = useMemo(() => filteredPending.reduce((s, r) => s + r.amount, 0), [filteredPending]);
 
   const creditsTotal = useMemo(
     () => filteredCredits.reduce((s, c) => s + c.remaining, 0),
@@ -276,12 +299,13 @@ export default function APAgingClient() {
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100" style={{ backgroundColor: "#4272EF" }}>
             <h2 className="text-sm font-semibold text-white">
-              Unpaid Invoices — {filtered.length} invoice{filtered.length !== 1 ? "s" : ""} · {fmt(grandTotal)} outstanding
+              Approved Invoices in AP — {filtered.length} invoice{filtered.length !== 1 ? "s" : ""} · {fmt(grandTotal)} outstanding
             </h2>
+            <p className="text-xs text-blue-100 mt-0.5">These are the invoices sitting in GL account 2000 (Accounts Payable).</p>
           </div>
 
           {filtered.length === 0 ? (
-            <div className="px-5 py-10 text-center text-sm text-gray-400">No outstanding invoices.</div>
+            <div className="px-5 py-10 text-center text-sm text-gray-400">No approved unpaid invoices in AP.</div>
           ) : (
             <>
               {buckets.map(bucket => {
@@ -338,12 +362,55 @@ export default function APAgingClient() {
                 );
               })}
               <div className="flex justify-between items-center px-5 py-3 bg-gray-50 border-t border-gray-200 font-bold">
-                <span className="text-gray-800">Invoices Outstanding (gross)</span>
+                <span className="text-gray-800">Approved Invoices Outstanding (gross)</span>
                 <span className="text-gray-900 text-base tabular-nums">{fmt(grandTotal)}</span>
               </div>
             </>
           )}
         </div>
+
+        {/* Pending Review — entered but not approved. No JE posted, not in AP yet. */}
+        {filteredPending.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 bg-slate-500 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-white">
+                  Pending Review — {filteredPending.length} invoice{filteredPending.length !== 1 ? "s" : ""}
+                </h2>
+                <p className="text-xs text-slate-200 mt-0.5">
+                  Entered but not yet approved — these are not in Accounts Payable until you approve them.
+                </p>
+              </div>
+              <span className="text-sm font-bold text-white ml-4 shrink-0 tabular-nums">{fmt(pendingTotal)}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
+                    <th className="px-5 py-2 text-left">Vendor</th>
+                    <th className="px-5 py-2 text-left">Invoice #</th>
+                    <th className="px-5 py-2 text-left">Project</th>
+                    <th className="px-5 py-2 text-left">Invoice Date</th>
+                    <th className="px-5 py-2 text-left">Due Date</th>
+                    <th className="px-5 py-2 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPending.map((row, idx) => (
+                    <tr key={row.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? "bg-gray-50/50" : ""}`}>
+                      <td className="px-5 py-2 font-medium text-gray-800">{row.vendor}</td>
+                      <td className="px-5 py-2 text-gray-600">{row.invoice_number}</td>
+                      <td className="px-5 py-2 text-gray-600">{row.project}</td>
+                      <td className="px-5 py-2 text-gray-500">{fmtDate(row.invoice_date)}</td>
+                      <td className="px-5 py-2 text-gray-500">{fmtDate(row.due_date)}</td>
+                      <td className="px-5 py-2 text-right font-medium text-gray-800 tabular-nums">{fmtFull(row.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Vendor Credits — reduce net AP. Match the GL Balance Sheet. */}
         {filteredCredits.length > 0 && (
@@ -407,7 +474,7 @@ export default function APAgingClient() {
           <div className="bg-white rounded-xl border-2 border-[#4272EF] overflow-hidden">
             <div className="divide-y divide-gray-100">
               <div className="flex justify-between items-center px-5 py-2.5 text-sm">
-                <span className="text-gray-600">Invoices outstanding</span>
+                <span className="text-gray-600">Approved invoices outstanding</span>
                 <span className="text-gray-800 tabular-nums">{fmtFull(grandTotal)}</span>
               </div>
               <div className="flex justify-between items-center px-5 py-2.5 text-sm">

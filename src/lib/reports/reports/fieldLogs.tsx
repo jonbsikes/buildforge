@@ -47,7 +47,7 @@ export async function getData(p: ReportParams): Promise<FieldLogsData> {
     notes: string;
     project: { id: string; name: string } | null;
   };
-  const { data: logsData } = await supabase
+  let logsQuery = supabase
     .from("field_logs")
     .select(
       `id, log_date, notes,
@@ -56,17 +56,22 @@ export async function getData(p: ReportParams): Promise<FieldLogsData> {
     .gte("log_date", start)
     .lte("log_date", end)
     .order("log_date", { ascending: false });
-
-  // Filter by projectId if provided
-  let filteredLogs = ((logsData ?? []) as unknown as FieldLogRow[]);
+  // Filter by project server-side so the row cap never drops in-range logs
   if (p.projectId) {
-    filteredLogs = filteredLogs.filter((l) => l.project?.id === p.projectId);
+    logsQuery = logsQuery.eq("project_id", p.projectId);
   }
+  const { data: logsData } = await logsQuery;
 
-  // Fetch todos
-  const { data: todosData } = await supabase
-    .from("field_todos")
-    .select("id, field_log_id, description, status, priority, due_date");
+  const filteredLogs = (logsData ?? []) as unknown as FieldLogRow[];
+
+  // Fetch todos only for the logs on this report
+  const logIds = filteredLogs.map((l) => l.id);
+  const { data: todosData } = logIds.length
+    ? await supabase
+        .from("field_todos")
+        .select("id, field_log_id, description, status, priority, due_date")
+        .in("field_log_id", logIds)
+    : { data: [] as { id: string; field_log_id: string | null; description: string; status: string; priority: string; due_date: string | null }[] };
 
   const todosByLog: Record<string, Todo[]> = {};
   for (const t of todosData ?? []) {

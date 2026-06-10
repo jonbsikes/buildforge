@@ -156,7 +156,21 @@ export function DrawSummaryDocument({
       <Page size="LETTER" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
-          {logo ? <Image src={logo as unknown as string} style={styles.headerLogo} /> : null}
+          {logo ? (
+            <Image src={logo as unknown as string} style={styles.headerLogo} />
+          ) : (
+            // Wordmark fallback when no logo file exists — brand blue
+            <Text
+              style={{
+                fontFamily: "Helvetica-Bold",
+                fontSize: 13,
+                color: "#4272EF",
+                marginRight: 14,
+              }}
+            >
+              Prairie Sky, LLC
+            </Text>
+          )}
           <View style={styles.headerText}>
             <Text style={styles.title}>Construction Loan Draw Request</Text>
             <View style={styles.metaRow}>

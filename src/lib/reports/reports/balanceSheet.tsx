@@ -28,15 +28,24 @@ interface ProjectBalance {
 
 export interface BalanceSheetData {
   currentAssets: AccountBalance[];
-  longTermAssets: AccountBalance[];
+  /** WIP / CIP / capitalized interest / land — inventory-type assets for a homebuilder */
+  inventoryAssets: AccountBalance[];
+  otherAssets: AccountBalance[];
   totalAssets: number;
   currentLiabilities: AccountBalance[];
-  longTermLiabilities: AccountBalance[];
+  loanLiabilities: AccountBalance[];
   totalLiabilities: number;
   equityAccounts: AccountBalance[];
   retainedEarnings: number;
   totalEquity: number;
 }
+
+// Inventory-type asset accounts for a homebuilder (homes built for sale are
+// inventory under GAAP — not long-term/fixed assets): Land Inventory (1200),
+// Construction WIP (1210), Capitalized Interest (1220), CIP — Land (1230).
+const INVENTORY_ACCOUNTS = new Set(["1200", "1210", "1220", "1230"]);
+// Accounts that get a per-project breakdown on the report
+const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -44,95 +53,70 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
   const supabase = await createClient();
   const asOf = p.asOf!;
 
-  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-  type LedgerRow = {
-    debit: number | null;
-    credit: number | null;
+  // Server-side aggregation — per-account, per-project totals from posted
+  // entries as of the date (same RPC as the Balance Sheet client) + available
+  // vendor credits for the AP display split (matches the screen).
+  type RpcRow = {
+    account_number: string;
+    account_name: string;
+    account_type: string | null;
+    account_subtype: string | null;
+    total_debit: number;
+    total_credit: number;
     project_id: string | null;
-    account: {
-      account_number: string;
-      name: string;
-      type: string | null;
-      is_active: boolean | null;
-    } | null;
-    journal_entry: { entry_date: string; status: string } | null;
-    project: { id: string; name: string } | null;
+    project_name: string | null;
   };
-
-  // Paginate to avoid Supabase's 1000-row default limit
-  const PAGE_SIZE = 1000;
-  let allLines: LedgerRow[] = [];
-  let offset = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    const { data: batch } = await supabase
-      .from("journal_entry_lines")
-      .select(`
-        debit, credit, project_id,
-        account:chart_of_accounts(account_number, name, type, is_active),
-        journal_entry:journal_entries(entry_date, status),
-        project:projects(id, name)
-      `)
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    const rows = (batch ?? []) as unknown as LedgerRow[];
-    allLines = allLines.concat(rows);
-    hasMore = rows.length === PAGE_SIZE;
-    offset += PAGE_SIZE;
-  }
-
-  // Filter to posted entries as of date
-  const posted = allLines.filter((l) =>
-    l.journal_entry?.status === "posted" &&
-    (l.journal_entry?.entry_date ?? "") <= asOf &&
-    l.account?.is_active !== false
+  const [{ data: rpcData }, { data: openCredits }] = await Promise.all([
+    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: asOf }),
+    supabase.from("vendor_credits").select("amount, applied_amount").eq("status", "available"),
+  ]);
+  const rows = (rpcData ?? []) as RpcRow[];
+  const creditsAvailable = (openCredits ?? []).reduce(
+    (s, c) => s + Math.max(0, Number(c.amount) - Number(c.applied_amount ?? 0)),
+    0
   );
 
-  // Accounts that get per-project breakdown
-  const WIP_CIP_ACCOUNTS = new Set(["1210", "1230"]);
-
-  // Aggregate by account
-  const acctMap: Record<string, { account_number: string; name: string; type: string; debit: number; credit: number }> = {};
+  // Aggregate by account (the RPC returns per-project rows, so we combine)
+  const acctMap: Record<string, { account_number: string; name: string; type: string; subtype: string; debit: number; credit: number }> = {};
   // Per-project breakdown for WIP/CIP
   const projectMap: Record<string, Record<string, { project_id: string; project_name: string; debit: number; credit: number }>> = {};
 
-  for (const line of posted) {
-    const acc = line.account;
-    if (!acc || !acc.type || !["asset", "liability", "equity"].includes(acc.type)) continue;
-    const key = acc.account_number;
+  for (const row of rows) {
+    const type = row.account_type ?? "";
+    if (!["asset", "liability", "equity"].includes(type)) continue;
+    const key = row.account_number;
     if (!acctMap[key]) {
-      acctMap[key] = { account_number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0 };
+      acctMap[key] = { account_number: key, name: row.account_name, type, subtype: row.account_subtype ?? "", debit: 0, credit: 0 };
     }
-    acctMap[key].debit += Number(line.debit ?? 0);
-    acctMap[key].credit += Number(line.credit ?? 0);
+    acctMap[key].debit += Number(row.total_debit);
+    acctMap[key].credit += Number(row.total_credit);
 
     // Track per-project for WIP/CIP
-    if (WIP_CIP_ACCOUNTS.has(key) && line.project_id) {
+    if (WIP_CIP_ACCOUNTS.has(key) && row.project_id) {
       if (!projectMap[key]) projectMap[key] = {};
-      const pid = line.project_id;
+      const pid = row.project_id;
       if (!projectMap[key][pid]) {
-        const proj = line.project;
         projectMap[key][pid] = {
           project_id: pid,
-          project_name: proj?.name ?? "Unknown Project",
+          project_name: row.project_name ?? "Unknown Project",
           debit: 0,
           credit: 0,
         };
       }
-      projectMap[key][pid].debit += Number(line.debit ?? 0);
-      projectMap[key][pid].credit += Number(line.credit ?? 0);
+      projectMap[key][pid].debit += Number(row.total_debit);
+      projectMap[key][pid].credit += Number(row.total_credit);
     }
   }
 
   // Compute normal balances
   const accounts = Object.values(acctMap).map((a) => {
     const balance = a.type === "asset" ? a.debit - a.credit : a.credit - a.debit;
-    const result: AccountBalance = {
+    const result: AccountBalance & { subtype: string } = {
       account_number: a.account_number,
       name: a.name,
       type: a.type,
       balance,
+      subtype: a.subtype,
     };
     // Attach per-project breakdown for WIP/CIP
     if (WIP_CIP_ACCOUNTS.has(a.account_number) && projectMap[a.account_number]) {
@@ -148,42 +132,66 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
     return result;
   });
 
-  const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200").sort((a, b) => a.account_number.localeCompare(b.account_number));
-  const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200").sort((a, b) => a.account_number.localeCompare(b.account_number));
-  const currentLiabilities = accounts.filter(a => a.type === "liability" && a.account_number < "2100").sort((a, b) => a.account_number.localeCompare(b.account_number));
-  const longTermLiabilities = accounts.filter(a => a.type === "liability" && a.account_number >= "2100").sort((a, b) => a.account_number.localeCompare(b.account_number));
-  const equityAccounts = accounts.filter(a => a.type === "equity").sort((a, b) => a.account_number.localeCompare(b.account_number));
+  const nonZero = (a: AccountBalance) => Math.abs(a.balance) >= 0.005;
+  const byNumber = (a: AccountBalance, b: AccountBalance) => a.account_number.localeCompare(b.account_number);
 
-  // Compute retained earnings from P&L accounts
-  const incomeLines = allLines.filter((l) =>
-    l.journal_entry?.status === "posted" &&
-    (l.journal_entry?.entry_date ?? "") <= asOf &&
-    l.account?.is_active !== false
-  );
+  const assetAccounts = accounts.filter((a) => a.type === "asset" && nonZero(a));
+  const inventoryAssets = assetAccounts.filter((a) => INVENTORY_ACCOUNTS.has(a.account_number)).sort(byNumber);
+  const fixedAssets = assetAccounts
+    .filter((a) => !INVENTORY_ACCOUNTS.has(a.account_number) && a.subtype === "fixed_asset")
+    .sort(byNumber);
+  const currentAssets = assetAccounts
+    .filter((a) => !INVENTORY_ACCOUNTS.has(a.account_number) && a.subtype !== "fixed_asset")
+    .sort(byNumber);
 
+  // Liabilities: loans (subtype 'loan') vs everything else (current).
+  const liabilityAccounts = accounts.filter((a) => a.type === "liability" && nonZero(a));
+  const loanLiabilities = liabilityAccounts.filter((a) => a.subtype === "loan").sort(byNumber);
+  const currentLiabRaw = liabilityAccounts.filter((a) => a.subtype !== "loan").sort(byNumber);
+
+  // Split AP (2000) into gross trade AP + "Less: Vendor Credits Available" so
+  // the line reconciles to the AP invoices page. Both rows together still
+  // equal the GL balance — display split only, same as the screen client.
+  const currentLiabilities: AccountBalance[] = [];
+  for (const a of currentLiabRaw) {
+    if (a.account_number === "2000" && creditsAvailable > 0.005) {
+      currentLiabilities.push({ ...a, name: "Accounts Payable - Trade", balance: a.balance + creditsAvailable });
+      currentLiabilities.push({
+        account_number: "2000-CR",
+        name: "Less: Vendor Credits Available",
+        type: "liability",
+        balance: -creditsAvailable,
+      });
+    } else {
+      currentLiabilities.push(a);
+    }
+  }
+
+  const equityAccounts = accounts.filter((a) => a.type === "equity").sort(byNumber);
+
+  // Retained earnings = accumulated net income through the as-of date
+  // (all P&L activity from inception; the RPC includes all account types).
   let revenue = 0, cogs = 0, expenses = 0;
-  for (const line of incomeLines) {
-    const acc = line.account;
-    if (!acc) continue;
-    const balance = acc.type === "revenue" ? (Number(line.credit ?? 0) - Number(line.debit ?? 0)) :
-                    (acc.type === "cogs" || acc.type === "expense") ? (Number(line.debit ?? 0) - Number(line.credit ?? 0)) : 0;
-    if (acc.type === "revenue") revenue += balance;
-    else if (acc.type === "cogs") cogs += balance;
-    else if (acc.type === "expense") expenses += balance;
+  for (const row of rows) {
+    const type = row.account_type ?? "";
+    if (type === "revenue") revenue += Number(row.total_credit) - Number(row.total_debit);
+    else if (type === "cogs") cogs += Number(row.total_debit) - Number(row.total_credit);
+    else if (type === "expense") expenses += Number(row.total_debit) - Number(row.total_credit);
   }
 
   const retainedEarnings = revenue - cogs - expenses;
 
-  const totalAssets = [...currentAssets, ...longTermAssets].reduce((s, a) => s + a.balance, 0);
-  const totalLiabilities = [...currentLiabilities, ...longTermLiabilities].reduce((s, a) => s + a.balance, 0);
+  const totalAssets = [...currentAssets, ...inventoryAssets, ...fixedAssets].reduce((s, a) => s + a.balance, 0);
+  const totalLiabilities = [...currentLiabilities, ...loanLiabilities].reduce((s, a) => s + a.balance, 0);
   const totalEquity = equityAccounts.reduce((s, a) => s + a.balance, 0) + retainedEarnings;
 
   return {
     currentAssets,
-    longTermAssets,
+    inventoryAssets,
+    otherAssets: fixedAssets,
     totalAssets,
     currentLiabilities,
-    longTermLiabilities,
+    loanLiabilities,
     totalLiabilities,
     equityAccounts,
     retainedEarnings,
@@ -208,7 +216,7 @@ function AccountRows({ lines }: { lines: AccountBalance[] }) {
           >
             <View style={{ width: "70%" }}>
               <Text style={hasBreakdown ? styles.tdStrong : styles.td}>
-                {l.account_number} · {l.name}
+                {l.account_number.endsWith("-CR") ? l.name : `${l.account_number} · ${l.name}`}
               </Text>
             </View>
             <View style={{ width: "30%" }}>
@@ -279,10 +287,17 @@ export function Pdf({ data, params, logo }: { data: BalanceSheetData; params: Re
             </>
           )}
 
-          {data.longTermAssets.length > 0 && (
+          {data.inventoryAssets.length > 0 && (
             <>
-              <Text style={[styles.subHeading, { marginTop: 8 }]}>Long-Term Assets</Text>
-              <AccountRows lines={data.longTermAssets} />
+              <Text style={[styles.subHeading, { marginTop: 8 }]}>Construction Inventory (WIP & Land)</Text>
+              <AccountRows lines={data.inventoryAssets} />
+            </>
+          )}
+
+          {data.otherAssets.length > 0 && (
+            <>
+              <Text style={[styles.subHeading, { marginTop: 8 }]}>Property & Equipment</Text>
+              <AccountRows lines={data.otherAssets} />
             </>
           )}
 
@@ -300,10 +315,10 @@ export function Pdf({ data, params, logo }: { data: BalanceSheetData; params: Re
             </>
           )}
 
-          {data.longTermLiabilities.length > 0 && (
+          {data.loanLiabilities.length > 0 && (
             <>
-              <Text style={[styles.subHeading, { marginTop: 8 }]}>Long-Term Liabilities</Text>
-              <AccountRows lines={data.longTermLiabilities} />
+              <Text style={[styles.subHeading, { marginTop: 8 }]}>Construction & Development Loans</Text>
+              <AccountRows lines={data.loanLiabilities} />
             </>
           )}
 
@@ -315,7 +330,7 @@ export function Pdf({ data, params, logo }: { data: BalanceSheetData; params: Re
             {Math.abs(data.retainedEarnings) > 0.01 && (
               <View style={[styles.tr]} wrap={false}>
                 <View style={{ width: "70%" }}>
-                  <Text style={styles.td}>Retained Earnings</Text>
+                  <Text style={styles.td}>Retained Earnings (Net Income to Date)</Text>
                 </View>
                 <View style={{ width: "30%" }}>
                   <Text style={styles.tdNum}>{fmtMoney(data.retainedEarnings)}</Text>

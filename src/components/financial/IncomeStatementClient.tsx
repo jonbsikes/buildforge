@@ -25,8 +25,9 @@ interface DrillLine {
 interface AccountLine {
   account_number: string;
   account: string;
+  type: string;
   total: number;
-  entries: DrillLine[];
+  entries: DrillLine[]; // loaded on demand for drill-down
 }
 
 interface StatementData {
@@ -51,6 +52,50 @@ function getPresetRange(preset: DatePreset): { start: string; end: string } {
   return { start: `${y}-01-01`, end: today };
 }
 
+/** Fetch JE lines for a specific P&L account on demand (drill-down) */
+async function fetchAccountEntries(accountNumber: string, accountType: string, start: string, end: string): Promise<DrillLine[]> {
+  const supabase = createClient();
+  type LineRow = {
+    debit: number | null;
+    credit: number | null;
+    description: string | null;
+    journal_entry: { entry_date: string; reference: string | null; description: string | null; status: string } | null;
+  };
+  let allLines: LineRow[] = [];
+  let fromIdx = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data: page } = await supabase
+      .from("journal_entry_lines")
+      .select(`
+        debit, credit, description,
+        journal_entry:journal_entries!inner(entry_date, reference, description, status),
+        account:chart_of_accounts!inner(account_number)
+      `)
+      .eq("account.account_number", accountNumber)
+      .eq("journal_entry.status", "posted")
+      .gte("journal_entry.entry_date", start)
+      .lte("journal_entry.entry_date", end)
+      .order("id")
+      .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+    if (!page || page.length === 0) break;
+    allLines = allLines.concat(page as unknown as LineRow[]);
+    if (page.length < PAGE_SIZE) break;
+    fromIdx += PAGE_SIZE;
+  }
+  return allLines
+    .map((l) => ({
+      date: l.journal_entry?.entry_date ?? "",
+      reference: l.journal_entry?.reference ?? null,
+      description: l.description ?? l.journal_entry?.description ?? "",
+      amount: accountType === "revenue"
+        ? Number(l.credit ?? 0) - Number(l.debit ?? 0)
+        : Number(l.debit ?? 0) - Number(l.credit ?? 0),
+    }))
+    .filter((e) => Math.abs(e.amount) > 0.005)
+    .sort((x, y) => y.date.localeCompare(x.date));
+}
+
 export default function IncomeStatementClient() {
   const [preset, setPreset] = useState<DatePreset>("this_year");
   const [customStart, setCustomStart] = useState("");
@@ -66,83 +111,29 @@ export default function IncomeStatementClient() {
 
     const supabase = createClient();
 
-    // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-    type LedgerRow = {
-      id: string;
-      debit: number | null;
-      credit: number | null;
-      description: string | null;
-      account: {
-        account_number: string;
-        name: string;
-        type: string | null;
-      } | null;
-      journal_entry: {
-        entry_date: string;
-        reference: string | null;
-        description: string | null;
-        status: string;
-      } | null;
+    // Server-side aggregation — per-account P&L totals for the range.
+    // Drill-down lines are fetched on demand when an account is clicked.
+    type RpcRow = {
+      account_number: string;
+      account_name: string;
+      account_type: string;
+      total_debit: number;
+      total_credit: number;
     };
-
-    // Fetch ALL journal entry lines with account and entry info — paginate past
-    // Supabase's 1000-row default cap, then filter client-side.
-    const ledgerSelect = `
-      id, debit, credit, description,
-      account:chart_of_accounts(account_number, name, type),
-      journal_entry:journal_entries(entry_date, reference, description, status)
-    `;
-    let ledgerLines: LedgerRow[] = [];
-    let fromIdx = 0;
-    const PAGE_SIZE = 1000;
-    while (true) {
-      const { data: page } = await supabase
-        .from("journal_entry_lines")
-        .select(ledgerSelect)
-        .range(fromIdx, fromIdx + PAGE_SIZE - 1);
-      if (!page || page.length === 0) break;
-      ledgerLines = ledgerLines.concat(page as unknown as LedgerRow[]);
-      if (page.length < PAGE_SIZE) break;
-      fromIdx += PAGE_SIZE;
-    }
-
-    // Filter to posted entries within date range (client-side to avoid PostgREST foreign table filter issues)
-    const posted = ledgerLines.filter((l) =>
-      l.journal_entry?.status === "posted" &&
-      (l.journal_entry?.entry_date ?? "") >= start &&
-      (l.journal_entry?.entry_date ?? "") <= end
-    );
-
-    // Group by account for revenue, cogs, expense types only
-    const byAccount: Record<string, { account_number: string; name: string; type: string; debit: number; credit: number; entries: DrillLine[] }> = {};
-
-    for (const line of posted) {
-      const acc = line.account;
-      const je = line.journal_entry;
-      if (!acc || !acc.type || !["revenue", "cogs", "expense"].includes(acc.type)) continue;
-      if (!byAccount[acc.account_number]) {
-        byAccount[acc.account_number] = { account_number: acc.account_number, name: acc.name, type: acc.type, debit: 0, credit: 0, entries: [] };
-      }
-      byAccount[acc.account_number].debit += Number(line.debit ?? 0);
-      byAccount[acc.account_number].credit += Number(line.credit ?? 0);
-      byAccount[acc.account_number].entries.push({
-        date: je?.entry_date ?? "",
-        reference: je?.reference ?? null,
-        description: line.description ?? je?.description ?? "",
-        amount: acc.type === "revenue"
-          ? Number(line.credit ?? 0) - Number(line.debit ?? 0)
-          : Number(line.debit ?? 0) - Number(line.credit ?? 0),
-      });
-    }
+    const { data: rpcData } = await (supabase.rpc as any)("get_income_statement_data", { p_start: start, p_end: end });
+    const rows = (rpcData ?? []) as RpcRow[];
 
     const toLines = (type: string): AccountLine[] =>
-      Object.values(byAccount)
-        .filter((a) => a.type === type)
+      rows
+        .filter((a) => a.account_type === type)
         .map((a) => ({
           account_number: a.account_number,
-          account: `${a.account_number} · ${a.name}`,
-          total: type === "revenue" ? a.credit - a.debit : a.debit - a.credit,
-          entries: a.entries.filter((e) => Math.abs(e.amount) > 0.005).sort((x, y) => y.date.localeCompare(x.date)),
+          account: `${a.account_number} · ${a.account_name}`,
+          type: a.account_type,
+          total: type === "revenue"
+            ? Number(a.total_credit) - Number(a.total_debit)
+            : Number(a.total_debit) - Number(a.total_credit),
+          entries: [],
         }))
         .filter((a) => Math.abs(a.total) > 0.01)
         .sort((a, b) => a.account_number.localeCompare(b.account_number));
@@ -161,6 +152,14 @@ export default function IncomeStatementClient() {
 
   useEffect(() => { load(); }, [load]);
 
+  const openDrill = useCallback(async (line: AccountLine) => {
+    // Load JE lines on demand for drill-down
+    const { start, end } = preset === "custom" ? { start: customStart, end: customEnd } : getPresetRange(preset);
+    if (!start || !end) return;
+    const entries = await fetchAccountEntries(line.account_number, line.type, start, end);
+    setDrillEntry({ ...line, entries });
+  }, [preset, customStart, customEnd]);
+
   return (
     <ReportChrome
       title="Income Statement"
@@ -177,13 +176,13 @@ export default function IncomeStatementClient() {
       {!data ? null : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="p-6 space-y-6">
-            <ISSection title="Revenue" lines={data.revenue} total={data.totalRevenue} totalLabel="Total Revenue" onDrill={setDrillEntry} colorClass="text-green-700" />
-            <ISSection title="Cost of Goods Sold" lines={data.cogs} total={data.totalCOGS} totalLabel="Total COGS" onDrill={setDrillEntry} colorClass="text-red-700" />
+            <ISSection title="Revenue" lines={data.revenue} total={data.totalRevenue} totalLabel="Total Revenue" onDrill={openDrill} colorClass="text-green-700" />
+            <ISSection title="Cost of Goods Sold" lines={data.cogs} total={data.totalCOGS} totalLabel="Total COGS" onDrill={openDrill} colorClass="text-red-700" />
             <div className="flex justify-between items-center border-t border-gray-200 pt-3">
               <span className="font-semibold text-gray-800 text-sm">Gross Profit</span>
               <span className={`font-semibold text-sm ${data.grossProfit >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(data.grossProfit)}</span>
             </div>
-            <ISSection title="Operating Expenses" lines={data.expenses} total={data.totalExpenses} totalLabel="Total Operating Expenses" onDrill={setDrillEntry} colorClass="text-orange-700" />
+            <ISSection title="Operating Expenses" lines={data.expenses} total={data.totalExpenses} totalLabel="Total Operating Expenses" onDrill={openDrill} colorClass="text-orange-700" />
             <div className="border-t-2 border-[#4272EF]/20 pt-4">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-gray-900 text-base">Net Income</span>

@@ -69,71 +69,52 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   const startDate = `${year}-01-01`;
   const endDate = `${year}-12-31`;
 
-  // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-  type GlRow = {
-    debit: number | null;
-    credit: number | null;
-    description: string | null;
-    account: { account_number: string; name: string; type: string | null } | null;
-    journal_entry: { entry_date: string; status: string } | null;
+  // ─ Income Statement: the tax YEAR's P&L activity only.
+  // ─ Balance Sheet: CUMULATIVE balances as of Dec 31 (all entries from
+  //   inception through year end — not just the year's activity).
+  type PnlRow = {
+    account_number: string;
+    account_name: string;
+    account_type: string | null;
+    total_debit: number;
+    total_credit: number;
   };
+  type BsRow = PnlRow & { project_id: string | null };
+  const [{ data: pnlData }, { data: bsData }] = await Promise.all([
+    (supabase.rpc as any)("get_income_statement_data", { p_start: startDate, p_end: endDate }),
+    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: endDate }),
+  ]);
 
-  // ─ Income Statement (for the tax year)
-  const { data: jelData } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      debit, credit, description,
-      account:chart_of_accounts(account_number, name, type),
-      journal_entry:journal_entries(entry_date, status)
-    `);
-
-  const glLines = ((jelData ?? []) as unknown as GlRow[]).filter((l) =>
-    l.journal_entry?.status === "posted" &&
-    (l.journal_entry?.entry_date ?? "") >= startDate &&
-    (l.journal_entry?.entry_date ?? "") <= endDate
-  );
-
-  type AcctTotal = { type: string; debit: number; credit: number };
-  const byAccount: Record<string, AcctTotal> = {};
-  for (const line of glLines) {
-    const acc = line.account;
-    if (!acc) continue;
-    const key = acc.account_number;
-    if (!byAccount[key]) {
-      byAccount[key] = { type: acc.type ?? "", debit: 0, credit: 0 };
-    }
-    byAccount[key].debit += Number(line.debit ?? 0);
-    byAccount[key].credit += Number(line.credit ?? 0);
+  let revenue = 0, cogs = 0, expenses = 0;
+  for (const row of (pnlData ?? []) as PnlRow[]) {
+    const t = row.account_type ?? "";
+    if (t === "revenue") revenue += Number(row.total_credit) - Number(row.total_debit);
+    else if (t === "cogs") cogs += Number(row.total_debit) - Number(row.total_credit);
+    else if (t === "expense") expenses += Number(row.total_debit) - Number(row.total_credit);
   }
 
-  const calcAmount = (acc: AcctTotal) => {
-    const type = acc.type;
-    return type === "revenue"
-      ? acc.credit - acc.debit
-      : type === "asset" || type === "expense" || type === "cogs"
-      ? acc.debit - acc.credit
-      : acc.credit - acc.debit;
-  };
+  // Aggregate the balance sheet RPC (per-account, per-project rows) by account
+  type AcctTotal = { name: string; type: string; debit: number; credit: number };
+  const byAccount: Record<string, AcctTotal> = {};
+  let cumRevenue = 0, cumCogs = 0, cumExpenses = 0;
+  for (const row of (bsData ?? []) as BsRow[]) {
+    const t = row.account_type ?? "";
+    if (t === "revenue") { cumRevenue += Number(row.total_credit) - Number(row.total_debit); continue; }
+    if (t === "cogs") { cumCogs += Number(row.total_debit) - Number(row.total_credit); continue; }
+    if (t === "expense") { cumExpenses += Number(row.total_debit) - Number(row.total_credit); continue; }
+    if (!["asset", "liability", "equity"].includes(t)) continue;
+    const key = row.account_number;
+    if (!byAccount[key]) byAccount[key] = { name: row.account_name, type: t, debit: 0, credit: 0 };
+    byAccount[key].debit += Number(row.total_debit);
+    byAccount[key].credit += Number(row.total_credit);
+  }
 
-  const revenue = Object.values(byAccount)
-    .filter((a) => a.type === "revenue")
-    .reduce((s, a) => s + calcAmount(a), 0);
-
-  const cogs = Object.values(byAccount)
-    .filter((a) => a.type === "cogs")
-    .reduce((s, a) => s + calcAmount(a), 0);
-
-  const expenses = Object.values(byAccount)
-    .filter((a) => a.type === "expense")
-    .reduce((s, a) => s + calcAmount(a), 0);
-
-  // ─ Balance Sheet (as of Dec 31 of tax year)
   const toBalanceRow = (type: string): BalanceSheetAccount[] =>
     Object.entries(byAccount)
       .filter(([, a]) => a.type === type)
       .map(([accNum, a]) => ({
-        account: `${accNum}`,
-        balance: calcAmount(a),
+        account: `${accNum} · ${a.name}`,
+        balance: type === "asset" ? a.debit - a.credit : a.credit - a.debit,
       }))
       .filter((row) => Math.abs(row.balance) > 0.01)
       .sort((a, b) => a.account.localeCompare(b.account));
@@ -141,17 +122,46 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   const assets = toBalanceRow("asset");
   const liabilities = toBalanceRow("liability");
   const equity = toBalanceRow("equity");
+  // Retained earnings through year end so the balance sheet section balances
+  const retainedThroughYearEnd = cumRevenue - cumCogs - cumExpenses;
+  if (Math.abs(retainedThroughYearEnd) > 0.01) {
+    equity.push({ account: "Retained Earnings (Net Income to Date)", balance: retainedThroughYearEnd });
+  }
 
-  // ─ Vendor 1099 totals (>$600)
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select("invoice_number, vendor, amount, total_amount, status, invoice_date")
-    .in("status", ["approved", "released", "cleared"])
-    .gte("invoice_date", startDate)
-    .lte("invoice_date", endDate);
+  // ─ Vendor 1099 totals + paid-invoice register — CASH BASIS:
+  //   checks that CLEARED during the tax year (status 'cleared',
+  //   payment_date in year). 1099s report what you actually paid, not what
+  //   you were billed. Paginate past PostgREST's 1,000-row cap.
+  type InvRow = {
+    invoice_number: string | null;
+    vendor: string | null;
+    amount: number | null;
+    total_amount: number | null;
+    payment_date: string | null;
+    projects: { name: string } | null;
+  };
+  let invoices: InvRow[] = [];
+  {
+    let fromIdx = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const { data: page } = await supabase
+        .from("invoices")
+        .select("invoice_number, vendor, amount, total_amount, payment_date, projects(name)")
+        .eq("status", "cleared")
+        .gte("payment_date", startDate)
+        .lte("payment_date", endDate)
+        .order("payment_date")
+        .range(fromIdx, fromIdx + PAGE_SIZE - 1);
+      if (!page || page.length === 0) break;
+      invoices = invoices.concat(page as unknown as InvRow[]);
+      if (page.length < PAGE_SIZE) break;
+      fromIdx += PAGE_SIZE;
+    }
+  }
 
   const vendorTotals: Record<string, number> = {};
-  for (const inv of invoices ?? []) {
+  for (const inv of invoices) {
     const v = inv.vendor ?? "Unknown";
     const amt = inv.total_amount ?? inv.amount ?? 0;
     vendorTotals[v] = (vendorTotals[v] ?? 0) + amt;
@@ -162,14 +172,14 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
     .map(([vendor, total]) => ({ vendor, total }))
     .sort((a, b) => b.total - a.total);
 
-  // ─ Paid invoices register
-  const paidInvoices: PaidInvoice[] = (invoices ?? [])
+  // ─ Paid invoices register (cleared in the tax year, by payment date)
+  const paidInvoices: PaidInvoice[] = invoices
     .map((inv) => ({
       invoiceNumber: inv.invoice_number ?? "—",
       vendor: inv.vendor ?? "Unknown",
-      date: inv.invoice_date ?? "—",
+      date: inv.payment_date ?? "—",
       amount: inv.total_amount ?? inv.amount ?? 0,
-      project: "—",
+      project: inv.projects?.name ?? "—",
     }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 
@@ -255,19 +265,25 @@ export function Pdf({ data, params, logo }: { data: TaxExportData; params: Repor
     {
       key: "number",
       label: "Invoice #",
-      width: 15,
+      width: 14,
       getText: (row) => row.invoiceNumber,
     },
     {
       key: "vendor",
       label: "Vendor",
-      width: 30,
+      width: 28,
       getText: (row) => row.vendor,
     },
     {
+      key: "project",
+      label: "Project",
+      width: 24,
+      getText: (row) => row.project,
+    },
+    {
       key: "date",
-      label: "Date",
-      width: 15,
+      label: "Paid Date",
+      width: 14,
       getText: (row) => fmtDate(row.date),
     },
     {
@@ -295,8 +311,8 @@ export function Pdf({ data, params, logo }: { data: TaxExportData; params: Repor
         color={data.incomeStatement.netIncome >= 0 ? "green" : "red"}
       />
 
-      {/* Balance Sheet Summary */}
-      <SectionHeading>Balance Sheet Summary</SectionHeading>
+      {/* Balance Sheet Summary — cumulative balances through year end */}
+      <SectionHeading>Balance Sheet Summary (as of Dec 31, {data.taxYear})</SectionHeading>
       <SubHeading>Assets</SubHeading>
       {data.balanceSheetAssets.length === 0 ? (
         <Empty>No asset accounts.</Empty>
@@ -318,10 +334,10 @@ export function Pdf({ data, params, logo }: { data: TaxExportData; params: Repor
         <Table columns={bsColumns} rows={data.balanceSheetEquity} zebra={false} />
       )}
 
-      {/* Vendor 1099 Totals */}
-      <SectionHeading>Vendors – 1099 Reportable ($600+)</SectionHeading>
+      {/* Vendor 1099 Totals — cash basis */}
+      <SectionHeading>Vendors – 1099 Reportable ($600+) — Cash Paid in {data.taxYear}</SectionHeading>
       {data.vendors1099.length === 0 ? (
-        <Empty>No vendors with $600+ in payments.</Empty>
+        <Empty>No vendors with $600+ in cleared payments.</Empty>
       ) : (
         <>
           <Table columns={vendorColumns} rows={data.vendors1099} emptyText="No vendors to report." />
@@ -334,10 +350,10 @@ export function Pdf({ data, params, logo }: { data: TaxExportData; params: Repor
         </>
       )}
 
-      {/* Paid Invoices Register */}
-      <SectionHeading>Paid Invoices Register</SectionHeading>
+      {/* Paid Invoices Register — cash basis */}
+      <SectionHeading>Paid Invoices Register — Checks Cleared in {data.taxYear}</SectionHeading>
       {data.paidInvoices.length === 0 ? (
-        <Empty>No paid invoices for this period.</Empty>
+        <Empty>No invoices were paid (cleared) in this year.</Empty>
       ) : (
         <>
           <Table columns={invoiceColumns} rows={data.paidInvoices} emptyText="No invoices." />

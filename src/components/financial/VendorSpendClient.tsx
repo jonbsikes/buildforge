@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { ChevronDown, ChevronRight, FileDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
@@ -99,7 +99,12 @@ export default function VendorSpendClient() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-5">
-      <div className="flex justify-end print:hidden"><ReportExportButtons slug="vendor-spend" params={undefined} /></div>
+      <div className="flex justify-end print:hidden">
+        <ReportExportButtons
+          slug="vendor-spend"
+          params={{ start: filterFrom || undefined, end: filterTo || undefined }}
+        />
+      </div>
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
@@ -127,11 +132,6 @@ export default function VendorSpendClient() {
           <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white" />
           <span>To</span>
           <input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white" />
-        </div>
-        <div className="ml-auto">
-          <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            <FileDown size={15} /> Export PDF
-          </button>
         </div>
       </div>
 

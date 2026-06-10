@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { FileDown } from "lucide-react";
+import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -281,13 +282,21 @@ export default function JobCostReportClient() {
           ))}
         </select>
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <ReportExportButtons
+            slug="job-cost"
+            params={{
+              projectType,
+              subdivision: subdivision !== "all" ? subdivision : undefined,
+              status: status !== "all" ? status : undefined,
+            }}
+          />
           <button
             onClick={exportCSV}
             disabled={filteredProjects.length === 0}
-            className="flex items-center gap-2 px-4 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-40"
           >
-            <FileDown size={15} /> Export CSV
+            <FileDown size={13} /> CSV
           </button>
         </div>
       </div>

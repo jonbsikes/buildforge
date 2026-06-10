@@ -90,11 +90,15 @@ export async function getData(p: ReportParams): Promise<SubdivisionOverviewData>
     };
   }
 
-  // Fetch stages to calculate % complete
+  const subdivisionProjectIds = projectsData.map((pr) => pr.id);
+
+  // Fetch stages to calculate % complete — only for this subdivision's homes
+  // (the old all-rows query silently capped at PostgREST's 1,000-row limit)
   type StageRow = { project_id: string; status: string };
   const { data: stagesData } = await supabase
     .from("build_stages")
-    .select("project_id, status");
+    .select("project_id, status")
+    .in("project_id", subdivisionProjectIds);
 
   const stagesByProject: Record<string, StageRow[]> = {};
   for (const s of (stagesData ?? []) as StageRow[]) {
@@ -102,21 +106,23 @@ export async function getData(p: ReportParams): Promise<SubdivisionOverviewData>
     stagesByProject[s.project_id]!.push(s);
   }
 
-  // Fetch invoices for actual spend. Aliased joins aren't inferred.
+  // Fetch invoices for actual spend — filtered server-side to these projects.
+  // Aliased joins aren't inferred.
   type InvoiceLineRow = {
     amount: number | null;
-    invoice: { project_id: string | null; status: string } | null;
+    project_id: string | null;
+    invoice: { status: string } | null;
   };
   const { data: invoiceLineData } = await supabase
     .from("invoice_line_items")
-    .select("amount, invoice:invoices(project_id, status)");
+    .select("amount, project_id, invoice:invoices!inner(status)")
+    .in("project_id", subdivisionProjectIds)
+    .in("invoice.status", ["approved", "released", "cleared"]);
 
   const spendByProject: Record<string, number> = {};
-  const allowedInvoiceStatuses = new Set(["approved", "released", "cleared"]);
   for (const il of ((invoiceLineData ?? []) as unknown as InvoiceLineRow[])) {
-    const inv = il.invoice;
-    if (inv?.project_id && inv?.status && allowedInvoiceStatuses.has(inv.status)) {
-      spendByProject[inv.project_id] = (spendByProject[inv.project_id] ?? 0) + (il.amount ?? 0);
+    if (il.project_id) {
+      spendByProject[il.project_id] = (spendByProject[il.project_id] ?? 0) + (il.amount ?? 0);
     }
   }
 

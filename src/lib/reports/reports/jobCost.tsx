@@ -97,7 +97,14 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
         (actualsMap[row.cost_code][row.project_id] ?? 0) + (row.amount ?? 0);
     }
 
-    // Journal entry lines (manual JEs, lot costs, etc. — skip invoice-related to avoid double-counting)
+    // Journal entry lines (manual JEs, lot costs, vendor credits, payment-
+    // source discounts). Skip ONLY invoice_approval to avoid double-counting
+    // with invoice_line_items above. invoice_payment is NOT excluded so that
+    // early-pay discount credits to WIP — which carry a cost_code_id pointing
+    // at the paying invoice's dominant code — correctly reduce job cost to
+    // match BS WIP. Standard payment legs hit AP/Cash/2050 and have no
+    // cost_code_id, so the NOT NULL filter naturally skips them.
+    // (Same rules as the Job Cost screen — keep them in sync.)
     type JeLineRow = {
       cost_code_id: string | null;
       project_id: string | null;
@@ -114,7 +121,7 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
     for (const row of ((jeLineData ?? []) as unknown as JeLineRow[])) {
       const je = row.journal_entry;
       if (!je || je.status !== "posted") continue;
-      if (je.source_type === "invoice_approval" || je.source_type === "invoice_payment") continue;
+      if (je.source_type === "invoice_approval") continue;
       if (!row.cost_code_id || !row.project_id) continue;
 
       const code = ccIdToCode[row.cost_code_id];
@@ -128,11 +135,16 @@ export async function getData(p: ReportParams): Promise<JobCostData> {
     }
   }
 
-  const rows: CostCodeRow[] = (ccData ?? []).map((cc) => {
+  const allRows: CostCodeRow[] = (ccData ?? []).map((cc) => {
     const projectActuals = actualsMap[cc.code] ?? {};
     const total = Object.values(projectActuals).reduce((s, v) => s + v, 0);
     return { code: cc.code, name: cc.name, projectActuals, total };
   });
+
+  // Match the screen: hide cost codes with no activity (show all when nothing
+  // has actuals yet). Negative totals (credits) are activity and stay visible.
+  const withActuals = allRows.filter((r) => Math.abs(r.total) > 0.005);
+  const rows = withActuals.length > 0 ? withActuals : allRows;
 
   const projectTotals: Record<string, number> = {};
   for (const pr of projectList) {
@@ -205,17 +217,32 @@ export function Pdf({ data, params, logo }: { data: JobCostData; params: ReportP
               </Text>
               {data.projects.map((p) => {
                 const val = r.projectActuals[p.id] ?? 0;
+                const hasVal = Math.abs(val) > 0.005;
                 return (
                   <Text
                     key={p.id}
-                    style={[styles.tdNum, { width: `${projWidth}%`, color: val > 0 ? colors.text : colors.faint }]}
+                    style={[
+                      styles.tdNum,
+                      { width: `${projWidth}%`, color: !hasVal ? colors.faint : val < 0 ? colors.red : colors.text },
+                    ]}
                   >
-                    {val > 0 ? fmtMoney(val) : "—"}
+                    {/* negatives (credits / discounts) render in parens — they are intentional */}
+                    {hasVal ? (val < 0 ? `(${fmtMoney(Math.abs(val))})` : fmtMoney(val)) : "—"}
                   </Text>
                 );
               })}
-              <Text style={[styles.tdNumStrong, { width: `${totalWidth}%` }]}>
-                {r.total > 0 ? fmtMoney(r.total) : "—"}
+              <Text
+                style={[
+                  styles.tdNumStrong,
+                  { width: `${totalWidth}%` },
+                  r.total < -0.005 ? { color: colors.red } : {},
+                ]}
+              >
+                {Math.abs(r.total) > 0.005
+                  ? r.total < 0
+                    ? `(${fmtMoney(Math.abs(r.total))})`
+                    : fmtMoney(r.total)
+                  : "—"}
               </Text>
             </View>
           ))}

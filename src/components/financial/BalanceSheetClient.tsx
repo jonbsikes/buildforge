@@ -61,11 +61,13 @@ interface AccountBalance {
 interface BalanceSheetData {
   // Assets
   currentAssets: AccountBalance[];
-  longTermAssets: AccountBalance[];
+  /** WIP / CIP / capitalized interest / land — inventory-type assets for a homebuilder */
+  inventoryAssets: AccountBalance[];
+  fixedAssets: AccountBalance[];
   totalAssets: number;
   // Liabilities
   currentLiabilities: AccountBalance[];
-  longTermLiabilities: AccountBalance[];
+  loanLiabilities: AccountBalance[];
   apFromInvoices: number;
   apInvoices: GLEntry[];
   totalLiabilities: number;
@@ -74,6 +76,11 @@ interface BalanceSheetData {
   retainedEarnings: number;
   totalEquity: number;
 }
+
+// Inventory-type asset accounts for a homebuilder (homes built for sale are
+// inventory under GAAP — not long-term assets): Land Inventory (1200),
+// Construction WIP (1210), Capitalized Interest (1220), CIP — Land (1230).
+const INVENTORY_ACCOUNTS = new Set(["1200", "1210", "1220", "1230"]);
 
 function acctToGLEntries(acct: AccountBalance): GLEntry[] {
   return acct.lines
@@ -109,10 +116,13 @@ async function fetchAccountLines(accountNumber: string, asOf: string): Promise<J
       .from("journal_entry_lines")
       .select(`
         id, debit, credit, description,
-        journal_entry:journal_entries(entry_date, reference, description, status),
+        journal_entry:journal_entries!inner(entry_date, reference, description, status),
         account:chart_of_accounts!inner(account_number)
       `)
       .eq("account.account_number", accountNumber)
+      .eq("journal_entry.status", "posted")
+      .lte("journal_entry.entry_date", asOf)
+      .order("id")
       .range(fromIdx, fromIdx + PAGE_SIZE - 1);
     if (!page || page.length === 0) break;
     allLines = allLines.concat(page as unknown as LineRow[]);
@@ -120,7 +130,6 @@ async function fetchAccountLines(accountNumber: string, asOf: string): Promise<J
     fromIdx += PAGE_SIZE;
   }
   return allLines
-    .filter(l => l.journal_entry?.status === "posted" && (l.journal_entry?.entry_date ?? "") <= asOf)
     .map(l => ({
       id: l.id,
       entry_date: l.journal_entry?.entry_date ?? "",
@@ -236,11 +245,16 @@ export default function BalanceSheetClient() {
 
     const accounts = Object.values(acctMap).sort((a, b) => a.account_number.localeCompare(b.account_number));
 
-    // Categorize accounts
+    // Categorize accounts. Assets: current vs construction inventory (WIP/CIP/
+    // land — inventory-type for a homebuilder) vs property & equipment.
+    // Liabilities: loans (subtype 'loan') vs everything else (current).
     const nonZero = (a: AccountBalance) => Math.abs(a.balance) >= 0.005;
-    const currentAssets = accounts.filter(a => a.type === "asset" && a.account_number < "1200" && nonZero(a));
-    const longTermAssets = accounts.filter(a => a.type === "asset" && a.account_number >= "1200" && nonZero(a));
-    const currentLiabRaw = accounts.filter(a => a.type === "liability" && a.account_number < "2100" && nonZero(a));
+    const assetAccts = accounts.filter(a => a.type === "asset" && nonZero(a));
+    const inventoryAssets = assetAccts.filter(a => INVENTORY_ACCOUNTS.has(a.account_number));
+    const fixedAssets = assetAccts.filter(a => !INVENTORY_ACCOUNTS.has(a.account_number) && a.subtype === "fixed_asset");
+    const currentAssets = assetAccts.filter(a => !INVENTORY_ACCOUNTS.has(a.account_number) && a.subtype !== "fixed_asset");
+    const liabilityAccts = accounts.filter(a => a.type === "liability" && nonZero(a));
+    const currentLiabRaw = liabilityAccts.filter(a => a.subtype !== "loan");
 
     // Split AP (account 2000) into "Trade (gross)" + "Less: Vendor Credits
     // Available" when there are unapplied credits sitting in the AP control
@@ -270,7 +284,7 @@ export default function BalanceSheetClient() {
         currentLiab.push(a);
       }
     }
-    const longTermLiab = accounts.filter(a => a.type === "liability" && a.account_number >= "2100" && nonZero(a));
+    const loanLiabilities = liabilityAccts.filter(a => a.subtype === "loan");
     const equityAccounts = accounts.filter(a => a.type === "equity");
 
     // Net Member Capital accounts: combine capital + distributions per member into a single display line
@@ -317,17 +331,18 @@ export default function BalanceSheetClient() {
     // No supplementary invoice query needed; both asset (CIP) and liability (AP) sides are in the ledger
 
     // Totals
-    const totalAssets = currentAssets.reduce((s, a) => s + a.balance, 0) + longTermAssets.reduce((s, a) => s + a.balance, 0);
-    const totalLiabilities = currentLiab.reduce((s, a) => s + a.balance, 0) + longTermLiab.reduce((s, a) => s + a.balance, 0);
+    const totalAssets = [...currentAssets, ...inventoryAssets, ...fixedAssets].reduce((s, a) => s + a.balance, 0);
+    const totalLiabilities = currentLiab.reduce((s, a) => s + a.balance, 0) + loanLiabilities.reduce((s, a) => s + a.balance, 0);
     const totalEquityFromGL = [...netMemberAccounts, ...otherEquityAccounts].reduce((s, a) => s + a.balance, 0);
     const totalEquity = totalEquityFromGL + retainedEarnings;
 
     setData({
       currentAssets,
-      longTermAssets,
+      inventoryAssets,
+      fixedAssets,
       totalAssets,
       currentLiabilities: currentLiab,
-      longTermLiabilities: longTermLiab,
+      loanLiabilities,
       apFromInvoices: 0,
       apInvoices: [],
       totalLiabilities,
@@ -365,13 +380,22 @@ export default function BalanceSheetClient() {
                 }))} />
               )}
 
-              {data.longTermAssets.length > 0 && (
-                <BSGroup label="Long-Term Assets" items={data.longTermAssets.map(a => ({
+              {data.inventoryAssets.length > 0 && (
+                <BSGroup label="Construction Inventory (WIP & Land)" items={data.inventoryAssets.map(a => ({
                   label: a.name,
                   amount: a.balance,
                   drillable: true,
                   onDrill: () => openDrill(a),
                   projectBreakdown: a.projectBreakdown,
+                }))} />
+              )}
+
+              {data.fixedAssets.length > 0 && (
+                <BSGroup label="Property & Equipment" items={data.fixedAssets.map(a => ({
+                  label: a.name,
+                  amount: a.balance,
+                  drillable: true,
+                  onDrill: () => openDrill(a),
                 }))} />
               )}
 
@@ -391,8 +415,8 @@ export default function BalanceSheetClient() {
                 })),
               ]} />
 
-              {data.longTermLiabilities.length > 0 && (
-                <BSGroup label="Long-Term Liabilities" items={data.longTermLiabilities.map(a => ({
+              {data.loanLiabilities.length > 0 && (
+                <BSGroup label="Construction & Development Loans" items={data.loanLiabilities.map(a => ({
                   label: a.name,
                   amount: a.balance,
                   drillable: true,

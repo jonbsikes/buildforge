@@ -1,5 +1,5 @@
 import { Document, Page, View, Text, Image } from "@react-pdf/renderer";
-import { styles, COMPANY_NAME, page as pageCfg } from "./styles";
+import { styles, colors, COMPANY_NAME, page as pageCfg } from "./styles";
 import type { ReactNode } from "react";
 
 interface ReportDocumentProps {
@@ -33,7 +33,10 @@ export function ReportDocument({
             {logo ? (
               <Image src={logo as any} style={styles.logo} />
             ) : (
-              <Text style={{ fontFamily: "Helvetica-Bold", fontSize: 14 }}>{COMPANY_NAME}</Text>
+              // Wordmark fallback when no logo file exists — brand blue
+              <Text style={{ fontFamily: "Helvetica-Bold", fontSize: 14, color: colors.brand }}>
+                {COMPANY_NAME}
+              </Text>
             )}
           </View>
           <View style={styles.headerRight}>

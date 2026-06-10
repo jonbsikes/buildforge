@@ -179,6 +179,9 @@ export default function DrawPrintClient({
         <a href={`/api/draws/${drawId}/pdf`} download>
           Download PDF with Invoices
         </a>
+        <a href={`/api/draws/${drawId}/pdf?format=xlsx`} download>
+          Download Excel Summary
+        </a>
       </div>
 
       {/* Header: large logo + stacked title / customer+date */}

@@ -4,7 +4,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { PDFDocument } from "pdf-lib";
 import { fetchDrawSummary } from "@/lib/draws-summary";
 import { DrawSummaryDocument } from "@/lib/draws-summary-pdf";
-import { getLogo } from "@/lib/reports/logo";
+import { resolveLogo } from "@/lib/reports/logo";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,6 +33,26 @@ export async function GET(
 
   const { invoices, summary } = await fetchDrawSummary(supabase as any, id);
 
+  // ── Excel variant (?format=xlsx): summary worksheet + invoice list ────────
+  if (_req.nextUrl.searchParams.get("format") === "xlsx") {
+    const { renderDrawXlsx } = await import("@/lib/reports/excel");
+    const { buffer, filename } = await renderDrawXlsx({
+      drawDate: draw.draw_date,
+      lenderName: lender?.name ?? "—",
+      status: draw.status ?? "",
+      notes: draw.notes,
+      summary,
+    });
+    return new NextResponse(buffer as unknown as BodyInit, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   // ── Render summary via React-PDF (same visual as the Print Summary page) ──
   const summaryPdfBytes = await renderToBuffer(
     DrawSummaryDocument({
@@ -40,7 +60,7 @@ export async function GET(
       lenderName: lender?.name ?? "\u2014",
       notes: draw.notes,
       summary,
-      logo: getLogo(),
+      logo: await resolveLogo(_req.nextUrl.origin),
     }) as any
   );
 
