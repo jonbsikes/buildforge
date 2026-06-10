@@ -15,7 +15,12 @@ type DateValueProps = {
 };
 
 function toDate(v: string | Date): Date {
-  return v instanceof Date ? v : new Date(v);
+  if (v instanceof Date) return v;
+  // Date-only strings ("2026-06-09") parse as UTC midnight via new Date(),
+  // which renders as the previous day in US timezones. Parse as local instead.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(v);
 }
 
 function dayDiff(a: Date, b: Date): number {

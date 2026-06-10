@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X, RotateCcw, Check, AlertTriangle, ChevronDown, ChevronRight, Play, Settings2 } from "lucide-react";
 import { updateStage, resetSchedule } from "@/app/actions/stages";
@@ -471,6 +471,7 @@ function MobileStageCard({
         {isComplete && (
           <div className="flex items-center mt-2">
             <button onClick={onToggleEdit}
+              aria-label={`Edit completed stage ${stage.stage_name}`}
               className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center active:bg-gray-100 transition-colors ml-auto">
               <Pencil size={14} className="text-gray-400" />
             </button>
@@ -521,35 +522,46 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
   const [editingId, setEditingId] = useState<string | null>(null);
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [showEditStages, setShowEditStages] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [, startCompleteTransition] = useTransition();
+
+  useEffect(() => {
+    if (!actionError) return;
+    const t = setTimeout(() => setActionError(null), 5000);
+    return () => clearTimeout(t);
+  }, [actionError]);
 
   function handleQuickComplete(stage: StageRow) {
     setCompletingId(stage.id);
+    setActionError(null);
     const today = new Date().toISOString().split("T")[0];
     startCompleteTransition(async () => {
-      await updateStage(stage.id, {
+      const result = await updateStage(stage.id, {
         actual_start_date: stage.actual_start_date || today,
         actual_end_date: today,
         status: "complete",
         notes: stage.notes || null,
       }, projectId);
       setCompletingId(null);
-      router.refresh();
+      if (result.error) setActionError(`Could not mark "${stage.stage_name}" complete: ${result.error}`);
+      else router.refresh();
     });
   }
 
   function handleStart(stage: StageRow) {
     setCompletingId(stage.id);
+    setActionError(null);
     const today = new Date().toISOString().split("T")[0];
     startCompleteTransition(async () => {
-      await updateStage(stage.id, {
+      const result = await updateStage(stage.id, {
         actual_start_date: today,
         actual_end_date: null,
         status: "in_progress",
         notes: stage.notes || null,
       }, projectId);
       setCompletingId(null);
-      router.refresh();
+      if (result.error) setActionError(`Could not mark "${stage.stage_name}" started: ${result.error}`);
+      else router.refresh();
     });
   }
 
@@ -576,6 +588,13 @@ export default function StageReportTab({ stages, projectId, isHome, startDate }:
 
   return (
     <div className="space-y-4">
+      {actionError && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-800" role="alert">
+          <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-red-500" />
+          <p className="font-medium">{actionError}</p>
+        </div>
+      )}
+
       {outOfSpec && (
         <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
           <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-amber-500" />

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { submitDraw, fundDraw } from "@/app/actions/draws";
 import { drawDisplayName } from "@/lib/draws";
 import StatusDot from "@/components/ui/StatusDot";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
 
 interface Draw {
   id: string;
@@ -16,17 +18,6 @@ interface Draw {
 
 interface Props {
   draws: Draw[];
-}
-
-function fmt(n: number | null) {
-  if (n == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-}
-
-function fmtDate(d: string | null) {
-  if (!d) return "—";
-  const [y, m, day] = d.split("-");
-  return `${parseInt(m)}/${parseInt(day)}/${y}`;
 }
 
 function ActionButton({ draw }: { draw: Draw }) {
@@ -180,7 +171,7 @@ export default function DrawsTableClient({ draws }: Props) {
         </div>
         <div className="ml-auto flex items-center gap-2 border-l border-gray-300 pl-6">
           <span className="text-gray-500">Total:</span>
-          <span className="font-medium text-gray-900 tabular-nums">{fmt(totalAmount)}</span>
+          <Money value={totalAmount} decimals className="font-medium text-gray-900" />
         </div>
       </div>
 
@@ -209,14 +200,12 @@ export default function DrawsTableClient({ draws }: Props) {
                 className="hover:bg-gray-50 transition-colors cursor-pointer group"
               >
                 <td className="px-4 py-2 font-medium text-gray-900">{drawDisplayName(draw.draw_date)}</td>
-                <td className="px-4 py-2 text-gray-600 text-xs">{fmtDate(draw.draw_date)}</td>
+                <td className="px-4 py-2 text-gray-600 text-xs"><DateValue value={draw.draw_date} withYear /></td>
                 <td className="px-4 py-2 text-gray-700">{draw.lenderName ?? "\u2014"}</td>
-                <td className="px-4 py-2 text-right font-medium text-gray-900 tabular-nums">{fmt(draw.total_amount)}</td>
+                <td className="px-4 py-2 text-right"><Money value={draw.total_amount} decimals className="font-medium text-gray-900" /></td>
                 <td className="px-4 py-2"><StatusDot status={draw.status} /></td>
                 <td className="px-4 py-2">
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                    <ActionButton draw={draw} />
-                  </div>
+                  <ActionButton draw={draw} />
                 </td>
               </tr>
             ))}

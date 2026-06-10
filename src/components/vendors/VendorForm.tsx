@@ -7,6 +7,7 @@ import {
   Upload, FileText, Loader2, Sparkles,
 } from "lucide-react";
 import { createVendor, updateVendor, type VendorFormData } from "@/app/actions/vendors";
+import { parseTrades } from "@/lib/ui/trades";
 import type { ExtractedVendorData } from "@/app/api/vendors/extract/route";
 
 // ---------------------------------------------------------------------------
@@ -233,15 +234,6 @@ export default function VendorForm({ costCodes, initialData, prefillName, return
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEdit = !!initialData;
-
-  function parseTrades(raw: string | null): string[] {
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed as string[];
-    } catch {}
-    return [raw];
-  }
 
   // AI extraction state
   const [isExtracting, setIsExtracting] = useState(false);

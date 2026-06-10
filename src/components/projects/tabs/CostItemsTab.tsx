@@ -8,10 +8,9 @@ import { updatePhaseLotsSold, addProjectCostCodes, removeProjectCostCode, getInv
 import type { CostCodeInvoice } from "@/app/actions/projects";
 import Link from "next/link";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
-
-function fmt(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-}
+import ConfirmButton from "@/components/ui/ConfirmButton";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
 
 function CATEGORY_LABEL(cat: string): string {
   const MAP: Record<string, string> = {
@@ -329,9 +328,6 @@ function InvoiceSubRow({
   error: string | null;
   colSpan: number;
 }) {
-  const fmtDate = (d: string | null) =>
-    d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
-
   return (
     <tr>
       <td colSpan={colSpan} className="p-0">
@@ -370,13 +366,13 @@ function InvoiceSubRow({
                       {inv.vendor ?? <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-2 text-gray-500 pr-4 whitespace-nowrap">
-                      {fmtDate(inv.invoice_date)}
+                      <DateValue value={inv.invoice_date} withYear />
                     </td>
                     <td className="py-2 pr-4">
                       <InvoiceStatusBadge status={inv.status} />
                     </td>
-                    <td className="py-2 text-right font-medium text-gray-800 pr-4">
-                      {inv.amount != null ? fmt(inv.amount) : "—"}
+                    <td className="py-2 text-right pr-4">
+                      <Money value={inv.amount} decimals className="font-medium" />
                     </td>
                     <td className="py-2 text-right">
                       <Link
@@ -395,8 +391,8 @@ function InvoiceSubRow({
                   <td colSpan={4} className="pt-2 text-gray-400 font-medium">
                     {invoices.length} invoice{invoices.length !== 1 ? "s" : ""}
                   </td>
-                  <td className="pt-2 text-right font-semibold text-gray-700 pr-4">
-                    {fmt(invoices.reduce((s, i) => s + (i.amount ?? 0), 0))}
+                  <td className="pt-2 text-right pr-4">
+                    <Money value={invoices.reduce((s, i) => s + (i.amount ?? 0), 0)} decimals className="font-semibold" />
                   </td>
                   <td></td>
                 </tr>
@@ -413,28 +409,25 @@ function InvoiceSubRow({
 // Remove cost code button (inline)
 // ---------------------------------------------------------------------------
 function RemoveCodeButton({
-  pccId, projectId, onRemoved,
+  pccId, projectId, code, name, onRemoved,
 }: {
-  pccId: string; projectId: string; onRemoved: () => void;
+  pccId: string; projectId: string; code: string; name: string; onRemoved: () => void;
 }) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleRemove() {
-    startTransition(async () => {
-      await removeProjectCostCode(pccId, projectId);
-      onRemoved();
-    });
-  }
-
   return (
-    <button
-      onClick={handleRemove}
-      disabled={isPending}
-      title="Remove from project"
-      className="p-1 text-gray-300 hover:text-red-400 transition-colors disabled:opacity-40 rounded"
-    >
-      <X size={13} />
-    </button>
+    <ConfirmButton
+      trigger={<X size={13} />}
+      title={`Remove cost code ${code}?`}
+      body={`This removes ${name} (code ${code}) and its budget from this project.`}
+      confirmLabel="Remove"
+      tone="danger"
+      onConfirm={async () => {
+        const result = await removeProjectCostCode(pccId, projectId);
+        if (result.error) return result; // ConfirmButton surfaces it in the dialog
+        onRemoved();
+      }}
+      triggerClassName="p-1 text-gray-300 hover:text-red-400 transition-colors rounded"
+      ariaLabel={`Remove cost code ${code} ${name} from project`}
+    />
   );
 }
 
@@ -611,7 +604,7 @@ export default function CostItemsTab({
                         <td className="px-4 py-2.5 text-gray-900">{cc.name}</td>
                         <td className="px-4 py-2.5 text-right text-gray-800 font-medium">
                           {hasActual
-                            ? <span className={isExpanded ? "text-[#4272EF]" : ""}>{fmt(actualValue)}</span>
+                            ? <Money value={actualValue} decimals className="font-medium" style={isExpanded ? { color: "#4272EF" } : undefined} />
                             : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
@@ -619,6 +612,8 @@ export default function CostItemsTab({
                             <RemoveCodeButton
                               pccId={cc.pccId}
                               projectId={projectId}
+                              code={cc.code}
+                              name={cc.name}
                               onRemoved={() => handleRemoved(cc.pccId)}
                             />
                           )}
@@ -639,7 +634,7 @@ export default function CostItemsTab({
               <tfoot>
                 <tr className="border-t border-gray-200 bg-gray-50">
                   <td colSpan={2} className="px-4 py-3 text-xs font-semibold text-gray-600">Total</td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold text-gray-900">{fmt(totalActual)}</td>
+                  <td className="px-4 py-3 text-right"><Money value={totalActual} decimals className="text-sm font-semibold" /></td>
                   <td></td>
                 </tr>
               </tfoot>

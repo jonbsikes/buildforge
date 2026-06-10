@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { Plus, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle, Trash2, ClipboardList, Camera, Upload, X, Pencil, Check } from "lucide-react";
-import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto, updateFieldLog, deleteFieldLog, updateFieldTodo } from "@/app/actions/field-logs";
+import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto, deleteFieldLog, updateFieldTodo } from "@/app/actions/field-logs";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
+import DateValue from "@/components/ui/DateValue";
 import type { Database } from "@/types/database";
 
 type FieldLog = Database["public"]["Tables"]["field_logs"]["Row"];
@@ -179,6 +180,7 @@ function NewLogForm({
 
 function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: string; onDone: () => void }) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
   return (
     <form
       onSubmit={(e) => {
@@ -186,9 +188,14 @@ function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: s
         const fd = new FormData(e.currentTarget);
         fd.set("field_log_id", logId);
         fd.set("project_id", projectId);
+        setError("");
         startTransition(async () => {
-          await createFieldTodo(fd);
-          onDone();
+          try {
+            await createFieldTodo(fd);
+            onDone();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to save to-do. Check your connection and try again.");
+          }
         });
       }}
       className="flex flex-wrap gap-2 mt-2 p-3 bg-gray-50 rounded-lg border border-gray-100"
@@ -197,9 +204,9 @@ function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: s
         name="description"
         required
         placeholder="To-do description *"
-        className="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+        className="flex-1 min-w-48 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
       />
-      <select name="priority" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]">
+      <select name="priority" className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]">
         <option value="normal">Normal</option>
         <option value="low">Low</option>
         <option value="urgent">Urgent</option>
@@ -207,14 +214,15 @@ function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: s
       <input
         name="due_date"
         type="date"
-        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
       />
-      <button type="submit" disabled={isPending} className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-50" style={{ backgroundColor: "#4272EF" }}>
+      <button type="submit" disabled={isPending} className="px-3 py-1.5 text-sm text-white rounded-lg disabled:opacity-50 min-h-[44px]" style={{ backgroundColor: "#4272EF" }}>
         {isPending ? "..." : "Add"}
       </button>
-      <button type="button" onClick={onDone} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">
+      <button type="button" onClick={onDone} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 min-h-[44px]">
         Cancel
       </button>
+      {error && <p className="w-full text-sm text-red-600">{error}</p>}
     </form>
   );
 }
@@ -225,16 +233,34 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
   const [desc, setDesc] = useState(todo.description);
   const [priority, setPriority] = useState(todo.priority);
   const [due, setDue] = useState(todo.due_date ?? "");
+  const [error, setError] = useState("");
 
   function save() {
     if (!desc.trim()) return;
+    setError("");
     startTransition(async () => {
-      await updateFieldTodo(todo.id, {
-        description: desc.trim(),
-        priority,
-        due_date: due || null,
-      });
-      setEditing(false);
+      try {
+        await updateFieldTodo(todo.id, {
+          description: desc.trim(),
+          priority,
+          due_date: due || null,
+        });
+        setEditing(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to save. Check your connection and try again.");
+      }
+    });
+  }
+
+  function cycleStatus() {
+    setError("");
+    startTransition(async () => {
+      const next = todo.status === "done" ? "open" : todo.status === "open" ? "in_progress" : "done";
+      try {
+        await updateTodoStatus(todo.id, next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update status. Check your connection and try again.");
+      }
     });
   }
 
@@ -249,12 +275,12 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
             if (e.key === "Escape") setEditing(false);
           }}
           autoFocus
-          className="flex-1 min-w-40 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+          className="flex-1 min-w-40 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
         />
         <select
           value={priority}
           onChange={(e) => setPriority(e.target.value)}
-          className="border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+          className="border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
         >
           <option value="normal">Normal</option>
           <option value="low">Low</option>
@@ -264,39 +290,38 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
           type="date"
           value={due}
           onChange={(e) => setDue(e.target.value)}
-          className="border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
+          className="border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
         />
         <button
           onClick={save}
           disabled={!desc.trim() || isPending}
-          className="p-1 text-gray-400 hover:text-[#4272EF] disabled:opacity-40"
-          aria-label="Save"
+          className="text-gray-400 hover:text-[#4272EF] disabled:opacity-40 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          aria-label="Save to-do changes"
           title="Save"
         >
-          <Check size={14} />
+          <Check size={16} />
         </button>
         <button
           onClick={() => setEditing(false)}
-          className="p-1 text-gray-300 hover:text-gray-600"
-          aria-label="Cancel"
+          className="text-gray-300 hover:text-gray-600 min-h-[44px] min-w-[44px] flex items-center justify-center"
+          aria-label="Cancel edit"
           title="Cancel"
         >
-          <X size={14} />
+          <X size={16} />
         </button>
+        {error && <p className="w-full text-xs text-red-600">{error}</p>}
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 py-1.5">
+    <div className="flex flex-wrap items-center gap-2 py-0.5">
       <button
-        onClick={() =>
-          startTransition(async () => {
-            const next = todo.status === "done" ? "open" : todo.status === "open" ? "in_progress" : "done";
-            await updateTodoStatus(todo.id, next);
-          })
-        }
-        className="shrink-0"
+        onClick={cycleStatus}
+        disabled={isPending}
+        className="shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center disabled:opacity-50"
+        aria-label={`${todo.description} — ${todo.status.replace(/_/g, " ")}, tap to advance`}
+        title="Tap to advance status"
       >
         {TODO_STATUS_ICONS[todo.status as keyof typeof TODO_STATUS_ICONS]}
       </button>
@@ -307,25 +332,26 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
         {todo.priority}
       </StatusBadge>
       {todo.due_date && (
-        <span className="text-xs text-gray-400">{todo.due_date}</span>
+        <DateValue value={todo.due_date} kind="smart" className="text-xs text-gray-400" />
       )}
       <button
         onClick={() => setEditing(true)}
-        className="text-gray-300 hover:text-[#4272EF] transition-colors"
-        aria-label="Edit to-do"
+        className="text-gray-300 hover:text-[#4272EF] transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+        aria-label={`Edit to-do "${todo.description}"`}
         title="Edit"
       >
-        <Pencil size={13} />
+        <Pencil size={14} />
       </button>
       <ConfirmButton
-        trigger={<Trash2 size={13} />}
-        ariaLabel="Delete to-do"
-        triggerClassName="text-gray-300 hover:text-red-500 transition-colors"
+        trigger={<Trash2 size={14} />}
+        ariaLabel={`Delete to-do "${todo.description}"`}
+        triggerClassName="text-gray-300 hover:text-red-500 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
         title="Delete To-Do?"
         body={<p>Remove &ldquo;{todo.description}&rdquo;? This cannot be undone.</p>}
         confirmLabel="Delete"
         onConfirm={() => deleteTodo(todo.id)}
       />
+      {error && <p className="w-full text-xs text-red-600">{error}</p>}
     </div>
   );
 }
@@ -341,39 +367,21 @@ function LogCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showAddTodo, setShowAddTodo] = useState(false);
-  const [editingLog, setEditingLog] = useState(false);
-  const [logDate, setLogDate] = useState(log.log_date);
-  const [logNotes, setLogNotes] = useState(log.notes ?? "");
-  const [isPending, startTransition] = useTransition();
   const projectName = projects.find((p) => p.id === log.project_id)?.name ?? "Unknown";
   const logTodos = todos.filter((t) => t.field_log_id === log.id);
-
-  function saveLog() {
-    if (!logNotes.trim() || !logDate) return;
-    startTransition(async () => {
-      await updateFieldLog(log.id, { log_date: logDate, notes: logNotes });
-      setEditingLog(false);
-    });
-  }
-
-  function onDeleteLog() {
-    startTransition(async () => {
-      await deleteFieldLog(log.id);
-    });
-  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-start gap-3 px-4 py-4 text-left hover:bg-gray-50 transition-colors rounded-xl"
+        className="w-full flex items-start gap-3 px-4 py-4 text-left hover:bg-gray-50 transition-colors rounded-xl min-h-[56px]"
       >
         <span className="mt-0.5 text-gray-400 shrink-0">
           {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className="font-medium text-gray-900">{log.log_date}</span>
+            <DateValue value={log.log_date} className="font-medium text-gray-900" />
             <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{projectName}</span>
             {logTodos.length > 0 && (
               <span className="text-xs text-gray-400">{logTodos.filter(t => t.status !== "done").length} open to-dos</span>
@@ -385,67 +393,23 @@ function LogCard({
 
       {expanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
-          {editingLog ? (
-            <div className="space-y-2">
-              <input
-                type="date"
-                value={logDate}
-                onChange={(e) => setLogDate(e.target.value)}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-              />
-              <textarea
-                value={logNotes}
-                onChange={(e) => setLogNotes(e.target.value)}
-                rows={4}
-                className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] resize-none"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={saveLog}
-                  disabled={isPending || !logNotes.trim() || !logDate}
-                  className="px-3 py-1.5 text-sm text-white rounded-md disabled:opacity-50"
-                  style={{ backgroundColor: "#4272EF" }}
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => {
-                    setEditingLog(false);
-                    setLogDate(log.log_date);
-                    setLogNotes(log.notes ?? "");
-                  }}
-                  className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-start gap-2">
-              <p className="flex-1 text-sm text-gray-700 whitespace-pre-wrap">{log.notes}</p>
-              <button
-                onClick={() => setEditingLog(true)}
-                className="text-gray-300 hover:text-[#4272EF] transition-colors shrink-0"
-                aria-label="Edit log"
-                title="Edit log"
-              >
-                <Pencil size={14} />
-              </button>
-              <ConfirmButton
-                trigger={<Trash2 size={14} />}
-                ariaLabel="Delete field log"
-                triggerClassName="text-gray-300 hover:text-red-500 transition-colors shrink-0"
-                title="Delete Field Log?"
-                body={
-                  <p>
-                    This will permanently remove this log{logTodos.length > 0 ? ` and its ${logTodos.length} to-do${logTodos.length !== 1 ? "s" : ""}` : ""}. This cannot be undone.
-                  </p>
-                }
-                confirmLabel="Delete"
-                onConfirm={onDeleteLog}
-              />
-            </div>
-          )}
+          {/* Logs are read-only once saved (business rule) — no edit, only delete. */}
+          <div className="flex items-start gap-2">
+            <p className="flex-1 text-sm text-gray-700 whitespace-pre-wrap">{log.notes}</p>
+            <ConfirmButton
+              trigger={<Trash2 size={14} />}
+              ariaLabel="Delete field log"
+              triggerClassName="text-gray-300 hover:text-red-500 transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+              title="Delete Field Log?"
+              body={
+                <p>
+                  This will permanently remove this log{logTodos.length > 0 ? ` and its ${logTodos.length} to-do${logTodos.length !== 1 ? "s" : ""}` : ""}. This cannot be undone.
+                </p>
+              }
+              confirmLabel="Delete"
+              onConfirm={() => deleteFieldLog(log.id)}
+            />
+          </div>
 
           {/* To-dos */}
           <div>
@@ -453,7 +417,7 @@ function LogCard({
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">To-Dos</span>
               <button
                 onClick={() => setShowAddTodo(true)}
-                className="text-xs flex items-center gap-1 font-medium hover:opacity-80"
+                className="text-xs flex items-center gap-1 font-medium hover:opacity-80 min-h-[44px] px-1"
                 style={{ color: "#4272EF" }}
               >
                 <Plus size={13} /> Add To-Do

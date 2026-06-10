@@ -17,6 +17,8 @@ import {
   setPendingDrawBatch,
 } from "@/app/actions/invoice-batch";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import Money from "@/components/ui/Money";
+import DateValue from "@/components/ui/DateValue";
 import {
   EMPTY_FILTERS,
   type InvoiceFilters,
@@ -32,15 +34,10 @@ const STATUS_SORT_ORDER: Record<string, number> = {
   void: 5,
 };
 
+// String formatter for title/aria attributes only — JSX renders use <Money>.
 function fmt(n: number | null) {
   if (n == null) return " - ";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-}
-
-function fmtDate(d: string | null) {
-  if (!d) return " - ";
-  const [y, m, day] = d.split("-");
-  return `${parseInt(m)}/${parseInt(day)}/${y}`;
 }
 
 type SortField = "status" | "due_date" | "vendor" | "amount" | "invoice_date";
@@ -361,8 +358,27 @@ export default function InvoicesTable({
 
   async function handleDeleteSelected() {
     const ids = [...selected];
-    await Promise.all(ids.map((id) => deleteInvoice(id)));
-    exitSelectMode();
+    const results = await Promise.all(ids.map((id) => deleteInvoice(id)));
+    const failedIds: string[] = [];
+    let firstError: string | null = null;
+    results.forEach((r, i) => {
+      if (r?.error) {
+        failedIds.push(ids[i]!);
+        if (!firstError) firstError = r.error;
+      }
+    });
+    const deleted = ids.length - failedIds.length;
+    if (failedIds.length > 0) {
+      setBanner({
+        type: "error",
+        msg: `Deleted ${deleted}, failed ${failedIds.length}: ${firstError}`,
+      });
+      // Keep the rows that couldn't be deleted selected for retry/review.
+      setSelected(new Set(failedIds));
+    } else {
+      setBanner({ type: "success", msg: `Deleted ${deleted} invoice${deleted !== 1 ? "s" : ""}` });
+      exitSelectMode();
+    }
   }
 
   function SortIcon({ field }: { field: SortField }) {
@@ -447,31 +463,34 @@ export default function InvoicesTable({
           <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-2">Pending</span>
           <span className="text-sm font-bold text-gray-900">{summaryMetrics.pendingCount}</span>
           <span className="text-gray-300 mx-1.5">·</span>
-          <span className="text-sm font-bold text-gray-900">{fmt(summaryMetrics.pendingAmount)}</span>
+          <Money value={summaryMetrics.pendingAmount} decimals className="text-sm font-bold" />
         </div>
         <div>
           <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-2">Approved</span>
           <span className="text-sm font-bold text-gray-900">{summaryMetrics.approvedCount}</span>
           <span className="text-gray-300 mx-1.5">·</span>
-          <span className="text-sm font-bold text-gray-900">{fmt(summaryMetrics.approvedAmount)}</span>
+          <Money value={summaryMetrics.approvedAmount} decimals className="text-sm font-bold" />
         </div>
         <div>
           <span className="text-[10px] font-semibold uppercase tracking-wider mr-2" style={{ color: "var(--status-over)" }}>Past due</span>
           <span className="text-sm font-bold" style={{ color: "var(--status-over)" }}>{summaryMetrics.pastDueCount}</span>
           <span className="mx-1.5" style={{ color: "var(--status-over)", opacity: 0.4 }}>·</span>
-          <span className="text-sm font-bold" style={{ color: "var(--status-over)" }}>{fmt(summaryMetrics.pastDueAmount)}</span>
+          <Money value={summaryMetrics.pastDueAmount} decimals className="text-sm font-bold" style={{ color: "var(--status-over)" }} />
         </div>
         {totalCreditsAvailable > 0.005 && (
           <>
             <div>
               <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mr-2">Credits</span>
-              <span className="text-sm font-bold text-green-700">−{fmt(totalCreditsAvailable)}</span>
+              <Money value={-totalCreditsAvailable} decimals parens={false} className="text-sm font-bold" style={{ color: "#15803d" }} />
             </div>
             <div className="ml-auto">
               <span className="text-[10px] font-semibold uppercase tracking-wider mr-2" style={{ color: "var(--brand-blue)" }}>Net AP</span>
-              <span className="text-sm font-bold" style={{ color: "var(--brand-blue)" }}>
-                {fmt(summaryMetrics.approvedAmount - totalCreditsAvailable)}
-              </span>
+              <Money
+                value={summaryMetrics.approvedAmount - totalCreditsAvailable}
+                decimals
+                className="text-sm font-bold"
+                style={{ color: "var(--brand-blue)" }}
+              />
             </div>
           </>
         )}
@@ -637,12 +656,14 @@ export default function InvoicesTable({
                     )}
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="text-sm font-semibold text-gray-900 tabular-nums">{fmt(inv.amount)}</div>
-                    <div
-                      className="text-[11px] tabular-nums"
-                      style={{ color: isPastDue ? "var(--status-over)" : "#94a3b8" }}
-                    >
-                      {fmtDate(inv.due_date)}
+                    <div><Money value={inv.amount} decimals className="text-sm font-semibold" /></div>
+                    <div>
+                      <DateValue
+                        value={inv.due_date}
+                        kind="smart"
+                        className="text-[11px]"
+                        style={{ color: isPastDue ? "var(--status-over)" : "#94a3b8" }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -840,13 +861,18 @@ export default function InvoicesTable({
                       className="px-4 py-2 text-xs font-medium whitespace-nowrap"
                       style={{ color: isPastDue ? "var(--status-over)" : undefined }}
                     >
-                      <span className={!isPastDue ? "text-gray-600" : ""}>{fmtDate(inv.due_date)}</span>
+                      <DateValue
+                        value={inv.due_date}
+                        kind="smart"
+                        className={!isPastDue ? "text-gray-600" : ""}
+                        style={isPastDue ? { color: "var(--status-over)" } : undefined}
+                      />
                     </td>
                     <td className="px-4 py-2 text-right">
-                      <span className="font-semibold text-gray-900 tabular-nums">{fmt(inv.amount)}</span>
+                      <Money value={inv.amount} decimals className="font-semibold" />
                       {(inv.discount_taken ?? 0) > 0 && (
                         <span className="block text-[10px] text-green-600 tabular-nums">
-                          Disc: {fmt(inv.discount_taken)}
+                          Disc: <Money value={inv.discount_taken} decimals className="text-[10px]" style={{ color: "inherit" }} />
                         </span>
                       )}
                     </td>
@@ -966,12 +992,13 @@ export default function InvoicesTable({
 
                         <button
                           title="More actions"
+                          aria-label="More invoice actions"
                           onClick={(e) => {
                             e.stopPropagation();
                             setMoreMenuFor(moreMenuFor === inv.id ? null : inv.id);
                             setPayMenuFor(null);
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 rounded transition-all"
+                          className="lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:focus-visible:opacity-100 p-1 text-gray-400 hover:text-gray-600 rounded transition-all"
                         >
                           <MoreVertical size={14} />
                         </button>
@@ -1108,10 +1135,8 @@ export default function InvoicesTable({
                         body="This permanently removes the invoice."
                         confirmLabel="Delete"
                         tone="danger"
-                        onConfirm={async () => {
-                          await deleteInvoice(inv.id);
-                        }}
-                        triggerClassName="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 rounded transition-all"
+                        onConfirm={() => deleteInvoice(inv.id)}
+                        triggerClassName="lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:focus-visible:opacity-100 p-1 text-gray-300 hover:text-red-500 rounded transition-all"
                         ariaLabel="Delete invoice"
                       />
                     </td>

@@ -7,6 +7,8 @@ import { Plus, Circle, CheckCircle2, Trash2, RotateCcw, Pencil, Check, X } from 
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { StatusKind } from "@/components/ui/StatusBadge";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import DateValue from "@/components/ui/DateValue";
+import ErrorState from "@/components/ui/ErrorState";
 
 interface Project { id: string; name: string }
 
@@ -36,6 +38,7 @@ export default function TodosClient() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<"open" | "completed">("open");
 
   // New todo form state
@@ -46,18 +49,30 @@ export default function TodosClient() {
   const [formError, setFormError] = useState<string | null>(null);
   const [isAdding, startAdd] = useTransition();
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
+    setLoadError(null);
     const supabase = createClient();
     Promise.all([
       supabase.from("projects").select("id, name").order("name"),
       supabase.from("field_todos").select("id, description, priority, due_date, status, project_id, resolved_date, created_at").order("created_at", { ascending: false }),
     ]).then(([projRes, todosRes]) => {
+      const err = projRes.error ?? todosRes.error;
+      if (err) {
+        setLoadError(err.message);
+        setLoading(false);
+        return;
+      }
       const projs = projRes.data ?? [];
       setProjects(projs);
-      if (projs.length > 0 && !projectId) setProjectId(projs[0]!.id);
+      setProjectId((prev) => prev || projs[0]?.id || "");
       setTodos(todosRes.data ?? []);
       setLoading(false);
     });
+  }
+
+  useEffect(() => {
+    load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -96,7 +111,10 @@ export default function TodosClient() {
   }
 
   async function handleDelete(todo: Todo) {
-    await deleteTodo(todo.id, todo.project_id);
+    const res = await deleteTodo(todo.id, todo.project_id);
+    // Returning the {error} result lets ConfirmButton keep its dialog open
+    // and display the failure instead of silently closing.
+    if (res.error) return res;
     refreshTodos();
   }
 
@@ -142,6 +160,18 @@ export default function TodosClient() {
   }
 
   if (loading) return <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>;
+
+  if (loadError) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <ErrorState
+          title="Couldn't load your to-dos"
+          description={loadError}
+          onRetry={load}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
@@ -275,7 +305,7 @@ export default function TodosClient() {
                                 className="text-xs"
                                 style={isOverdue(t.due_date) ? { color: "var(--status-over)", fontWeight: 500 } : { color: "var(--text-muted)" }}
                               >
-                                due {t.due_date}{isOverdue(t.due_date) ? " · overdue" : ""}
+                                due <DateValue value={t.due_date} kind="smart" style={{ color: "inherit" }} />{isOverdue(t.due_date) ? " · overdue" : ""}
                               </span>
                             )}
                           </div>
@@ -345,7 +375,11 @@ export default function TodosClient() {
                 <p className="text-sm text-gray-400 line-through">{t.description}</p>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className="text-xs text-[#4272EF] font-medium">{projectMap[t.project_id] ?? "—"}</span>
-                  {t.resolved_date && <span className="text-xs text-gray-400">completed {t.resolved_date}</span>}
+                  {t.resolved_date && (
+                    <span className="text-xs text-gray-400">
+                      completed <DateValue value={t.resolved_date} kind="smart" style={{ color: "inherit" }} />
+                    </span>
+                  )}
                 </div>
               </div>
               <button

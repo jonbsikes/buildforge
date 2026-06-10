@@ -81,21 +81,10 @@
   --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
 }
 
-/* System preference fallback when no explicit theme is set */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --background: #0f1117;
-    --foreground: #e2e8f0;
-    --surface: #1a1d27;
-    --surface-secondary: #232633;
-    --border: #2d3041;
-    --border-subtle: #232633;
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
-  }
-}
+/* No prefers-color-scheme auto-dark fallback: the app is light-only today.
+   Components hardcode bg-white, so OS-dark devices would get a broken dark
+   flash before hydration. Dark mode activates only via explicit
+   [data-theme="dark"] set by ThemeProvider. */
 
 body {
   background: var(--background);

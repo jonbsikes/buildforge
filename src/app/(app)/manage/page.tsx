@@ -12,6 +12,7 @@ import {
   Bell,
 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
+import { parseTrades } from "@/lib/ui/trades";
 
 
 function daysUntil(d: string | null) {
@@ -230,7 +231,7 @@ export default async function ManageHubPage() {
                         />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{v.name}</p>
-                          <p className="text-xs text-gray-400">{v.trade ?? "No trade"}</p>
+                          <p className="text-xs text-gray-400">{parseTrades(v.trade).join(", ") || "No trade"}</p>
                         </div>
                         <StatusBadge status={isExpired ? "over" : "warning"} size="sm">
                           {isExpired ? "Expired" : `${Math.min(coiDays ?? 999, licDays ?? 999)}d`}
