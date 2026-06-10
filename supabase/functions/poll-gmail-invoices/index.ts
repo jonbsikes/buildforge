@@ -401,16 +401,25 @@ Deno.serve(async (req: Request) => {
     ANTHROPIC_API_KEY,
   } = envResult.env;
 
-  // Auth gate: only allow cron / trusted callers (or signed-in app users with
-  // a valid Supabase session JWT — verified by Supabase Edge Runtime via the
-  // Authorization header). Fail closed: if CRON_SECRET is not configured,
-  // reject all requests rather than allowing unauthenticated access.
+  // Auth gate — fail closed. Three callers are legitimate:
+  //   1. pg_cron (every 15 min) sends the service-role key itself.
+  //   2. The AP page "Check Email" button sends the signed-in user's session
+  //      JWT — verified against Supabase Auth, not just shape-checked.
+  //   3. An optional CRON_SECRET for non-Supabase schedulers.
+  // Anything else (including the public anon key) is rejected. Platform-level
+  // verify_jwt stays enabled as defense in depth.
+  const authHeader = req.headers.get("authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   const cronSecret = Deno.env.get("CRON_SECRET");
-  if (!cronSecret) {
-    return new Response("Server misconfigured: CRON_SECRET not set", { status: 500, headers: CORS_HEADERS });
+  let authorized =
+    token.length > 0 &&
+    (token === SUPABASE_SERVICE_ROLE_KEY || (!!cronSecret && token === cronSecret));
+  if (!authorized && token) {
+    const authClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { data: userData, error: userErr } = await authClient.auth.getUser(token);
+    authorized = !userErr && !!userData?.user;
   }
-  const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
+  if (!authorized) {
     return new Response("Unauthorized", { status: 401, headers: CORS_HEADERS });
   }
 
