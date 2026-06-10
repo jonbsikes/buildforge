@@ -20,16 +20,16 @@ export async function approveInvoicesBatch(
   const errors: string[] = [];
   let approved = 0;
   let skipped = 0;
+  // JE posting stays sequential (intentional, for safety); revalidation is
+  // deferred to a single pass after the loop instead of once per invoice.
   for (const id of invoiceIds) {
-    const r = await approveInvoice(id);
+    const r = await approveInvoice(id, { deferRevalidation: true });
     if (r.success) approved++;
     else {
       skipped++;
       if (r.error) errors.push(`${id.slice(0, 8)}: ${r.error}`);
     }
   }
-  // Each successful approveInvoice already invalidated; this final pass guarantees
-  // the financial surfaces reflect the batch when only some succeeded.
   revalidateAfterJournalEntry();
   return { approved, skipped, errors };
 }

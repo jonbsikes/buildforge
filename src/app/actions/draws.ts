@@ -44,24 +44,26 @@ export interface DrawableInvoice {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns IDs of invoices already linked to a funded or paid draw
- * (they should not be re-drawn).
+ * Returns IDs of invoices already linked to any draw — draft, submitted,
+ * funding, funded, or paid. An invoice can only ride one draw at a time:
+ * including draft/submitted prevents the same invoice from joining two open
+ * draws and double-posting DR 1120 / CR 2060 when both are submitted.
  */
 async function getLockedInvoiceIds(
   supabase: Awaited<ReturnType<typeof createClient>>
 ): Promise<string[]> {
-  const { data: closedDraws } = await supabase
+  const { data: lockingDraws } = await supabase
     .from("loan_draws")
     .select("id")
-    .in("status", ["funded", "paid"]);
+    .in("status", ["draft", "submitted", "funding", "funded", "paid"]);
 
-  const closedIds = (closedDraws ?? []).map((d) => d.id);
-  if (closedIds.length === 0) return [];
+  const lockingIds = (lockingDraws ?? []).map((d) => d.id);
+  if (lockingIds.length === 0) return [];
 
   const { data: linked } = await supabase
     .from("draw_invoices")
     .select("invoice_id")
-    .in("draw_id", closedIds);
+    .in("draw_id", lockingIds);
 
   return (linked ?? []).map((r) => r.invoice_id);
 }
@@ -349,7 +351,7 @@ export async function removeInvoiceFromDraw(
     .single();
 
   if (!draw) return { error: "Draw not found" };
-  if (draw.status === "funded" || draw.status === "paid") return { error: "Cannot modify a funded or paid draw" };
+  if (draw.status === "funded" || draw.status === "paid" || draw.status === "funding") return { error: "Cannot modify a funded or paid draw" };
   if (draw.status === "submitted") return { error: "Cannot remove invoices from a submitted draw. Revert the draw to draft first." };
 
   const { error } = await supabase
@@ -521,14 +523,20 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     .single();
 
   if (!draw) return { error: "Draw not found" };
-  if (draw.status !== "submitted") return { error: "Only submitted draws can be marked as funded" };
+  if (draw.status !== "submitted") {
+    return {
+      error:
+        draw.status === "funding"
+          ? "This draw is already being funded by another request"
+          : "Only submitted draws can be marked as funded",
+    };
+  }
 
-  // Atomicity model: do all GL + side-effect work while the draw is still
-  // 'submitted', then flip status to 'funded' LAST as the commit point. If any
-  // step fails, return early — status stays 'submitted' so the user can retry
-  // without DB surgery. The final status update is conditional on status still
-  // being 'submitted' to catch concurrent funding (narrow race; at worst
-  // produces duplicate JEs rather than a status/GL mismatch).
+  // Atomicity model: claim the draw FIRST with a conditional 'submitted' →
+  // 'funding' transition (concurrent calls race on that UPDATE — the loser
+  // claims 0 rows and exits before posting anything), then post all JEs and
+  // side effects, then flip 'funding' → 'funded' as the commit point. Any
+  // failure reverts to 'submitted' so the user can retry without DB surgery.
 
   // Post JEs for funding event:
   //   (a) DR Cash (1000) / CR Due from Lender (1120)  — cash arrived, receivable cleared
@@ -549,6 +557,46 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   const acct2060 = accounts.get("2060");
   const acct6900 = accounts.get("6900");
   const fallbackLoanPayableId = accounts.get("2100");
+
+  // Missing GL accounts are a hard error — never silently skip a funding JE.
+  if (!acct1000 || !acct1120 || !acct1210 || !acct1230 || !acct2000 || !acct2060) {
+    return { error: "Required GL accounts (1000, 1120, 1210, 1230, 2000, 2060) not found. Check chart of accounts." };
+  }
+
+  // Retry guard: if a prior funding attempt posted JEs but crashed before the
+  // status flip, re-running would double-post and double-increment loan
+  // balances. Surface it instead of retrying blind.
+  const { data: priorFund } = await supabase
+    .from("journal_entries")
+    .select("id")
+    .eq("reference", `DRAW-FUND-${drawId.slice(0, 8)}`)
+    .eq("status", "posted")
+    .limit(1);
+  if (priorFund && priorFund.length > 0) {
+    return { error: "A funding journal entry already exists for this draw — review the GL before retrying." };
+  }
+
+  // Claim: submitted → funding (race-safe; the losing concurrent call gets 0 rows)
+  const { data: claimedDraw, error: claimErr } = await supabase
+    .from("loan_draws")
+    .update({ status: "funding" })
+    .eq("id", drawId)
+    .eq("status", "submitted")
+    .select("id");
+
+  if (claimErr) return { error: claimErr.message };
+  if (!claimedDraw || claimedDraw.length === 0) {
+    return { error: "Draw is no longer in submitted status — another request may be funding it." };
+  }
+
+  // Reverts the claim so the user can retry from 'submitted' after a failure.
+  const revertClaim = async () => {
+    await supabase
+      .from("loan_draws")
+      .update({ status: "submitted" })
+      .eq("id", drawId)
+      .eq("status", "funding");
+  };
 
   // Load all invoices in this draw (needed for both WIP/AP and loan balance update)
   const { data: drawInvoiceDetails } = await supabase
@@ -645,7 +693,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       ]
     );
 
-    if (cashResult.error) return { error: `Cash JE posting failed: ${cashResult.error}` };
+    if (cashResult.error) {
+      await revertClaim();
+      return { error: `Cash JE posting failed: ${cashResult.error}` };
+    }
   }
 
   // Step 3b: Clear Draws Pending Funding (2060) → per-loan Loan Payable (220x)
@@ -726,7 +777,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         },
         loanJeLines
       );
-      if (loanResult.error) return { error: `Loan JE posting failed: ${loanResult.error}` };
+      if (loanResult.error) {
+        await revertClaim();
+        return { error: `Loan JE posting failed: ${loanResult.error}` };
+      }
     }
   }
 
@@ -848,14 +902,20 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
         ]
       );
 
-      if (wipResult.error) return { error: `WIP/AP JE posting failed: ${wipResult.error}` };
+      if (wipResult.error) {
+        await revertClaim();
+        return { error: `WIP/AP JE posting failed: ${wipResult.error}` };
+      }
       // Mark these invoices so they won't be double-posted if touched again
       if (newlyPostedInvoiceIds.length > 0) {
         const { error: flagErr } = await supabase
           .from("invoices")
           .update({ wip_ap_posted: true })
           .in("id", newlyPostedInvoiceIds);
-        if (flagErr) return { error: `Failed to flag invoices as posted: ${flagErr.message}` };
+        if (flagErr) {
+          await revertClaim();
+          return { error: `Failed to flag invoices as posted: ${flagErr.message}` };
+        }
       }
     }
   }
@@ -877,7 +937,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
           .from("loans")
           .update({ current_balance: (loan.current_balance ?? 0) + fundedAmt })
           .eq("id", loan.id);
-        if (balErr) return { error: `Failed to update loan balance: ${balErr.message}` };
+        if (balErr) {
+          await revertClaim();
+          return { error: `Failed to update loan balance: ${balErr.message}` };
+        }
       }
     }
   }
@@ -893,7 +956,10 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       .from("invoices")
       .update({ pending_draw: false })
       .in("id", lockIds);
-    if (lockErr) return { error: `Failed to lock invoices: ${lockErr.message}` };
+    if (lockErr) {
+      await revertClaim();
+      return { error: `Failed to lock invoices: ${lockErr.message}` };
+    }
   }
 
   // Step 4: Create vendor_payment records (one per vendor) so the user can
@@ -935,7 +1001,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   }
 
   for (const [, group] of vendorMap) {
-    const { data: vp } = await supabase
+    const { data: vp, error: vpInsertErr } = await supabase
       .from("vendor_payments")
       .insert({
         draw_id: drawId,
@@ -947,32 +1013,37 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       .select("id")
       .single();
 
-    if (vp) {
-      await supabase
-        .from("vendor_payment_invoices")
-        .insert(
-          group.invoice_ids.map((invoice_id) => ({
-            vendor_payment_id: vp.id,
-            invoice_id,
-          }))
-        );
+    if (vpInsertErr || !vp) {
+      await revertClaim();
+      return { error: `Failed to create vendor payment record for ${group.vendor_name}: ${vpInsertErr?.message ?? "unknown error"}` };
+    }
+
+    const { error: vpiErr } = await supabase
+      .from("vendor_payment_invoices")
+      .insert(
+        group.invoice_ids.map((invoice_id) => ({
+          vendor_payment_id: vp.id,
+          invoice_id,
+        }))
+      );
+    if (vpiErr) {
+      await revertClaim();
+      return { error: `Failed to link invoices to vendor payment for ${group.vendor_name}: ${vpiErr.message}` };
     }
   }
 
-  // Final commit: flip status to 'funded'. Conditional on status still being
-  // 'submitted' to catch a concurrent funding attempt (rare) — if that happens,
-  // the other request already posted JEs too, so we flag it for review.
+  // Final commit: flip 'funding' → 'funded'.
   const { data: flipped, error: flipErr } = await supabase
     .from("loan_draws")
     .update({ status: "funded" })
     .eq("id", drawId)
-    .eq("status", "submitted")
+    .eq("status", "funding")
     .select("id");
 
   if (flipErr) return { error: `Funding complete but status flip failed: ${flipErr.message}` };
   if (!flipped || flipped.length === 0) {
     return {
-      error: "Draw was funded by a concurrent request — review GL for duplicate entries",
+      error: "Draw status changed during funding — review GL before taking further action",
     };
   }
 
@@ -1057,19 +1128,10 @@ export async function markVendorPaymentPaid(
     }
   }
 
-  // Mark the vendor payment record as paid
-  const { error: vpErr } = await supabase
-    .from("vendor_payments")
-    .update({
-      status: "paid",
-      check_number: checkNumber?.trim() || null,
-      payment_date: paymentDate,
-    })
-    .eq("id", vendorPaymentId);
-
-  if (vpErr) return { error: vpErr.message };
-
-  // Get all invoices linked to this vendor payment
+  // Load linked invoices BEFORE any write and require every one to be
+  // 'approved' (mirrors createPayment's prerequisite guard). An invoice
+  // already released from the AP tab would otherwise get a SECOND
+  // DR 2000 / CR 2050 when Mark Vendor Paid is clicked.
   const { data: links } = await supabase
     .from("vendor_payment_invoices")
     .select("invoice_id")
@@ -1077,23 +1139,32 @@ export async function markVendorPaymentPaid(
 
   const invoiceIds = (links ?? []).map((l) => l.invoice_id);
 
-  // Mark invoices as released (check written, not yet cleared at bank)
+  type PriorInvoice = { id: string; status: string; invoice_number: string | null; payment_method: string | null };
+  let priorInvoices: PriorInvoice[] = [];
   if (invoiceIds.length > 0) {
-    const { error: invErr } = await supabase
+    const { data: linkedInvoices } = await supabase
       .from("invoices")
-      .update({
-        status: "released",
-        payment_method: "check",
-      })
+      .select("id, status, invoice_number, payment_method")
       .in("id", invoiceIds);
-    if (invErr) return { error: invErr.message };
+    priorInvoices = (linkedInvoices ?? []) as PriorInvoice[];
+    const notApproved = priorInvoices.filter((i) => i.status !== "approved");
+    if (notApproved.length > 0) {
+      const refs = notApproved
+        .map((i) => `${i.invoice_number ?? i.id.slice(0, 8)} ('${i.status}')`)
+        .join(", ");
+      return {
+        error: `Only approved invoices can be paid — paying again would double-post AP. Blocked: ${refs}`,
+      };
+    }
   }
 
   // If discount was taken, distribute it across the linked invoices and
-  // determine which WIP accounts to credit back.
+  // determine which WIP accounts to credit back. Computation only — the
+  // per-invoice discount_taken writes are deferred until after the JEs post.
   let totalDiscount = discount;
   type DiscountByWip = { accountNumber: string; projectId: string | null; amount: number };
   const discountsByWip: DiscountByWip[] = [];
+  const discountWrites: { id: string; share: number }[] = [];
 
   if (discount > 0 && invoiceIds.length > 0) {
     // Load invoice details to determine per-invoice WIP account
@@ -1119,11 +1190,7 @@ export async function markVendorPaymentPaid(
         distributed += share;
 
         if (share > 0) {
-          // Save discount on the invoice record
-          await supabase
-            .from("invoices")
-            .update({ discount_taken: share })
-            .eq("id", inv.id);
+          discountWrites.push({ id: inv.id, share });
 
           const projType = (inv.projects as { project_type: string } | null)?.project_type;
           const wipAcct = !inv.project_id
@@ -1174,6 +1241,76 @@ export async function markVendorPaymentPaid(
   if (!acct2000 || !acct2050) {
     return { error: "Required GL accounts (2000, 2050) not found. Check chart of accounts." };
   }
+  for (const d of discountsByWip) {
+    if (!accounts.get(d.accountNumber)) {
+      return { error: `Required GL account ${d.accountNumber} not found. Check chart of accounts.` };
+    }
+  }
+
+  // Claim: pending → paid (status-gated; a concurrent double-click claims 0 rows)
+  const { data: claimedVp, error: vpErr } = await supabase
+    .from("vendor_payments")
+    .update({
+      status: "paid",
+      check_number: checkNumber?.trim() || null,
+      payment_date: paymentDate,
+    })
+    .eq("id", vendorPaymentId)
+    .neq("status", "paid")
+    .select("id");
+
+  if (vpErr) return { error: vpErr.message };
+  if (!claimedVp || claimedVp.length === 0) {
+    return { error: "This vendor has already been paid" };
+  }
+
+  const rollbackVp = async () => {
+    await supabase
+      .from("vendor_payments")
+      .update({ status: vp.status, check_number: null, payment_date: null })
+      .eq("id", vendorPaymentId)
+      .eq("status", "paid");
+  };
+
+  // Walks released invoices back to 'approved' with their prior payment_method.
+  const rollbackInvoices = async (ids: string[]) => {
+    for (const id of ids) {
+      const prior = priorInvoices.find((p) => p.id === id);
+      await supabase
+        .from("invoices")
+        .update({ status: "approved", payment_method: prior?.payment_method ?? null })
+        .eq("id", id)
+        .eq("status", "released");
+    }
+  };
+
+  // Mark invoices as released (check written, not yet cleared at bank) —
+  // status-gated on 'approved' and verified, so a racing release elsewhere
+  // can't be double-paid.
+  let releasedIds: string[] = [];
+  if (invoiceIds.length > 0) {
+    const { data: released, error: invErr } = await supabase
+      .from("invoices")
+      .update({
+        status: "released",
+        payment_method: "check",
+      })
+      .in("id", invoiceIds)
+      .eq("status", "approved")
+      .select("id");
+    if (invErr) {
+      await rollbackVp();
+      return { error: invErr.message };
+    }
+    releasedIds = (released ?? []).map((r) => r.id);
+    if (releasedIds.length !== invoiceIds.length) {
+      await rollbackInvoices(releasedIds);
+      await rollbackVp();
+      return {
+        error: `Concurrent invoice status change detected — ${releasedIds.length} of ${invoiceIds.length} invoices updated. Reload and retry.`,
+      };
+    }
+  }
 
   // Primary JE: clear AP and record outstanding check at the NET cash amount.
   // With credits applied, also CR AP for each credit's standalone DR balance.
@@ -1223,45 +1360,25 @@ export async function markVendorPaymentPaid(
     },
     primaryLines
   );
-  if (primary.error) return { error: `Check JE posting failed: ${primary.error}` };
-
-  // Persist credit applications (linked to one of the invoices in this
-  // vendor payment — pick the first one as the anchor since credits at
-  // payment time aren't tied to a specific invoice line).
-  if (validCredits.length > 0 && invoiceIds.length > 0) {
-    const anchorInvoiceId = invoiceIds[0];
-    await supabase.from("credit_applications").insert(
-      validCredits.map((c) => ({
-        credit_id: c.credit_id,
-        invoice_id: anchorInvoiceId,
-        amount_applied: c.amount,
-        applied_by: user.id,
-      }))
-    );
-    for (const c of validCredits) {
-      const { data: cur } = await supabase
-        .from("vendor_credits")
-        .select("amount, applied_amount")
-        .eq("id", c.credit_id)
-        .single();
-      if (cur) {
-        const next = Number(cur.applied_amount ?? 0) + Number(c.amount);
-        const fully = Math.abs(next - Number(cur.amount)) < 0.005;
-        await supabase
-          .from("vendor_credits")
-          .update({
-            applied_amount: next,
-            status: fully ? "fully_applied" : "available",
-          })
-          .eq("id", c.credit_id);
-      }
-    }
+  if (primary.error) {
+    await rollbackInvoices(releasedIds);
+    await rollbackVp();
+    return { error: `Check JE posting failed: ${primary.error}` };
   }
+
+  // Voids JEs posted in this call when a later step fails. DB CHECK
+  // constraint requires 'voided' (not 'void').
+  const voidPostedJe = async (jeId: string | undefined) => {
+    if (jeId) {
+      await supabase.from("journal_entries").update({ status: "voided" }).eq("id", jeId);
+    }
+  };
 
   // Discount JE (separate, only when a discount was taken): clear the
   // residual AP (the discount we no longer owe) against WIP/CIP per project
   // so the capitalized cost reflects the discount. Keeping this as its own
   // JE with reference `DISC-VP-{id}` produces a clean audit trail.
+  let discountJeId: string | undefined;
   if (totalDiscount > 0 && discountsByWip.length > 0) {
     const discountLines: Array<{
       account_id: string;
@@ -1305,16 +1422,62 @@ export async function markVendorPaymentPaid(
       discountLines
     );
     if (discountResult.error) {
-      // Roll back the primary JE by voiding it before returning the error.
-      // DB CHECK constraint requires 'voided' (not 'void').
-      if (primary.id) {
-        await supabase
-          .from("journal_entries")
-          .update({ status: "voided" })
-          .eq("id", primary.id);
-      }
+      await voidPostedJe(primary.id);
+      await rollbackInvoices(releasedIds);
+      await rollbackVp();
       return { error: `Discount JE posting failed: ${discountResult.error}` };
     }
+    discountJeId = discountResult.id;
+  }
+
+  // Persist credit applications (linked to one of the invoices in this
+  // vendor payment — pick the first one as the anchor since credits at
+  // payment time aren't tied to a specific invoice line). applied_amount
+  // increments are atomic via the apply_vendor_credits RPC; any failure
+  // unwinds the JEs and status claims so books and credit ledger agree.
+  if (validCredits.length > 0 && invoiceIds.length > 0) {
+    const anchorInvoiceId = invoiceIds[0];
+    const { data: insertedApps, error: appErr } = await supabase
+      .from("credit_applications")
+      .insert(
+        validCredits.map((c) => ({
+          credit_id: c.credit_id,
+          invoice_id: anchorInvoiceId,
+          amount_applied: c.amount,
+          applied_by: user.id,
+        }))
+      )
+      .select("id");
+    if (appErr) {
+      await voidPostedJe(discountJeId);
+      await voidPostedJe(primary.id);
+      await rollbackInvoices(releasedIds);
+      await rollbackVp();
+      return { error: `Failed to record credit applications: ${appErr.message}` };
+    }
+
+    const { error: creditErr } = await (supabase.rpc as any)("apply_vendor_credits", {
+      p_applications: validCredits.map((c) => ({ credit_id: c.credit_id, amount: c.amount })),
+    });
+    if (creditErr) {
+      await supabase
+        .from("credit_applications")
+        .delete()
+        .in("id", (insertedApps ?? []).map((r: { id: string }) => r.id));
+      await voidPostedJe(discountJeId);
+      await voidPostedJe(primary.id);
+      await rollbackInvoices(releasedIds);
+      await rollbackVp();
+      return { error: `Failed to apply vendor credits: ${creditErr.message}` };
+    }
+  }
+
+  // Persist per-invoice discount_taken now that all JEs are durable.
+  for (const w of discountWrites) {
+    await supabase
+      .from("invoices")
+      .update({ discount_taken: w.share })
+      .eq("id", w.id);
   }
 
   // ---------------------------------------------------------------------------
@@ -1432,28 +1595,6 @@ export async function adjustVendorPaymentAmount(
     return { error: "Adjustment would result in a negative amount" };
   }
 
-  // Insert the adjustment line item record
-  const { data: adjRecord, error: adjErr } = await supabase
-    .from("vendor_payment_adjustments")
-    .insert({
-      vendor_payment_id: vendorPaymentId,
-      description: description.trim(),
-      amount: adjustment,
-    })
-    .select("id")
-    .single();
-
-  if (adjErr) return { error: adjErr.message };
-
-  // Keep the parent amount in sync
-  const { error } = await supabase
-    .from("vendor_payments")
-    .update({ amount: newAmount })
-    .eq("id", vendorPaymentId);
-
-  if (error) return { error: error.message };
-
-  // Post GL entry for the adjustment
   // Get all invoices linked to this vendor payment to determine project_id and project_type
   const { data: links } = await supabase
     .from("vendor_payment_invoices")
@@ -1466,9 +1607,10 @@ export async function adjustVendorPaymentAmount(
     `)
     .eq("vendor_payment_id", vendorPaymentId);
 
-  // Determine project_id from first linked invoice. The nested shape from
-  // PostgREST for this join isn't fully inferred by the generic client types,
-  // so narrow manually with an explicit type cast.
+  // Determine project_id from the FIRST linked invoice — for vendor payments
+  // spanning multiple projects this attribution is approximate. The nested
+  // shape from PostgREST for this join isn't fully inferred by the generic
+  // client types, so narrow manually with an explicit type cast.
   type JoinedInvoice = {
     id: string;
     project_id: string | null;
@@ -1486,7 +1628,8 @@ export async function adjustVendorPaymentAmount(
     }
   }
 
-  // Fetch chart of accounts — include 6900 for G&A invoices
+  // Fetch chart of accounts — include 6900 for G&A invoices. Missing accounts
+  // are a hard error BEFORE any write so we never change amounts without a JE.
   const accounts = await getAccountIdMap(supabase, ["1210", "1230", "2000", "6900"]);
 
   const acct1210 = accounts.get("1210");
@@ -1494,7 +1637,35 @@ export async function adjustVendorPaymentAmount(
   const acct2000 = accounts.get("2000");
   const acct6900 = accounts.get("6900");
 
-  if (acct1210 && acct1230 && acct2000) {
+  if (!acct1210 || !acct1230 || !acct2000) {
+    return { error: "Required GL accounts (1210, 1230, 2000) not found. Check chart of accounts." };
+  }
+
+  // Insert the adjustment line item record
+  const { data: adjRecord, error: adjErr } = await supabase
+    .from("vendor_payment_adjustments")
+    .insert({
+      vendor_payment_id: vendorPaymentId,
+      description: description.trim(),
+      amount: adjustment,
+    })
+    .select("id")
+    .single();
+
+  if (adjErr || !adjRecord) return { error: adjErr?.message ?? "Failed to record adjustment" };
+
+  // Keep the parent amount in sync
+  const { error } = await supabase
+    .from("vendor_payments")
+    .update({ amount: newAmount })
+    .eq("id", vendorPaymentId);
+
+  if (error) {
+    await supabase.from("vendor_payment_adjustments").delete().eq("id", adjRecord.id);
+    return { error: error.message };
+  }
+
+  {
     // Determine WIP account: no project (G&A) → 6900, land dev → 1230, else → 1210
     const wipAcctId = !projectId ? (acct6900 ?? acct1210) : (isLandDev ? acct1230 : acct1210);
     const adjustmentAbsolute = Math.abs(adjustment);
@@ -1555,13 +1726,19 @@ export async function adjustVendorPaymentAmount(
         description: `Vendor payment adjustment — ${description}`,
         status: "posted",
         source_type: "vendor_adjustment",
-        source_id: adjRecord?.id ?? vendorPaymentId,
+        source_id: adjRecord.id,
         user_id: user.id,
       },
       jeLines
     );
 
     if (adjResult.error) {
+      // The JE didn't post — unwind the adjustment record and the amount change.
+      await supabase.from("vendor_payment_adjustments").delete().eq("id", adjRecord.id);
+      await supabase
+        .from("vendor_payments")
+        .update({ amount: vp.amount })
+        .eq("id", vendorPaymentId);
       return { error: `Failed to post journal entry: ${adjResult.error}` };
     }
   }

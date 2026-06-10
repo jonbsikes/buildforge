@@ -157,13 +157,18 @@ export async function createPayment(
   // (correct — the invoice was in fact approved), but there is no orphan
   // payment record to reconcile.
   // ---------------------------------------------------------------------------
+  const priorInvoiceState = new Map<string, { payment_method: string | null; payment_date: string | null }>();
   for (const invId of invoiceIds) {
     const { data: invCheck } = await supabase
       .from("invoices")
-      .select("status, wip_ap_posted, direct_cash_payment, invoice_number")
+      .select("status, wip_ap_posted, direct_cash_payment, invoice_number, payment_method, payment_date")
       .eq("id", invId)
       .single();
     if (!invCheck) continue;
+    priorInvoiceState.set(invId, {
+      payment_method: invCheck.payment_method ?? null,
+      payment_date: invCheck.payment_date ?? null,
+    });
 
     // The bulk status update at the end of this function gates on
     // status='approved'. Anything in 'released', 'cleared', 'disputed', 'void'
@@ -202,6 +207,100 @@ export async function createPayment(
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Compute discount distribution (read-only) — per-invoice discount_taken
+  // writes are deferred until after the JE posts so a failure leaves nothing
+  // to unwind. Discount credit lines are tagged with the paying invoice's
+  // dominant cost_code_id so the Job Cost report sees the discount net.
+  // ---------------------------------------------------------------------------
+  type DiscountByWip = { accountNumber: string; projectId: string | null; costCodeId: string | null; amount: number };
+  const discountsByWip: DiscountByWip[] = [];
+  const discountWrites: { id: string; value: number }[] = [];
+
+  if (discount > 0 && invoiceIds.length > 0) {
+    const { data: invoiceDetails } = await supabase
+      .from("invoices")
+      .select("id, total_amount, amount, project_id, cost_code_id, discount_taken, projects ( project_type )")
+      .in("id", invoiceIds);
+
+    if (invoiceDetails && invoiceDetails.length > 0) {
+      const totalInvAmt = invoiceDetails.reduce(
+        (s, inv) => s + ((inv.total_amount ?? inv.amount ?? 0) as number), 0
+      );
+
+      let distributed = 0;
+      for (let i = 0; i < invoiceDetails.length; i++) {
+        const inv = invoiceDetails[i];
+        const invAmt = (inv.total_amount ?? inv.amount ?? 0) as number;
+        const share = i === invoiceDetails.length - 1
+          ? discount - distributed
+          : Math.round((invAmt / totalInvAmt) * discount * 100) / 100;
+        distributed += share;
+
+        if (share > 0) {
+          // Accumulate vs overwrite — re-paying after a void should sum,
+          // not erase the historical discount.
+          const prior = (inv.discount_taken ?? 0) as number;
+          discountWrites.push({ id: inv.id, value: Math.round((prior + share) * 100) / 100 });
+
+          const projType = (inv.projects as { project_type: string } | null)?.project_type;
+          const wipAcct = !inv.project_id
+            ? "6900"
+            : projType === "land_development"
+            ? "1230"
+            : "1210";
+
+          discountsByWip.push({
+            accountNumber: wipAcct,
+            projectId: inv.project_id ?? null,
+            costCodeId: (inv.cost_code_id as string | null) ?? null,
+            amount: share,
+          });
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resolve GL accounts — missing accounts are a hard error BEFORE any write.
+  // Owner-funded skips both 2050 and 1000 — the credit goes to the member's
+  // capital account (looked up by id, not by account number).
+  // ---------------------------------------------------------------------------
+  const glNeeded = isOwnerFunded
+    ? ["2000"]
+    : isCheck
+    ? ["2000", "2050"]
+    : ["2000", "1000"];
+  if (discount > 0) {
+    for (const d of discountsByWip) {
+      if (!glNeeded.includes(d.accountNumber)) glNeeded.push(d.accountNumber);
+    }
+  }
+  const accounts = await getAccountIdMap(supabase, glNeeded);
+
+  const creditAccount = isOwnerFunded
+    ? input.owner_equity_account_id
+    : isCheck
+    ? accounts.get("2050")
+    : accounts.get("1000");
+  const debitAccount = accounts.get("2000");
+
+  if (!debitAccount) {
+    return { error: "Required GL account Accounts Payable (2000) not found in chart of accounts." };
+  }
+  if (!creditAccount) {
+    return {
+      error: isOwnerFunded
+        ? "Owner equity account not found."
+        : `Required GL account ${isCheck ? "Checks Outstanding (2050)" : "Cash (1000)"} not found in chart of accounts.`,
+    };
+  }
+  for (const d of discountsByWip) {
+    if (!accounts.get(d.accountNumber)) {
+      return { error: `Required GL account ${d.accountNumber} not found in chart of accounts.` };
+    }
+  }
+
   // Insert payment record (only after all prerequisites clear)
   const { data: payment, error: payErr } = await supabase
     .from("payments")
@@ -227,6 +326,29 @@ export async function createPayment(
 
   if (payErr || !payment) return { error: payErr?.message ?? "Failed to create payment" };
 
+  // Removes the payment row + invoice links when a later step fails — never
+  // leave an orphan register row behind.
+  const deletePaymentRecord = async () => {
+    await supabase.from("payment_invoices").delete().eq("payment_id", payment.id);
+    await supabase.from("payments").delete().eq("id", payment.id);
+  };
+
+  // Walks invoices back to 'approved' with their pre-payment fields.
+  const revertInvoiceClaims = async () => {
+    for (const invId of invoiceIds) {
+      const prior = priorInvoiceState.get(invId);
+      await supabase
+        .from("invoices")
+        .update({
+          status: "approved",
+          payment_method: prior?.payment_method ?? null,
+          payment_date: prior?.payment_date ?? null,
+        })
+        .eq("id", invId)
+        .eq("status", newInvoiceStatus);
+    }
+  };
+
   // Link invoices
   const links = input.invoices.map((inv) => ({
     payment_id: payment.id,
@@ -238,7 +360,10 @@ export async function createPayment(
     .from("payment_invoices")
     .insert(links);
 
-  if (linkErr) return { error: linkErr.message };
+  if (linkErr) {
+    await supabase.from("payments").delete().eq("id", payment.id);
+    return { error: linkErr.message };
+  }
 
   const invoiceUpdates: Record<string, unknown> = {
     status: newInvoiceStatus,
@@ -260,12 +385,105 @@ export async function createPayment(
       .eq("status", "approved")
       .select("id");
 
-    if (updateErr) return { error: updateErr.message };
+    if (updateErr) {
+      await deletePaymentRecord();
+      return { error: updateErr.message };
+    }
     if (!updated || updated.length !== invoiceIds.length) {
+      // Revert the invoices we did claim, then remove the orphan payment row.
+      await revertInvoiceClaims();
+      await deletePaymentRecord();
       return {
         error: `Concurrent invoice status change detected — ${updated?.length ?? 0} of ${invoiceIds.length} invoices updated. Reload and retry.`,
       };
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Post GL entries
+  // DR AP (full amount) / CR 2050 or 1000 or Member Capital (net) / CR WIP per project (discount)
+  // ---------------------------------------------------------------------------
+  const ref = input.payment_number?.trim()
+    ? `${isCheck ? "CHK" : input.payment_method.toUpperCase()}-${input.payment_number.trim()}`
+    : `PMT-${payment.id.slice(0, 8)}`;
+
+  const creditLegDescription = isOwnerFunded
+    ? `Owner contribution — ${ref} — ${input.payee}`
+    : `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`;
+
+  const lines: Array<{
+    account_id: string;
+    project_id: string | null;
+    cost_code_id?: string | null;
+    description: string;
+    debit: number;
+    credit: number;
+  }> = [
+    {
+      account_id: debitAccount,
+      project_id: null,
+      description: `AP cleared — ${input.payee}`,
+      debit: input.amount,
+      credit: 0,
+    },
+    {
+      account_id: creditAccount,
+      project_id: null,
+      description: creditLegDescription,
+      debit: 0,
+      credit: netAmount,
+    },
+  ];
+
+  // Add discount credit lines to WIP/CIP per project
+  if (discount > 0) {
+    for (const d of discountsByWip) {
+      const wipAcctId = accounts.get(d.accountNumber);
+      if (wipAcctId) {
+        lines.push({
+          account_id: wipAcctId,
+          project_id: d.projectId,
+          cost_code_id: d.costCodeId,
+          description: `Early-pay discount — ${ref} — ${input.payee}`,
+          debit: 0,
+          credit: d.amount,
+        });
+      }
+    }
+  }
+
+  const verbBase = isOwnerFunded
+    ? "Owner direct payment"
+    : isCheck
+    ? "Check issued"
+    : `${input.payment_method.toUpperCase()} payment`;
+
+  const jeResult = await postJournalEntry(
+    supabase,
+    {
+      entry_date: input.payment_date,
+      reference: ref,
+      description: discount > 0
+        ? `${verbBase} w/ $${discount.toFixed(2)} early-pay discount — ${input.payee}`
+        : `${verbBase} — ${input.payee}`,
+      status: "posted",
+      source_type: isOwnerFunded ? "owner_contribution" : "invoice_payment",
+      source_id: payment.id,
+      user_id: user.id,
+    },
+    lines
+  );
+
+  if (jeResult.error) {
+    // The JE didn't post — unwind the status claims and the payment row.
+    await revertInvoiceClaims();
+    await deletePaymentRecord();
+    return { error: `Failed to post journal entry: ${jeResult.error}` };
+  }
+
+  // Persist per-invoice discount_taken now that the JE is durable.
+  for (const w of discountWrites) {
+    await supabase.from("invoices").update({ discount_taken: w.value }).eq("id", w.id);
   }
 
   // ---------------------------------------------------------------------------
@@ -357,170 +575,6 @@ export async function createPayment(
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // If discount taken, distribute across invoices and determine WIP accounts
-  // ---------------------------------------------------------------------------
-  // Discount credit lines are tagged with the paying invoice's dominant
-  // cost_code_id so the Job Cost report sees the discount net (otherwise the
-  // original invoice line items show full gross amount and the discount only
-  // reduces BS WIP, leaving the JC report overstated).
-  type DiscountByWip = { accountNumber: string; projectId: string | null; costCodeId: string | null; amount: number };
-  const discountsByWip: DiscountByWip[] = [];
-
-  if (discount > 0 && invoiceIds.length > 0) {
-    const { data: invoiceDetails } = await supabase
-      .from("invoices")
-      .select("id, total_amount, amount, project_id, cost_code_id, projects ( project_type )")
-      .in("id", invoiceIds);
-
-    if (invoiceDetails && invoiceDetails.length > 0) {
-      const totalInvAmt = invoiceDetails.reduce(
-        (s, inv) => s + ((inv.total_amount ?? inv.amount ?? 0) as number), 0
-      );
-
-      // Read prior discount_taken on each invoice so we accumulate, not overwrite.
-      // Re-paying after a void should sum, not erase the historical discount.
-      const { data: priorDiscounts } = await supabase
-        .from("invoices")
-        .select("id, discount_taken")
-        .in("id", invoiceIds);
-      const priorMap = new Map<string, number>(
-        (priorDiscounts ?? []).map((r) => [r.id, (r.discount_taken ?? 0) as number])
-      );
-
-      let distributed = 0;
-      for (let i = 0; i < invoiceDetails.length; i++) {
-        const inv = invoiceDetails[i];
-        const invAmt = (inv.total_amount ?? inv.amount ?? 0) as number;
-        const share = i === invoiceDetails.length - 1
-          ? discount - distributed
-          : Math.round((invAmt / totalInvAmt) * discount * 100) / 100;
-        distributed += share;
-
-        if (share > 0) {
-          // Save discount on the invoice record (accumulate vs overwrite)
-          const prior = priorMap.get(inv.id) ?? 0;
-          await supabase
-            .from("invoices")
-            .update({ discount_taken: Math.round((prior + share) * 100) / 100 })
-            .eq("id", inv.id);
-
-          const projType = (inv.projects as { project_type: string } | null)?.project_type;
-          const wipAcct = !inv.project_id
-            ? "6900"
-            : projType === "land_development"
-            ? "1230"
-            : "1210";
-
-          discountsByWip.push({
-            accountNumber: wipAcct,
-            projectId: inv.project_id ?? null,
-            costCodeId: (inv.cost_code_id as string | null) ?? null,
-            amount: share,
-          });
-        }
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Post GL entries
-  // DR AP (full amount) / CR 2050 or 1000 or Member Capital (net) / CR WIP per project (discount)
-  // ---------------------------------------------------------------------------
-  // Owner-funded skips both 2050 and 1000 — the credit goes to the member's
-  // capital account (looked up by id, not by account number).
-  const glNeeded = isOwnerFunded
-    ? ["2000"]
-    : isCheck
-    ? ["2000", "2050"]
-    : ["2000", "1000"];
-  if (discount > 0) {
-    for (const d of discountsByWip) {
-      if (!glNeeded.includes(d.accountNumber)) glNeeded.push(d.accountNumber);
-    }
-  }
-  const accounts = await getAccountIdMap(supabase, glNeeded);
-
-  const creditAccount = isOwnerFunded
-    ? input.owner_equity_account_id
-    : isCheck
-    ? accounts.get("2050")
-    : accounts.get("1000");
-  const debitAccount = accounts.get("2000");
-
-  if (debitAccount && creditAccount) {
-    const ref = input.payment_number?.trim()
-      ? `${isCheck ? "CHK" : input.payment_method.toUpperCase()}-${input.payment_number.trim()}`
-      : `PMT-${payment.id.slice(0, 8)}`;
-
-    const creditLegDescription = isOwnerFunded
-      ? `Owner contribution — ${ref} — ${input.payee}`
-      : `${isCheck ? "Check outstanding" : "Cash"} — ${ref} — ${input.payee}`;
-
-    const lines: Array<{
-      account_id: string;
-      project_id: string | null;
-      cost_code_id?: string | null;
-      description: string;
-      debit: number;
-      credit: number;
-    }> = [
-      {
-        account_id: debitAccount,
-        project_id: null,
-        description: `AP cleared — ${input.payee}`,
-        debit: input.amount,
-        credit: 0,
-      },
-      {
-        account_id: creditAccount,
-        project_id: null,
-        description: creditLegDescription,
-        debit: 0,
-        credit: netAmount,
-      },
-    ];
-
-    // Add discount credit lines to WIP/CIP per project
-    if (discount > 0) {
-      for (const d of discountsByWip) {
-        const wipAcctId = accounts.get(d.accountNumber);
-        if (wipAcctId) {
-          lines.push({
-            account_id: wipAcctId,
-            project_id: d.projectId,
-            cost_code_id: d.costCodeId,
-            description: `Early-pay discount — ${ref} — ${input.payee}`,
-            debit: 0,
-            credit: d.amount,
-          });
-        }
-      }
-    }
-
-    const verbBase = isOwnerFunded
-      ? "Owner direct payment"
-      : isCheck
-      ? "Check issued"
-      : `${input.payment_method.toUpperCase()} payment`;
-
-    await postJournalEntry(
-      supabase,
-      {
-        entry_date: input.payment_date,
-        reference: ref,
-        description: discount > 0
-          ? `${verbBase} w/ $${discount.toFixed(2)} early-pay discount — ${input.payee}`
-          : `${verbBase} — ${input.payee}`,
-        status: "posted",
-        source_type: isOwnerFunded ? "owner_contribution" : "invoice_payment",
-        source_id: payment.id,
-        user_id: user.id,
-      },
-      lines
-    );
-  }
-
   if (affectedDrawIds.size > 0) {
     for (const drawId of affectedDrawIds) {
       revalidateAfterJournalEntry({ drawId });
@@ -567,69 +621,97 @@ export async function clearPayment(
   const creditsAmt = (payment.credits_applied ?? 0) as number;
   const netClearAmount = payment.amount - discountAmt - creditsAmt;
 
-  // Update payment status
-  const { error: updErr } = await supabase
+  // Resolve GL accounts BEFORE any write — missing accounts are a hard error.
+  const accounts = await getAccountIdMap(supabase, ["2050", "1000"]);
+  const acct2050 = accounts.get("2050");
+  const acct1000 = accounts.get("1000");
+  if (!acct2050 || !acct1000) {
+    return { error: "Required GL accounts (2050, 1000) not found. Check chart of accounts." };
+  }
+
+  // Claim: outstanding → cleared (status-gated, race-safe)
+  const { data: claimed, error: updErr } = await supabase
     .from("payments")
     .update({ status: "cleared", cleared_date: clearedDate })
-    .eq("id", paymentId);
+    .eq("id", paymentId)
+    .eq("status", "outstanding")
+    .select("id");
 
   if (updErr) return { error: updErr.message };
+  if (!claimed || claimed.length === 0) {
+    return { error: "Payment is no longer outstanding — another process may have cleared it already." };
+  }
 
-  // Advance linked invoices from 'released' to 'cleared'
+  // Advance linked invoices from 'released' to 'cleared', tracking which
+  // moved so a JE failure can walk them back.
   const { data: links } = await supabase
     .from("payment_invoices")
     .select("invoice_id")
     .eq("payment_id", paymentId);
 
   const invoiceIds = (links ?? []).map((l) => l.invoice_id);
+  let advancedInvoiceIds: string[] = [];
   if (invoiceIds.length > 0) {
     // Only advance invoices currently in 'released' — skip already-cleared ones
-    await supabase
+    const { data: advanced } = await supabase
       .from("invoices")
       .update({ status: "cleared", payment_date: clearedDate })
       .in("id", invoiceIds)
-      .eq("status", "released");
+      .eq("status", "released")
+      .select("id");
+    advancedInvoiceIds = (advanced ?? []).map((r) => r.id);
   }
 
   // Post GL: DR Checks Outstanding (2050) / CR Cash (1000)
   // Uses net amount (after discount) since that's what sits in 2050
-  const accounts = await getAccountIdMap(supabase, ["2050", "1000"]);
-  const acct2050 = accounts.get("2050");
-  const acct1000 = accounts.get("1000");
+  const ref = payment.payment_number
+    ? `CHK-CLR-${payment.payment_number}`
+    : `PMT-CLR-${paymentId.slice(0, 8)}`;
 
-  if (acct2050 && acct1000) {
-    const ref = payment.payment_number
-      ? `CHK-CLR-${payment.payment_number}`
-      : `PMT-CLR-${paymentId.slice(0, 8)}`;
-
-    await postJournalEntry(
-      supabase,
+  const jeResult = await postJournalEntry(
+    supabase,
+    {
+      entry_date: clearedDate,
+      reference: ref,
+      description: `Check cleared — ${payment.payee}`,
+      status: "posted",
+      source_type: "invoice_payment",
+      source_id: paymentId,
+      user_id: user.id,
+    },
+    [
       {
-        entry_date: clearedDate,
-        reference: ref,
-        description: `Check cleared — ${payment.payee}`,
-        status: "posted",
-        source_type: "invoice_payment",
-        source_id: paymentId,
-        user_id: user.id,
+        account_id: acct2050,
+        project_id: null,
+        description: `Outstanding check cleared — ${ref} — ${payment.payee}`,
+        debit: netClearAmount,
+        credit: 0,
       },
-      [
-        {
-          account_id: acct2050,
-          project_id: null,
-          description: `Outstanding check cleared — ${ref} — ${payment.payee}`,
-          debit: netClearAmount,
-          credit: 0,
-        },
-        {
-          account_id: acct1000,
-          project_id: null,
-          description: `Cash — ${ref} — ${payment.payee}`,
-          debit: 0,
-          credit: netClearAmount,
-        },
-      ]
-    );
+      {
+        account_id: acct1000,
+        project_id: null,
+        description: `Cash — ${ref} — ${payment.payee}`,
+        debit: 0,
+        credit: netClearAmount,
+      },
+    ]
+  );
+
+  if (jeResult.error) {
+    // The JE didn't post — walk the invoices and the payment back.
+    if (advancedInvoiceIds.length > 0) {
+      await supabase
+        .from("invoices")
+        .update({ status: "released", payment_date: null })
+        .in("id", advancedInvoiceIds)
+        .eq("status", "cleared");
+    }
+    await supabase
+      .from("payments")
+      .update({ status: "outstanding", cleared_date: null })
+      .eq("id", paymentId)
+      .eq("status", "cleared");
+    return { error: `Failed to post journal entry: ${jeResult.error}` };
   }
 
   revalidateAfterJournalEntry();
@@ -693,13 +775,33 @@ export async function voidPayment(
     }
   }
 
-  // Mark void
-  const { error: updErr } = await supabase
+  // Capture pre-void invoice state so a reversal-JE failure can restore it.
+  type PriorInvoice = {
+    id: string;
+    status: string;
+    payment_date: string | null;
+    payment_method: string | null;
+    discount_taken: number | null;
+  };
+  let priorInvoices: PriorInvoice[] = [];
+  if (invoiceIds.length > 0) {
+    const { data } = await supabase
+      .from("invoices")
+      .select("id, status, payment_date, payment_method, discount_taken")
+      .in("id", invoiceIds);
+    priorInvoices = (data ?? []) as PriorInvoice[];
+  }
+
+  // Claim: mark void (status-gated, race-safe against a concurrent void)
+  const { data: claimed, error: updErr } = await supabase
     .from("payments")
     .update({ status: "void" })
-    .eq("id", paymentId);
+    .eq("id", paymentId)
+    .neq("status", "void")
+    .select("id");
 
   if (updErr) return { error: updErr.message };
+  if (!claimed || claimed.length === 0) return { error: "Payment is already void" };
 
   if (invoiceIds.length > 0) {
     // Status-gated revert: walk back invoices in 'released' or 'cleared'
@@ -718,6 +820,33 @@ export async function voidPayment(
       .eq("status", "cleared");
   }
 
+  // Restores the pre-void state when a reversal JE fails: tombstone any
+  // reversals already posted in this call, put invoices back, un-void the payment.
+  const rollbackVoid = async (postedReversalIds: string[]) => {
+    for (const jeId of postedReversalIds) {
+      await supabase.from("journal_entries").update({ status: "voided" }).eq("id", jeId);
+    }
+    for (const inv of priorInvoices) {
+      if (inv.status === "released" || inv.status === "cleared") {
+        await supabase
+          .from("invoices")
+          .update({
+            status: inv.status,
+            payment_date: inv.payment_date,
+            payment_method: inv.payment_method,
+            discount_taken: inv.discount_taken ?? 0,
+          })
+          .eq("id", inv.id)
+          .eq("status", "approved");
+      }
+    }
+    await supabase
+      .from("payments")
+      .update({ status: payment.status })
+      .eq("id", paymentId)
+      .eq("status", "void");
+  };
+
   // Reverse original GL entries by posting counter-entries
   const { data: origJEs } = await supabase
     .from("journal_entries")
@@ -725,6 +854,7 @@ export async function voidPayment(
     .eq("source_id", paymentId)
     .eq("status", "posted");
 
+  const postedReversalIds: string[] = [];
   for (const origJE of origJEs ?? []) {
     // Do NOT mark the original as 'voided'. In double-entry void-by-reversal,
     // both the original and the counter-entry stay 'posted' so reports (which
@@ -733,7 +863,7 @@ export async function voidPayment(
     // the AP / cash / equity balances on the balance sheet.
     //
     // status='voided' is reserved for "tombstone" deletes (no counter-entry)
-    // such as deleteVendorPaymentAdjustment or deleteInvoice.
+    // such as deleteVendorPaymentAdjustment or rollback of a half-posted void.
 
     // Get original lines to create reversals
     const { data: origLines } = await supabase
@@ -746,7 +876,7 @@ export async function voidPayment(
         ? `VOID-${payment.payment_number}`
         : `VOID-${paymentId.slice(0, 8)}`;
 
-      await postJournalEntry(
+      const jeResult = await postJournalEntry(
         supabase,
         {
           entry_date: new Date().toISOString().split("T")[0],
@@ -765,6 +895,12 @@ export async function voidPayment(
           credit: line.debit,
         }))
       );
+
+      if (jeResult.error) {
+        await rollbackVoid(postedReversalIds);
+        return { error: `Failed to post reversing journal entry: ${jeResult.error}` };
+      }
+      if (jeResult.id) postedReversalIds.push(jeResult.id);
     }
   }
 

@@ -48,7 +48,7 @@ export async function uploadDocument(formData: FormData) {
     .from("documents")
     .getPublicUrl(storagePath);
 
-  await supabase.from("documents").insert({
+  const { error: insertError } = await supabase.from("documents").insert({
     project_id: projectId,
     vendor_id: vendorId,
     folder,
@@ -59,6 +59,12 @@ export async function uploadDocument(formData: FormData) {
     notes,
     uploaded_by: user.id,
   });
+
+  if (insertError) {
+    // Don't strand the uploaded file when its DB record failed.
+    await supabase.storage.from("documents").remove([storagePath]);
+    throw new Error(`Could not record document: ${insertError.message}`);
+  }
 
   revalidateAfterDocumentMutation(projectId ?? undefined);
 }

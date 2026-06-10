@@ -86,6 +86,9 @@ export async function saveInvoice(
     }
   }
 
+  const typeCheck = await validateLineItemProjectTypes(supabase, input.line_items);
+  if (typeCheck.error) return { error: typeCheck.error };
+
   // Find dominant line item (largest amount) — its project_id becomes the header project_id
   const dominant = input.line_items.reduce((max, li) => (li.amount > max.amount ? li : max));
   const headerProjectId = dominant.project_id || null;
@@ -206,7 +209,8 @@ export async function saveInvoice(
 }
 
 export async function approveInvoice(
-  invoiceId: string
+  invoiceId: string,
+  opts?: { deferRevalidation?: boolean }
 ): Promise<{ error?: string; success?: boolean }> {
   const adminCheck = await requireAdmin();
   if (!adminCheck.authorized) return { error: adminCheck.error };
@@ -223,7 +227,7 @@ export async function approveInvoice(
     .select(`
       status, ai_confidence, manually_reviewed, pending_draw,
       total_amount, amount, project_id, vendor, vendor_id, invoice_number,
-      direct_cash_payment,
+      direct_cash_payment, payment_date, payment_method,
       projects ( project_type )
     `)
     .eq("id", invoiceId)
@@ -306,10 +310,14 @@ export async function approveInvoice(
     // Bank auto-drafted this payment. Skip AP entirely.
     // JE: DR WIP/CIP per line-item project / CR Cash (1000)
     // Invoice advances directly to 'cleared'.
-    // Post JE FIRST, then update status only on success.
+    // Claim the status FIRST (gated update), then post the JE, rolling the
+    // status back if the JE fails — same pattern as payInvoiceAutoDraft.
 
-    let jePosted = false;
-    if (invoiceAmount > 0) {
+    const willPostJe = invoiceAmount > 0;
+    let jeLines:
+      | { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[]
+      | null = null;
+    if (willPostJe) {
       allAccountNumbers.add("1000");
       const acctMap = await getAccountIdMap(supabase, allAccountNumbers);
       const acct1000 = acctMap.get("1000");
@@ -321,19 +329,19 @@ export async function approveInvoice(
         return { error: "No debit lines could be generated — check invoice line items." };
       }
 
-      const jeLines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
-
+      jeLines = [];
       for (const g of debitGroups.values()) {
         const acctId = acctMap.get(g.accountNumber);
-        if (acctId) {
-          jeLines.push({
-            account_id: acctId,
-            project_id: g.projectId,
-            description: `Loan interest — ${invLabel}`,
-            debit: g.amount,
-            credit: 0,
-          });
+        if (!acctId) {
+          return { error: `Required GL account ${g.accountNumber} not found in chart of accounts.` };
         }
+        jeLines.push({
+          account_id: acctId,
+          project_id: g.projectId,
+          description: `Loan interest — ${invLabel}`,
+          debit: g.amount,
+          credit: 0,
+        });
       }
 
       jeLines.push({
@@ -343,7 +351,26 @@ export async function approveInvoice(
         debit: 0,
         credit: invoiceAmount,
       });
+    }
 
+    const { data: updated, error } = await supabase
+      .from("invoices")
+      .update({
+        status: "cleared",
+        payment_date: today,
+        payment_method: "ach",
+        wip_ap_posted: willPostJe,
+      })
+      .eq("id", invoiceId)
+      .eq("status", "pending_review")
+      .select("id");
+
+    if (error) return { error: error.message };
+    if (!updated || updated.length === 0) {
+      return { error: "Invoice is not in pending_review status (it may already have been approved)" };
+    }
+
+    if (jeLines) {
       const jeResult = await postJournalEntry(
         supabase,
         {
@@ -358,25 +385,20 @@ export async function approveInvoice(
         jeLines
       );
 
-      if (jeResult.error) return { error: jeResult.error };
-      jePosted = true;
-    }
-
-    const { data: updated, error } = await supabase
-      .from("invoices")
-      .update({
-        status: "cleared",
-        payment_date: today,
-        payment_method: "ach",
-        wip_ap_posted: jePosted,
-      })
-      .eq("id", invoiceId)
-      .eq("status", "pending_review")
-      .select("id");
-
-    if (error) return { error: error.message };
-    if (!updated || updated.length === 0) {
-      return { error: "Invoice is not in pending_review status (it may already have been approved)" };
+      if (jeResult.error) {
+        // Roll back the claim — the JE didn't post.
+        await supabase
+          .from("invoices")
+          .update({
+            status: "pending_review",
+            payment_date: invoice.payment_date ?? null,
+            payment_method: invoice.payment_method ?? null,
+            wip_ap_posted: false,
+          })
+          .eq("id", invoiceId)
+          .eq("status", "cleared");
+        return { error: jeResult.error };
+      }
     }
 
     // Create a Payment Register row so bank auto-drafts are visible in /banking/payments.
@@ -413,11 +435,14 @@ export async function approveInvoice(
     }
   } else {
     // ── Standard AP path ────────────────────────────────────────────────────
-    // Post WIP/AP JE per line-item project FIRST, then advance status.
-    // fundDraw checks wip_ap_posted to prevent double-entry.
+    // Claim the status FIRST (gated update), then post the WIP/AP JE, rolling
+    // back if the JE fails. fundDraw checks wip_ap_posted to prevent double-entry.
 
-    let jePosted = false;
-    if (invoiceAmount > 0) {
+    const willPostJe = invoiceAmount > 0;
+    let jeLines:
+      | { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[]
+      | null = null;
+    if (willPostJe) {
       allAccountNumbers.add("2000");
       const acctMap = await getAccountIdMap(supabase, allAccountNumbers);
       const acct2000 = acctMap.get("2000");
@@ -429,19 +454,19 @@ export async function approveInvoice(
         return { error: "No debit lines could be generated — check invoice line items." };
       }
 
-      const jeLines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [];
-
+      jeLines = [];
       for (const g of debitGroups.values()) {
         const acctId = acctMap.get(g.accountNumber);
-        if (acctId) {
-          jeLines.push({
-            account_id: acctId,
-            project_id: g.projectId,
-            description: invLabel,
-            debit: g.amount,
-            credit: 0,
-          });
+        if (!acctId) {
+          return { error: `Required GL account ${g.accountNumber} not found in chart of accounts.` };
         }
+        jeLines.push({
+          account_id: acctId,
+          project_id: g.projectId,
+          description: invLabel,
+          debit: g.amount,
+          credit: 0,
+        });
       }
 
       jeLines.push({
@@ -451,7 +476,21 @@ export async function approveInvoice(
         debit: 0,
         credit: invoiceAmount,
       });
+    }
 
+    const { data: updated, error } = await supabase
+      .from("invoices")
+      .update({ status: "approved", wip_ap_posted: willPostJe })
+      .eq("id", invoiceId)
+      .eq("status", "pending_review")
+      .select("id");
+
+    if (error) return { error: error.message };
+    if (!updated || updated.length === 0) {
+      return { error: "Invoice is not in pending_review status (it may already have been approved)" };
+    }
+
+    if (jeLines) {
       const result = await postJournalEntry(
         supabase,
         {
@@ -466,24 +505,21 @@ export async function approveInvoice(
         jeLines
       );
 
-      if (result.error) return { error: result.error };
-      jePosted = true;
-    }
-
-    const { data: updated, error } = await supabase
-      .from("invoices")
-      .update({ status: "approved", wip_ap_posted: jePosted })
-      .eq("id", invoiceId)
-      .eq("status", "pending_review")
-      .select("id");
-
-    if (error) return { error: error.message };
-    if (!updated || updated.length === 0) {
-      return { error: "Invoice is not in pending_review status (it may already have been approved)" };
+      if (result.error) {
+        // Roll back the claim — the JE didn't post.
+        await supabase
+          .from("invoices")
+          .update({ status: "pending_review", wip_ap_posted: false })
+          .eq("id", invoiceId)
+          .eq("status", "approved");
+        return { error: result.error };
+      }
     }
   }
 
-  revalidateAfterJournalEntry({ invoiceId, projectId: invoice.project_id ?? undefined });
+  if (!opts?.deferRevalidation) {
+    revalidateAfterJournalEntry({ invoiceId, projectId: invoice.project_id ?? undefined });
+  }
   return { success: true };
 }
 
@@ -575,6 +611,76 @@ async function isInFundedDraw(
     .limit(1);
 
   return (funded?.length ?? 0) > 0;
+}
+
+/**
+ * Enforce cost-code / project-type pairing on line items:
+ *   - general_admin codes are company-level only (project_id must be null) —
+ *     otherwise a G&A cost gets capitalized into WIP/CIP
+ *   - construction codes must match their project's type (no land-dev codes
+ *     on a home-construction project and vice versa)
+ */
+async function validateLineItemProjectTypes(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  lineItems: LineItemInput[]
+): Promise<{ error?: string }> {
+  const codes = [
+    ...new Set(
+      lineItems
+        .map((li) => (li.cost_code ? String(parseInt(li.cost_code) || 0) : ""))
+        .filter((c) => c && c !== "0")
+    ),
+  ];
+  if (codes.length === 0) return {};
+
+  const { data: codeRows } = await supabase
+    .from("cost_codes")
+    .select("code, project_type")
+    .in("code", codes)
+    .is("user_id", null);
+  const typeByCode = new Map(
+    (codeRows ?? []).map((r) => [String(r.code), r.project_type as string | null])
+  );
+
+  const projIds = [...new Set(lineItems.map((li) => li.project_id).filter(Boolean))] as string[];
+  const projTypeById = new Map<string, string>();
+  if (projIds.length > 0) {
+    const { data: projRows } = await supabase
+      .from("projects")
+      .select("id, project_type")
+      .in("id", projIds);
+    for (const p of projRows ?? []) projTypeById.set(p.id, p.project_type as string);
+  }
+
+  const labels: Record<string, string> = {
+    general_admin: "G&A",
+    land_development: "Land Development",
+    home_construction: "Home Construction",
+  };
+
+  for (const li of lineItems) {
+    const codeStr = li.cost_code ? String(parseInt(li.cost_code) || 0) : "";
+    if (!codeStr || codeStr === "0") continue;
+    const ccType = typeByCode.get(codeStr);
+    if (!ccType) continue;
+    if (ccType === "general_admin") {
+      if (li.project_id) {
+        return {
+          error: `Cost code ${li.cost_code} is a G&A code — G&A line items are company-level and cannot be assigned to a project.`,
+        };
+      }
+      continue;
+    }
+    if (li.project_id) {
+      const pType = projTypeById.get(li.project_id);
+      if (pType && pType !== ccType) {
+        return {
+          error: `Cost code ${li.cost_code} is a ${labels[ccType] ?? ccType} code and cannot be used on a ${labels[pType] ?? pType} project.`,
+        };
+      }
+    }
+  }
+  return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -974,6 +1080,9 @@ export async function updateInvoice(
     return { error: "This invoice is part of a funded draw and cannot be edited" };
   }
 
+  const typeCheck = await validateLineItemProjectTypes(supabase, input.line_items);
+  if (typeCheck.error) return { error: typeCheck.error };
+
   // Block financial field changes on invoices with posted JEs
   const { data: jeCheck } = await supabase
     .from("invoices")
@@ -995,6 +1104,62 @@ export async function updateInvoice(
         error:
           "Cannot modify amount or project on an invoice with posted journal entries. Void the invoice and re-enter it.",
       };
+    }
+
+    // The posted WIP/AP JE debits per-(project, account) groups. Even with the
+    // total and dominant project unchanged, moving a non-dominant line between
+    // projects/G&A would de-sync the JE — compare the groups too.
+    const { data: origLines } = await supabase
+      .from("invoice_line_items")
+      .select("amount, project_id, projects ( project_type )")
+      .eq("invoice_id", invoiceId);
+
+    const newProjIds = [...new Set(input.line_items.map((li) => li.project_id).filter(Boolean))] as string[];
+    const newProjTypes = new Map<string, string>();
+    if (newProjIds.length > 0) {
+      const { data: projRows } = await supabase
+        .from("projects")
+        .select("id, project_type")
+        .in("id", newProjIds);
+      for (const p of projRows ?? []) newProjTypes.set(p.id, p.project_type as string);
+    }
+
+    const debitAcctFor = (pid: string | null, ptype: string | null) =>
+      !pid ? "6900" : ptype === "land_development" ? "1230" : "1210";
+
+    const origGroups = new Map<string, number>();
+    for (const li of origLines ?? []) {
+      if (!li.amount || li.amount <= 0) continue;
+      const ptype = (li.projects as { project_type: string } | null)?.project_type ?? null;
+      const key = `${debitAcctFor(li.project_id ?? null, ptype)}|${li.project_id ?? "null"}`;
+      origGroups.set(key, (origGroups.get(key) ?? 0) + li.amount);
+    }
+    const newGroups = new Map<string, number>();
+    for (const li of input.line_items) {
+      const pid = li.project_id || null;
+      const key = `${debitAcctFor(pid, pid ? newProjTypes.get(pid) ?? null : null)}|${pid ?? "null"}`;
+      newGroups.set(key, (newGroups.get(key) ?? 0) + li.amount);
+    }
+
+    // Skip when no original lines exist (legacy invoice — the JE was posted
+    // from the header, which the total/dominant checks above already cover).
+    if (origGroups.size > 0) {
+      let groupsChanged = origGroups.size !== newGroups.size;
+      if (!groupsChanged) {
+        for (const [key, amt] of newGroups) {
+          const orig = origGroups.get(key);
+          if (orig === undefined || Math.abs(orig - amt) > 0.005) {
+            groupsChanged = true;
+            break;
+          }
+        }
+      }
+      if (groupsChanged) {
+        return {
+          error:
+            "Cannot move amounts between projects or G&A on an invoice with posted journal entries. Void the invoice and re-enter it.",
+        };
+      }
     }
   }
 
@@ -1135,25 +1300,21 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
     .eq("id", invoiceId)
     .single();
 
-  // Block deletion of invoices that have advanced past pending_review
-  if (inv && inv.status !== "pending_review" && inv.status !== "disputed") {
-    // If approved+, void first to reverse JEs properly
-    if (inv.wip_ap_posted) {
-      // Void any posted JEs for this invoice. DB constraint requires
-      // 'voided' (not 'void'); capture errors instead of silently failing.
-      const { error: voidErr } = await supabase
-        .from("journal_entries")
-        .update({ status: "voided" })
-        .eq("source_id", invoiceId)
-        .eq("status", "posted");
-      if (voidErr) return { error: `Failed to void invoice JEs: ${voidErr.message}` };
+  if (!inv) return { error: "Invoice not found" };
 
-      // Reset wip_ap_posted
-      await supabase
-        .from("invoices")
-        .update({ wip_ap_posted: false })
-        .eq("id", invoiceId);
-    }
+  // Released/cleared invoices have real check/cash JEs — block deletion
+  // (mirrors voidFrom). Approved (and disputed-with-posted-WIP/AP) invoices
+  // route through the void transition so a proper reversing JE posts —
+  // never tombstone posted entries. pending_review deletes freely.
+  if (inv.status === "released") {
+    return { error: "Cannot delete a released invoice — the check must be cancelled first. Contact your accountant to reverse the check issuance." };
+  }
+  if (inv.status === "cleared") {
+    return { error: "Cannot delete a cleared invoice — payment has already been made." };
+  }
+  if (inv.status === "approved" || (inv.status === "disputed" && inv.wip_ap_posted)) {
+    const v = await applyStatusTransition(invoiceId, "void");
+    if (v.error) return { error: v.error };
   }
 
   // Remove from any draft/submitted draws
@@ -1177,7 +1338,7 @@ export async function deleteInvoice(invoiceId: string): Promise<{ error?: string
   const { error } = await supabase.from("invoices").delete().eq("id", invoiceId);
   if (error) return { error: error.message };
 
-  // Deleting an approved/disputed invoice voids posted JEs, so financial surfaces shift.
+  // Deleting an approved/disputed invoice posts reversing JEs, so financial surfaces shift.
   revalidateAfterJournalEntry({ invoiceId });
   redirect("/invoices");
 }
@@ -1263,7 +1424,7 @@ export async function advanceInvoiceStatus(
   // (approved → released, released → cleared) to close the double-click race.
   const { data: invoice } = await supabase
     .from("invoices")
-    .select("status, amount, total_amount, project_id, vendor, vendor_id, invoice_number, discount_taken, projects ( project_type )")
+    .select("status, amount, total_amount, project_id, vendor, vendor_id, invoice_number, discount_taken, payment_date, payment_method, projects ( project_type )")
     .eq("id", invoiceId)
     .single();
 
@@ -1343,6 +1504,22 @@ export async function advanceInvoiceStatus(
     };
   }
 
+  // Reverts the status claim above (restoring the pre-claim payment fields)
+  // when JE posting or credit application fails — the status must never sit
+  // ahead of the books.
+  const rollbackStatus = async () => {
+    await supabase
+      .from("invoices")
+      .update({
+        status: requiredFromStatus,
+        payment_date: invoice.payment_date ?? null,
+        payment_method: invoice.payment_method ?? null,
+        discount_taken: invoice.discount_taken ?? 0,
+      })
+      .eq("id", invoiceId)
+      .eq("status", to);
+  };
+
   // Re-read discount_taken if we just wrote it, else use the fetched value.
   const savedDiscount = (to === "released" && discount > 0 ? discount : (invoice.discount_taken ?? 0)) as number;
 
@@ -1397,7 +1574,12 @@ export async function advanceInvoiceStatus(
     const acct2000 = acctMap.get("2000");
     const acct2050 = acctMap.get("2050");
 
-    if (acct2000 && acct2050) {
+    if (!acct2000 || !acct2050) {
+      await rollbackStatus();
+      return { error: "Required GL accounts (2000, 2050) not found. Check chart of accounts." };
+    }
+
+    {
       const lines: { account_id: string; project_id: string | null; description: string; debit: number; credit: number }[] = [
         {
           account_id: acct2000,
@@ -1472,37 +1654,46 @@ export async function advanceInvoiceStatus(
         lines
       );
       if (jeResult.error) {
+        await rollbackStatus();
         return { error: `Failed to post journal entry: ${jeResult.error}` };
       }
 
-      // Persist credit applications and bump applied_amount on each credit.
+      // Persist credit applications and bump applied_amount atomically.
+      // Any failure unwinds the JE (void) and the status claim so the books
+      // and the credit ledger never diverge.
       if (validCredits.length > 0) {
-        await supabase.from("credit_applications").insert(
-          validCredits.map((c) => ({
-            credit_id: c.credit_id,
-            invoice_id: invoiceId,
-            amount_applied: c.amount,
-            applied_by: user.id,
-          }))
-        );
-        for (const c of validCredits) {
-          // Re-read the credit's current applied_amount to avoid races.
-          const { data: cur } = await supabase
-            .from("vendor_credits")
-            .select("amount, applied_amount")
-            .eq("id", c.credit_id)
-            .single();
-          if (cur) {
-            const next = Number(cur.applied_amount ?? 0) + Number(c.amount);
-            const fully = Math.abs(next - Number(cur.amount)) < 0.005;
-            await supabase
-              .from("vendor_credits")
-              .update({
-                applied_amount: next,
-                status: fully ? "fully_applied" : "available",
-              })
-              .eq("id", c.credit_id);
+        const { data: insertedApps, error: appErr } = await supabase
+          .from("credit_applications")
+          .insert(
+            validCredits.map((c) => ({
+              credit_id: c.credit_id,
+              invoice_id: invoiceId,
+              amount_applied: c.amount,
+              applied_by: user.id,
+            }))
+          )
+          .select("id");
+        if (appErr) {
+          if (jeResult.id) {
+            await supabase.from("journal_entries").update({ status: "voided" }).eq("id", jeResult.id);
           }
+          await rollbackStatus();
+          return { error: `Failed to record credit applications: ${appErr.message}` };
+        }
+
+        const { error: creditErr } = await (supabase.rpc as any)("apply_vendor_credits", {
+          p_applications: validCredits.map((c) => ({ credit_id: c.credit_id, amount: c.amount })),
+        });
+        if (creditErr) {
+          await supabase
+            .from("credit_applications")
+            .delete()
+            .in("id", (insertedApps ?? []).map((r: { id: string }) => r.id));
+          if (jeResult.id) {
+            await supabase.from("journal_entries").update({ status: "voided" }).eq("id", jeResult.id);
+          }
+          await rollbackStatus();
+          return { error: `Failed to apply vendor credits: ${creditErr.message}` };
         }
       }
     }
@@ -1514,39 +1705,43 @@ export async function advanceInvoiceStatus(
     const acct2050 = accounts.get("2050");
     const acct1000 = accounts.get("1000");
 
-    if (acct2050 && acct1000) {
-      // Cleared JE is Cash-side only (DR 2050 / CR 1000) — no project split needed
-      const jeResult = await postJournalEntry(
-        supabase,
+    if (!acct2050 || !acct1000) {
+      await rollbackStatus();
+      return { error: "Required GL accounts (2050, 1000) not found. Check chart of accounts." };
+    }
+
+    // Cleared JE is Cash-side only (DR 2050 / CR 1000) — no project split needed
+    const jeResult = await postJournalEntry(
+      supabase,
+      {
+        entry_date: clearedDate,
+        reference: `CHK-CLR-${invoiceId.slice(0, 8)}`,
+        description: `Check cleared — ${desc}`,
+        status: "posted",
+        source_type: "invoice_payment",
+        source_id: invoiceId,
+        user_id: user.id,
+      },
+      [
         {
-          entry_date: clearedDate,
-          reference: `CHK-CLR-${invoiceId.slice(0, 8)}`,
-          description: `Check cleared — ${desc}`,
-          status: "posted",
-          source_type: "invoice_payment",
-          source_id: invoiceId,
-          user_id: user.id,
+          account_id: acct2050,
+          project_id: null,
+          description: `Outstanding check cleared — ${desc}`,
+          debit: netAmount,
+          credit: 0,
         },
-        [
-          {
-            account_id: acct2050,
-            project_id: null,
-            description: `Outstanding check cleared — ${desc}`,
-            debit: netAmount,
-            credit: 0,
-          },
-          {
-            account_id: acct1000,
-            project_id: null,
-            description: `Cash — ${desc}`,
-            debit: 0,
-            credit: netAmount,
-          },
-        ]
-      );
-      if (jeResult.error) {
-        return { error: `Failed to post journal entry: ${jeResult.error}` };
-      }
+        {
+          account_id: acct1000,
+          project_id: null,
+          description: `Cash — ${desc}`,
+          debit: 0,
+          credit: netAmount,
+        },
+      ]
+    );
+    if (jeResult.error) {
+      await rollbackStatus();
+      return { error: `Failed to post journal entry: ${jeResult.error}` };
     }
   }
 

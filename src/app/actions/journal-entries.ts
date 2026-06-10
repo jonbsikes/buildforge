@@ -111,6 +111,9 @@ export async function reverseJournalEntry(id: string, reverseDate?: string) {
       description: `Reversal of: ${original.description}`,
       status: "posted",
       source_type: "manual",
+      // source_id must point at the original entry — the double-reversal guard
+      // above matches on REV-% reference + source_id.
+      source_id: id,
       loan_id: original.loan_id ?? null,
       user_id: user.id,
     },

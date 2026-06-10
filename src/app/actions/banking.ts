@@ -521,6 +521,19 @@ export async function recordLotCost(
   const debitAccountNumber =
     project.project_type === "land_development" ? "1230" : "1210";
 
+  // Resolve the cost code for the debit line so Job Cost reconciles to BS WIP.
+  // Default: 34 "Lot" for home construction, 1 "Raw Land" for land development.
+  const lotCostCode = input.cost_code ?? (project.project_type === "land_development" ? 1 : 34);
+  const { data: lotCodeRow } = await supabase
+    .from("cost_codes")
+    .select("id")
+    .eq("code", String(lotCostCode))
+    .is("user_id", null)
+    .maybeSingle();
+  if (!lotCodeRow) {
+    return { error: `Cost code ${lotCostCode} not found — cannot tag the lot cost for Job Cost reporting` };
+  }
+
   // Determine the credit account
   let creditAccountNumber = "1000"; // Default to Cash
   let creditAccountId: string | undefined;
@@ -587,6 +600,7 @@ export async function recordLotCost(
       {
         account_id: debitAcctId,
         project_id: input.project_id,
+        cost_code_id: lotCodeRow.id,
         description: `Lot cost debit — purchase $${purchasePrice.toFixed(2)} + closing $${closingCosts.toFixed(2)}`,
         debit: totalAmount,
         credit: 0,

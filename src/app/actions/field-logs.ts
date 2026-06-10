@@ -143,6 +143,8 @@ export async function deleteFieldLog(id: string) {
  * naturally date-sorted.
  */
 export async function uploadFieldLogPhoto(formData: FormData) {
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
@@ -193,23 +195,31 @@ export async function deleteFieldLogPhoto(
   documentId: string,
   storagePath: string | null
 ) {
+  const editorCheck = await requireEditor();
+  if (!editorCheck.authorized) throw new Error(editorCheck.error);
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
 
-  if (storagePath) {
+  // DB delete first — it carries the ownership check. Only remove the storage
+  // object once a row was actually deleted, so a non-owner can't strip
+  // arbitrary storage paths.
+  const { data: deleted, error } = await supabase
+    .from("documents")
+    .delete()
+    .eq("id", documentId)
+    .eq("uploaded_by", user.id)
+    .select("id");
+
+  if (error) throw new Error(error.message);
+
+  if (deleted && deleted.length > 0 && storagePath) {
     const pathMatch = storagePath.match(/\/documents\/(.+)$/);
     const relPath = pathMatch ? pathMatch[1] : storagePath;
     await supabase.storage.from("documents").remove([relPath]);
   }
-
-  await supabase
-    .from("documents")
-    .delete()
-    .eq("id", documentId)
-    .eq("uploaded_by", user.id);
 
   revalidateAfterFieldLogMutation();
 }
