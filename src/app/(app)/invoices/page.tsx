@@ -13,68 +13,63 @@ import EmptyState from "@/components/ui/EmptyState";
 export default async function InvoicesPage() {
   const supabase = await createClient();
 
-  const { data: invoices } = await supabase
-    .from("invoices")
-    .select(`
-      id, vendor, vendor_id, invoice_number, invoice_date, due_date,
-      amount, status, ai_confidence, pending_draw, manually_reviewed,
-      file_name, source, discount_taken, direct_cash_payment,
-      projects ( id, name ),
-      cost_codes ( code, name ),
-      vendors ( auto_draft )
-    `)
-    .order("created_at", { ascending: false });
+  // Invoices (with their draw links embedded) and vendor credits are
+  // independent — fetch them in parallel. The draw link rides along on the
+  // main select instead of a second query with every invoice UUID in the URL.
+  const [{ data: invoices }, { data: openCredits }] = await Promise.all([
+    supabase
+      .from("invoices")
+      .select(`
+        id, vendor, vendor_id, invoice_number, invoice_date, due_date,
+        amount, status, ai_confidence, pending_draw, manually_reviewed,
+        file_name, source, discount_taken, direct_cash_payment,
+        projects ( id, name ),
+        cost_codes ( code, name ),
+        vendors ( auto_draft ),
+        draw_invoices ( loan_draws ( id, draw_number, draw_date, status ) )
+      `)
+      .order("created_at", { ascending: false })
+      .limit(2000),
+    supabase
+      .from("vendor_credits")
+      .select("vendor_id, amount, applied_amount")
+      .eq("status", "available"),
+  ]);
 
   const baseRows = invoices ?? [];
-
-  // Look up which invoices are attached to a draw request so we can show
-  // a bank icon next to the status on the AP screen. A single invoice can
-  // (rarely) be linked to more than one draw — show the most recent one.
-  const invoiceIds = baseRows.map((r) => r.id);
-  const drawByInvoice = new Map<
-    string,
-    { id: string; draw_number: number | null; draw_date: string | null; status: string | null }
-  >();
-  if (invoiceIds.length > 0) {
-    const { data: drawLinks } = await supabase
-      .from("draw_invoices")
-      .select(`invoice_id, loan_draws ( id, draw_number, draw_date, status )`)
-      .in("invoice_id", invoiceIds);
-    for (const link of drawLinks ?? []) {
-      const d = (link as { loan_draws: { id: string; draw_number: number | null; draw_date: string | null; status: string | null } | null }).loan_draws;
-      if (!d) continue;
-      const existing = drawByInvoice.get((link as { invoice_id: string }).invoice_id);
-      // Keep the most recent draw (by draw_date)
-      if (!existing || (d.draw_date && (!existing.draw_date || d.draw_date > existing.draw_date))) {
-        drawByInvoice.set((link as { invoice_id: string }).invoice_id, d);
-      }
-    }
-  }
 
   // Per-vendor available credit balance — used to show a coin/badge on any
   // open invoice from a vendor who has unapplied credits sitting in AP.
   const vendorCreditBalance = new Map<string, number>();
-  {
-    const { data: openCredits } = await supabase
-      .from("vendor_credits")
-      .select("vendor_id, amount, applied_amount")
-      .eq("status", "available");
-    for (const c of openCredits ?? []) {
-      const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
-      if (remaining > 0.005 && c.vendor_id) {
-        vendorCreditBalance.set(
-          c.vendor_id as string,
-          (vendorCreditBalance.get(c.vendor_id as string) ?? 0) + remaining
-        );
-      }
+  for (const c of openCredits ?? []) {
+    const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+    if (remaining > 0.005 && c.vendor_id) {
+      vendorCreditBalance.set(
+        c.vendor_id as string,
+        (vendorCreditBalance.get(c.vendor_id as string) ?? 0) + remaining
+      );
     }
   }
 
-  const rows = baseRows.map((r) => ({
-    ...r,
-    in_draw: drawByInvoice.get(r.id) ?? null,
-    vendor_credit_available: r.vendor_id ? vendorCreditBalance.get(r.vendor_id) ?? 0 : 0,
-  }));
+  // A single invoice can (rarely) be linked to more than one draw — show the
+  // most recent one (by draw_date) as the bank icon next to the status.
+  type DrawLite = { id: string; draw_number: number | null; draw_date: string | null; status: string | null };
+  const rows = baseRows.map((r) => {
+    const { draw_invoices, ...rest } = r as typeof r & { draw_invoices?: { loan_draws: DrawLite | null }[] | null };
+    let inDraw: DrawLite | null = null;
+    for (const link of draw_invoices ?? []) {
+      const d = link.loan_draws;
+      if (!d) continue;
+      if (!inDraw || (d.draw_date && (!inDraw.draw_date || d.draw_date > inDraw.draw_date))) {
+        inDraw = d;
+      }
+    }
+    return {
+      ...rest,
+      in_draw: inDraw,
+      vendor_credit_available: r.vendor_id ? vendorCreditBalance.get(r.vendor_id) ?? 0 : 0,
+    };
+  });
 
   // ---------------------------------------------------------------------------
   // Compute the unified "Needs attention" set. A pending invoice needs

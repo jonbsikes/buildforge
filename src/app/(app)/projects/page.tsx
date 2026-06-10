@@ -25,8 +25,8 @@ export default async function ProjectsHubPage() {
 
   const [
     { data: projects },
-    { data: pccRows },
-    { data: invoices },
+    { data: budgetTotals },
+    { data: invoiceActuals },
     { data: fieldTodos },
     { data: buildStages },
     { data: recentLogs },
@@ -38,18 +38,18 @@ export default async function ProjectsHubPage() {
       )
       .in("status", ["active", "pre_construction"])
       .order("created_at", { ascending: false }),
-    supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
-    supabase
-      .from("invoices")
-      .select("id, status, amount, total_amount, project_id")
-      .in("status", ["approved", "released", "cleared"]),
+    // Per-project budget + invoice-actual totals aggregated in SQL — the raw
+    // rows grow forever and would silently cap at 1,000.
+    (supabase.rpc as any)("get_project_budget_totals"),
+    (supabase.rpc as any)("get_project_invoice_actuals"),
     supabase
       .from("field_todos")
       .select("id, status, priority, project_id, due_date")
       .neq("status", "done"),
     supabase
       .from("build_stages")
-      .select("id, project_id, stage_name, status, planned_end_date, actual_start_date, actual_end_date, stage_number")
+      .select("id, project_id, stage_name, status, planned_end_date, actual_start_date, actual_end_date, stage_number, projects!inner(status)")
+      .in("projects.status", ["active", "pre_construction"])
       .order("stage_number", { ascending: true }),
     supabase
       .from("field_logs")
@@ -74,22 +74,24 @@ export default async function ProjectsHubPage() {
   const openTodos = (fieldTodos ?? []).length;
   const urgentTodos = (fieldTodos ?? []).filter((t) => t.priority === "urgent").length;
 
+  type ProjectTotalRow = { project_id: string; total_budget?: number; actual_amount?: number };
+  const budgetRows = (budgetTotals ?? []) as ProjectTotalRow[];
+  const actualRows = (invoiceActuals ?? []) as ProjectTotalRow[];
+
   // Total budget retained for attention-hero computations; total spent intentionally omitted.
-  const totalBudget = (pccRows ?? []).reduce((s, r) => s + (r.budgeted_amount ?? 0), 0);
+  const totalBudget = budgetRows.reduce((s, r) => s + Number(r.total_budget ?? 0), 0);
 
   const projectNames: Record<string, string> = {};
   for (const p of allProjects) projectNames[p.id] = p.name;
 
   // Per-project aggregates for the compact "Active projects" list
   const budgetByProject = new Map<string, number>();
-  for (const r of pccRows ?? []) {
-    if (!r.project_id) continue;
-    budgetByProject.set(r.project_id, (budgetByProject.get(r.project_id) ?? 0) + (r.budgeted_amount ?? 0));
+  for (const r of budgetRows) {
+    if (r.project_id) budgetByProject.set(r.project_id, Number(r.total_budget ?? 0));
   }
   const spentByProject = new Map<string, number>();
-  for (const inv of invoices ?? []) {
-    if (!inv.project_id) continue;
-    spentByProject.set(inv.project_id, (spentByProject.get(inv.project_id) ?? 0) + (inv.total_amount ?? inv.amount ?? 0));
+  for (const r of actualRows) {
+    if (r.project_id) spentByProject.set(r.project_id, Number(r.actual_amount ?? 0));
   }
   const stagesByProject = new Map<string, typeof buildStages>();
   for (const s of buildStages ?? []) {

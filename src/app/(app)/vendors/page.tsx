@@ -11,45 +11,34 @@ export default async function VendorsPage() {
 
   const supabase = await createClient();
 
-  // Vendor metrics (YTD spend, open invoices) come from the invoices table.
+  // Vendor metrics (YTD spend, open invoices) are aggregated per vendor in
+  // SQL — the invoices table grows forever and would silently cap at 1,000.
   // Per UI Review § 10 #62: "fewer columns, more info per cell".
   const yearStart = `${new Date().getFullYear()}-01-01`;
-  const [{ data: vendors }, { data: invoices }, { data: contracts }] = await Promise.all([
+  const [{ data: vendors }, vendorStatsRes, { data: contracts }] = await Promise.all([
     supabase
       .from("vendors")
       .select("id, name, email, phone, trade, coi_expiry_date, license_expiry_date, is_active, notes")
       .eq("is_active", true)
       .order("name"),
-    supabase
-      .from("invoices")
-      .select("id, vendor_id, status, amount, total_amount, invoice_date, due_date"),
+    (supabase.rpc as any)("get_vendor_invoice_stats", { p_year_start: yearStart }),
     supabase
       .from("contracts")
       .select("id, vendor_id, status"),
   ]);
 
   const rows = vendors ?? [];
-  const allInvoices = invoices ?? [];
 
-  const ytdSpendByVendor: Record<string, number> = {};
-  const openInvoicesByVendor: Record<string, number> = {};
-  const openAmountByVendor: Record<string, number> = {};
-  const lastInvoiceByVendor: Record<string, string> = {};
-
-  for (const inv of allInvoices) {
-    if (!inv.vendor_id) continue;
-    const amt = inv.total_amount ?? inv.amount ?? 0;
-    if ((inv.status === "approved" || inv.status === "released" || inv.status === "cleared") && (inv.invoice_date ?? "") >= yearStart) {
-      ytdSpendByVendor[inv.vendor_id] = (ytdSpendByVendor[inv.vendor_id] ?? 0) + amt;
-    }
-    if (inv.status === "approved" || inv.status === "pending_review" || inv.status === "released") {
-      openInvoicesByVendor[inv.vendor_id] = (openInvoicesByVendor[inv.vendor_id] ?? 0) + 1;
-      openAmountByVendor[inv.vendor_id] = (openAmountByVendor[inv.vendor_id] ?? 0) + amt;
-    }
-    if (inv.invoice_date) {
-      const cur = lastInvoiceByVendor[inv.vendor_id];
-      if (!cur || inv.invoice_date > cur) lastInvoiceByVendor[inv.vendor_id] = inv.invoice_date;
-    }
+  type VendorStats = {
+    vendor_id: string;
+    ytd_spend: number;
+    open_invoices: number;
+    open_amount: number;
+    last_invoice_date: string | null;
+  };
+  const statsByVendor = new Map<string, VendorStats>();
+  for (const s of (vendorStatsRes.data ?? []) as VendorStats[]) {
+    statsByVendor.set(s.vendor_id, s);
   }
 
   const activeContractsByVendor: Record<string, number> = {};
@@ -59,14 +48,17 @@ export default async function VendorsPage() {
     }
   }
 
-  const enriched = rows.map((v) => ({
-    ...v,
-    ytd_spend: ytdSpendByVendor[v.id] ?? 0,
-    open_invoices: openInvoicesByVendor[v.id] ?? 0,
-    open_amount: openAmountByVendor[v.id] ?? 0,
-    last_invoice_date: lastInvoiceByVendor[v.id] ?? null,
-    active_contracts: activeContractsByVendor[v.id] ?? 0,
-  }));
+  const enriched = rows.map((v) => {
+    const s = statsByVendor.get(v.id);
+    return {
+      ...v,
+      ytd_spend: Number(s?.ytd_spend ?? 0),
+      open_invoices: Number(s?.open_invoices ?? 0),
+      open_amount: Number(s?.open_amount ?? 0),
+      last_invoice_date: s?.last_invoice_date ?? null,
+      active_contracts: activeContractsByVendor[v.id] ?? 0,
+    };
+  });
 
   return (
     <>

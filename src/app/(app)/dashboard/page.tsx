@@ -29,40 +29,47 @@ export default async function DashboardPage() {
   weekFromNow.setDate(weekFromNow.getDate() + 7);
   const weekStr = weekFromNow.toISOString().split("T")[0]!;
 
+  // Projects first — the stage/budget queries are scoped to these ids.
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, name, status, project_type, subdivision, address, start_date, block, lot, plan, home_size_sf, size_acres, number_of_lots")
+    .in("status", ["active", "pre_construction"])
+    .order("created_at", { ascending: false });
+
+  const allProjects = projects ?? [];
+  const projectIds = allProjects.map((p) => p.id);
+
   const [
-    { data: projects },
-    { data: pccRows },
+    budgetTotalsRes,
+    actualTotalsRes,
     { data: invoices },
     { data: vendors },
     { data: fieldTodos },
     { data: buildStages },
     { data: draws },
   ] = await Promise.all([
-    supabase.from("projects").select("id, name, status, project_type, subdivision, address, start_date, block, lot, plan, home_size_sf, size_acres, number_of_lots").in("status", ["active", "pre_construction"]).order("created_at", { ascending: false }),
-    supabase.from("project_cost_codes").select("project_id, budgeted_amount"),
-    supabase.from("invoices").select("id, status, amount, total_amount, due_date, project_id, vendor, invoice_number, invoice_line_items ( project_id, amount )"),
+    // Per-project budget + invoice-actual totals aggregated in SQL — the raw
+    // rows grow forever and would silently cap at 1,000.
+    (supabase.rpc as any)("get_project_budget_totals"),
+    (supabase.rpc as any)("get_project_invoice_actuals"),
+    // Open-AP invoices only — these statuses are all the KPIs below need.
+    supabase.from("invoices").select("id, status, amount, total_amount, due_date").in("status", ["pending_review", "approved", "released", "disputed"]).order("created_at", { ascending: false }).limit(2000),
     supabase.from("vendors").select("id, name, coi_expiry_date, license_expiry_date"),
     supabase.from("field_todos").select("id, status, priority, description, project_id, due_date").neq("status", "done"),
-    supabase.from("build_stages").select("id, project_id, stage_name, stage_number, status, track, planned_start_date, planned_end_date, actual_start_date, actual_end_date").order("stage_number", { ascending: true }),
-    supabase.from("loan_draws").select("id, status"),
+    supabase.from("build_stages").select("id, project_id, stage_name, stage_number, status, track, planned_start_date, planned_end_date, actual_start_date, actual_end_date").in("project_id", projectIds).order("stage_number", { ascending: true }),
+    supabase.from("loan_draws").select("id, status").in("status", ["draft", "submitted"]),
   ]);
 
-  const allProjects = projects ?? [];
   const activeCount = allProjects.filter((p) => p.status === "active").length;
 
   const budgetByProject: Record<string, number> = {};
-  for (const pcc of pccRows ?? []) if (pcc.project_id) budgetByProject[pcc.project_id] = (budgetByProject[pcc.project_id] ?? 0) + (pcc.budgeted_amount ?? 0);
+  for (const r of (budgetTotalsRes.data ?? []) as { project_id: string; total_budget: number }[]) {
+    budgetByProject[r.project_id] = Number(r.total_budget);
+  }
 
   const actualByProject: Record<string, number> = {};
-  for (const inv of (invoices ?? []).filter((i) => i.status === "approved" || i.status === "released" || i.status === "cleared")) {
-    const lineItems = (inv as { invoice_line_items: { project_id: string | null; amount: number }[] | null }).invoice_line_items;
-    if (lineItems && lineItems.length > 0) {
-      for (const li of lineItems) {
-        if (li.project_id) actualByProject[li.project_id] = (actualByProject[li.project_id] ?? 0) + (li.amount ?? 0);
-      }
-    } else if (inv.project_id) {
-      actualByProject[inv.project_id] = (actualByProject[inv.project_id] ?? 0) + (inv.total_amount ?? inv.amount ?? 0);
-    }
+  for (const r of (actualTotalsRes.data ?? []) as { project_id: string; actual_amount: number }[]) {
+    actualByProject[r.project_id] = Number(r.actual_amount);
   }
 
   const todosByProject: Record<string, number> = {};
@@ -168,7 +175,7 @@ export default async function DashboardPage() {
   // Project "in-flight" total = sum of active project budgets
   const inFlightTotal = allProjects.reduce((s, p) => s + (budgetByProject[p.id] ?? 0), 0);
 
-  const pendingDraws = (draws ?? []).filter((d) => d.status === "submitted" || d.status === "draft").length;
+  const pendingDraws = (draws ?? []).length;
 
   const daysUntil = (d: string | null) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
   const expiringVendors = (vendors ?? []).filter((v) => { const c = daysUntil(v.coi_expiry_date); const l = daysUntil(v.license_expiry_date); return (c !== null && c <= 30) || (l !== null && l <= 30); });

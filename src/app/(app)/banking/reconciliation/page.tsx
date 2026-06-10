@@ -22,6 +22,9 @@ export default async function ReconciliationPage() {
   let summary = { total: 0, matched: 0, unmatched: 0, ignored: 0 };
 
   if (firstAccountId) {
+    // Most recent 1,000 transactions. PostgREST capped this at 1,000 rows
+    // implicitly anyway — the explicit limit makes it deterministic
+    // (newest first) instead of arbitrary.
     const { data: txns } = await supabase
       .from("bank_transactions")
       .select(`
@@ -31,7 +34,8 @@ export default async function ReconciliationPage() {
       `)
       .eq("bank_account_id", firstAccountId)
       .order("transaction_date", { ascending: false })
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(1000);
 
     transactions = (txns ?? []).map((t: any) => ({
       ...t,

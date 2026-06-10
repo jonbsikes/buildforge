@@ -21,6 +21,9 @@ export default async function BankAccountDetailPage({ params }: Props) {
       .select("id, bank_name, account_name, account_last_four, account_type, notes")
       .eq("id", id)
       .single(),
+    // Most recent 1,000 transactions. PostgREST capped this at 1,000 rows
+    // implicitly anyway — the explicit limit makes it deterministic
+    // (newest first) instead of arbitrary.
     supabase
       .from("bank_transactions")
       .select(`
@@ -30,7 +33,8 @@ export default async function BankAccountDetailPage({ params }: Props) {
       `)
       .eq("bank_account_id", id)
       .order("transaction_date", { ascending: false })
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(1000),
   ]);
 
   if (!accountResult.data) return notFound();

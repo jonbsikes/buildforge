@@ -45,6 +45,9 @@ type EntryType = "general" | "wip_costs" | "home_closing" | "capitalized_interes
 // Accounts where a cost code should be shown (WIP / CIP / Land Inventory debit lines)
 const WIP_ACCOUNT_NUMBERS = new Set(["1210", "1220", "1230", "1200"]);
 
+// Server-side page size for the entries list
+const ENTRIES_PAGE_SIZE = 50;
+
 const EMPTY_LINE = (): JournalLineInput & { _key: number } => ({
   _key: Date.now() + Math.random(),
   account_id: "",
@@ -77,6 +80,8 @@ export default function JournalEntriesClient() {
   const [loans, setLoans]             = useState<Loan[]>([]);
   const [loading, setLoading]         = useState(true);
   const [showForm, setShowForm]       = useState(false);
+  const [page, setPage]               = useState(0);
+  const [totalCount, setTotalCount]   = useState(0);
   const [expandedId, setExpandedId]   = useState<string | null>(null);
   const [saving, setSaving]           = useState(false);
   const [formError, setFormError]     = useState("");
@@ -95,17 +100,20 @@ export default function JournalEntriesClient() {
   const load = useCallback(async () => {
     setLoading(true);
     const [
-      { data: entriesData },
+      { data: entriesData, count: entriesCount },
       { data: accsData },
       { data: codesData },
       { data: projData },
       { data: loansData },
     ] = await Promise.all([
+      // Server-side pagination — only the current page of headers (with its
+      // line debits for the per-entry total) comes down the wire.
       supabase
         .from("journal_entries")
-        .select("id, entry_date, reference, description, status, source_type, loan_id, loan:loans(loan_number), created_at, journal_entry_lines(debit)")
+        .select("id, entry_date, reference, description, status, source_type, loan_id, loan:loans(loan_number), created_at, journal_entry_lines(debit)", { count: "exact" })
         .order("entry_date", { ascending: false })
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .range(page * ENTRIES_PAGE_SIZE, page * ENTRIES_PAGE_SIZE + ENTRIES_PAGE_SIZE - 1),
       supabase.from("chart_of_accounts").select("id, account_number, name, type, subtype").eq("is_active", true).order("account_number"),
       supabase.from("cost_codes").select("id, code, description, category").order("code"),
       supabase.from("projects").select("id, name").order("name"),
@@ -121,12 +129,13 @@ export default function JournalEntriesClient() {
       return { ...rest, total_debits: total };
     });
     setEntries(enriched);
+    setTotalCount(entriesCount ?? 0);
     setAccounts(accsData ?? []);
     setCostCodes((codesData as unknown as CostCode[]) ?? []);
     setProjects(projData ?? []);
     setLoans((loansData as unknown as Loan[]) ?? []);
     setLoading(false);
-  }, []);
+  }, [page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -449,7 +458,7 @@ export default function JournalEntriesClient() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-gray-500 text-sm">
           <BookOpen size={15} />
-          <span>{entries.length} entries</span>
+          <span>{totalCount} entries</span>
         </div>
         <button
           onClick={() => { setShowForm(true); resetForm(); }}
@@ -877,6 +886,32 @@ export default function JournalEntriesClient() {
               </tbody>
             </table>
           </div>
+          {totalCount > ENTRIES_PAGE_SIZE && (
+            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50">
+              <span className="text-xs text-gray-400">
+                Showing {page * ENTRIES_PAGE_SIZE + 1}–{Math.min((page + 1) * ENTRIES_PAGE_SIZE, totalCount)} of {totalCount}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setExpandedId(null); setPage((p) => Math.max(0, p - 1)); }}
+                  disabled={page === 0}
+                  className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500">
+                  Page {page + 1} of {Math.max(1, Math.ceil(totalCount / ENTRIES_PAGE_SIZE))}
+                </span>
+                <button
+                  onClick={() => { setExpandedId(null); setPage((p) => p + 1); }}
+                  disabled={(page + 1) * ENTRIES_PAGE_SIZE >= totalCount}
+                  className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
