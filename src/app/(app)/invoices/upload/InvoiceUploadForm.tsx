@@ -142,12 +142,47 @@ async function uploadAndExtract(
 
   let created = 0;
   for (const inv of invoices) {
-    const resolvedProjectId = isMulti ? (inv.project_id || null) : (projectId || null);
+    // Fall back to the AI-matched project when the user didn't pick one —
+    // otherwise the extraction's match was silently discarded and the AP list
+    // showed a blank project until an edit/save round trip re-derived it.
+    const resolvedProjectId = isMulti
+      ? (inv.project_id || null)
+      : (projectId || inv.project_id || null);
+
+    // Stamp the dominant (largest valid-coded) line's cost code on the invoice
+    // header — the AP list reads the header's cost_code_id, and saveInvoice/
+    // updateInvoice do the same thing on their paths.
+    const validLines = (inv.line_items ?? []).filter((li) => li.cost_code_valid && li.cost_code);
+    const dominantLine = validLines.length
+      ? validLines.reduce((max, li) => ((li.amount ?? 0) > (max.amount ?? 0) ? li : max))
+      : null;
+    let dominantCodeId: string | null = null;
+    if (dominantLine) {
+      const { data: codeRow } = await supabase
+        .from("cost_codes")
+        .select("id")
+        .eq("code", String(parseInt(String(dominantLine.cost_code)) || 0))
+        .is("user_id", null)
+        .maybeSingle();
+      dominantCodeId = codeRow?.id ?? null;
+    }
+
+    const projectName = resolvedProjectId
+      ? allProjects?.find((p) => p.id === resolvedProjectId)?.name ?? null
+      : null;
+    const displayName = [
+      inv.vendor || "Unknown Vendor",
+      dominantLine?.cost_code ?? "—",
+      projectName || "Company",
+      inv.invoice_number || "—",
+    ].join(" – ");
+
     const { data: record, error: insertError } = await supabase.from("invoices").insert({
       project_id: resolvedProjectId,
+      cost_code_id: dominantCodeId,
       user_id: userId,
       file_path: filePath,
-      file_name: file.name,
+      file_name: displayName,
       vendor_id: inv.vendor_id || null,
       vendor: inv.vendor || null,
       invoice_number: inv.invoice_number || null,

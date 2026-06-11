@@ -351,7 +351,7 @@ async function extractInvoicesFromPdf(
 async function findProjectByHint(
   supabase: ReturnType<typeof createClient>,
   hint: string | null
-): Promise<string | null> {
+): Promise<{ id: string; name: string | null } | null> {
   if (!hint) return null;
 
   // Sanitize the Claude-extracted hint before interpolating into PostgREST's
@@ -364,13 +364,13 @@ async function findProjectByHint(
 
   const { data } = await supabase
     .from("projects")
-    .select("id")
+    .select("id, name")
     .or(
       `name.ilike.%${safe}%,address.ilike.%${safe}%,subdivision.ilike.%${safe}%`
     )
     .limit(1);
 
-  return data?.[0]?.id ?? null;
+  return (data?.[0] as { id: string; name: string | null } | undefined) ?? null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -457,13 +457,15 @@ Deno.serve(async (req: Request) => {
     // reference data.
     const [{ data: vendors }, { data: costCodes }] = await Promise.all([
       supabase.from("vendors").select("id, name"),
-      supabase.from("cost_codes").select("code"),
+      supabase.from("cost_codes").select("id, code"),
     ]);
 
     const vendorList = vendors ?? [];
-    const validCodeSet = new Set(
-      (costCodes ?? []).map((c) => String((c as { code: number | string }).code))
-    );
+    const codeRows = (costCodes ?? []) as { id: string; code: number | string }[];
+    const validCodeSet = new Set(codeRows.map((c) => String(c.code)));
+    // code (as string) → cost_codes.id, used to stamp the dominant line's code
+    // on the invoice header so the AP list shows it without an edit round trip.
+    const codeIdByCode = new Map(codeRows.map((c) => [String(c.code), c.id]));
 
     // Get Gmail access token. Catch separately so we can surface a clear
     // OAuth error (revoked refresh token, wrong client, etc.) instead of
@@ -632,7 +634,8 @@ Deno.serve(async (req: Request) => {
 
             for (const inv of extractedInvoices) {
               // Find project
-              const projectId = await findProjectByHint(supabase, inv.project_name_hint);
+              const matchedProject = await findProjectByHint(supabase, inv.project_name_hint);
+              const projectId = matchedProject?.id ?? null;
 
               // Find vendor
               const vendorId = findVendor(inv.vendor, vendorList);
@@ -722,7 +725,24 @@ Deno.serve(async (req: Request) => {
                 aiConfidence = "low";
               }
 
-              const displayName = `${inv.vendor} – ${inv.invoice_number}`;
+              // Dominant (largest valid-coded) line → header cost_code_id. The
+              // AP list reads the header, so without this the cost code stays
+              // blank until the user opens the invoice and re-saves it.
+              const codedLines = validatedLines.filter((l) => l.cost_code !== null);
+              const dominantLine = codedLines.length
+                ? codedLines.reduce((max, l) => (l.amount > max.amount ? l : max))
+                : null;
+              const dominantCodeId = dominantLine?.cost_code
+                ? (codeIdByCode.get(dominantLine.cost_code) ?? null)
+                : null;
+
+              // Display-name convention: Vendor – Cost Code – Project – Invoice#
+              const displayName = [
+                inv.vendor || "Unknown Vendor",
+                dominantLine?.cost_code ?? "—",
+                matchedProject?.name ?? "Company",
+                inv.invoice_number || "—",
+              ].join(" – ");
 
               // Insert the invoice row FIRST without file_path. If the insert
               // fails we never touch storage. The live `invoices` table has no
@@ -734,6 +754,7 @@ Deno.serve(async (req: Request) => {
                 .from("invoices")
                 .insert({
                   project_id: projectId,
+                  cost_code_id: dominantCodeId,
                   vendor_id: vendorId,
                   vendor: inv.vendor,
                   invoice_number: inv.invoice_number,
