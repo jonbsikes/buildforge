@@ -117,7 +117,7 @@ Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" 
 - If an invoice has no `due_date`, default to the date it was entered into the system
 - Vendor COI/license expiry: 30-day warning notification, blocking alert at expiry
 - Vendor trade must be selected from cost code list — not freeform
-- Draw request pulls invoices where `pending_draw = true` and `status = 'approved'` and not yet funded in a prior draw
+- Draw request pulls invoices where `pending_draw = true`, status is `'approved'` (lender funds pay the vendor) **or** `'cleared'` (already paid out of pocket — the draw reimburses the builder; no `vendor_payments` row is created and `fundDraw` skips the WIP/AP repost via `wip_ap_posted`), and not already in another draw. A draw funded with only cleared invoices closes straight to `paid`
 - Draws are weekly batch submissions to the bank; once funded, invoices in that draw are locked and cannot be re-drawn
 - When a build stage is marked complete, future stages in the Gantt automatically adjust
 - Build stage end date is auto-calculated from `start_date` + cumulative stage durations from `.claude/memory/build_stages.md`

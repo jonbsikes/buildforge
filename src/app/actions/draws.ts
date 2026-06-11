@@ -22,6 +22,9 @@ export interface DrawableInvoice {
   due_date: string | null;
   amount: number | null;
   file_name: string | null;
+  // 'approved' (lender pays vendor) or 'cleared' (already paid out of pocket —
+  // the draw reimburses the builder, no vendor check is owed)
+  status: string | null;
   project: {
     id: string;
     name: string;
@@ -87,11 +90,11 @@ export async function getDrawableInvoices(): Promise<{
   let query = supabase
     .from("invoices")
     .select(`
-      id, vendor, invoice_number, invoice_date, due_date, amount, file_name,
+      id, vendor, invoice_number, invoice_date, due_date, amount, file_name, status,
       projects ( id, name, address, lender_id, contacts ( id, name ) ),
       cost_codes ( code )
     `)
-    .eq("status", "approved")
+    .in("status", ["approved", "cleared"])
     .eq("pending_draw", true)
     .order("due_date", { ascending: true, nullsFirst: false });
 
@@ -194,6 +197,7 @@ export async function getDrawableInvoices(): Promise<{
       due_date: row.due_date,
       amount: row.amount,
       file_name: row.file_name,
+      status: row.status,
       project: proj
         ? {
             id: proj.id,
@@ -257,7 +261,7 @@ export async function createDraw(
   let invQuery = supabase
     .from("invoices")
     .select("id, amount")
-    .eq("status", "approved")
+    .in("status", ["approved", "cleared"])
     .eq("pending_draw", true);
 
   if (lineItemInvoiceIds.length > 0) {
@@ -966,7 +970,7 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
   // write individual checks and mark them paid.
   const { data: allDrawInvoices } = await supabase
     .from("draw_invoices")
-    .select(`invoice_id, invoices ( id, vendor, vendor_id, amount )`)
+    .select(`invoice_id, invoices ( id, vendor, vendor_id, amount, status )`)
     .eq("draw_id", drawId);
 
   type VendorGroup = {
@@ -983,8 +987,12 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
       vendor: string | null;
       vendor_id: string | null;
       amount: number | null;
+      status: string | null;
     } | null;
     if (!inv) continue;
+    // Invoices already paid out of pocket (released/cleared) are reimbursements —
+    // the draw repays the builder, not the vendor, so no check is owed.
+    if (inv.status === "released" || inv.status === "cleared") continue;
     // Key by vendor_id when available, otherwise by name to group correctly.
     const key = inv.vendor_id ?? `name:${inv.vendor ?? "Unknown"}`;
     if (!vendorMap.has(key)) {
@@ -1032,10 +1040,13 @@ export async function fundDraw(drawId: string): Promise<{ error?: string }> {
     }
   }
 
-  // Final commit: flip 'funding' → 'funded'.
+  // Final commit: flip 'funding' → 'funded'. If every invoice in the draw was
+  // already paid out of pocket (a pure reimbursement draw), there are no vendor
+  // checks to write, so the draw is fully settled — close it straight to 'paid'.
+  const finalStatus = vendorMap.size === 0 ? "paid" : "funded";
   const { data: flipped, error: flipErr } = await supabase
     .from("loan_draws")
-    .update({ status: "funded" })
+    .update({ status: finalStatus })
     .eq("id", drawId)
     .eq("status", "funding")
     .select("id");

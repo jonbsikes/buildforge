@@ -238,6 +238,11 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
                         {isPastDue && <AlertTriangle size={12} className="text-red-500 flex-shrink-0" />}
                         {isDueSoon && <Clock size={12} className="text-amber-500 flex-shrink-0" />}
                         {inv.vendor ?? "—"}
+                        {inv.status === "cleared" && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-50 text-green-700 flex-shrink-0">
+                            Paid — reimbursement
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-gray-400">{inv.invoice_number ?? "No #"}</p>
                     </td>

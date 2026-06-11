@@ -534,6 +534,21 @@ export async function setPendingDraw(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated" };
 
+  // Approved invoices get paid via the draw; cleared invoices ride along as
+  // reimbursements (builder already paid out of pocket). Anything else is not
+  // draw-eligible. Removal is always allowed.
+  if (pending) {
+    const { data: inv } = await supabase
+      .from("invoices")
+      .select("status")
+      .eq("id", invoiceId)
+      .maybeSingle();
+    if (!inv) return { error: "Invoice not found" };
+    if (inv.status !== "approved" && inv.status !== "cleared") {
+      return { error: "Only approved or paid (cleared) invoices can be added to a draw" };
+    }
+  }
+
   const { error } = await supabase
     .from("invoices")
     .update({ pending_draw: pending })

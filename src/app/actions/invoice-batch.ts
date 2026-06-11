@@ -38,19 +38,23 @@ export async function approveInvoicesBatch(
 export async function setPendingDrawBatch(
   invoiceIds: string[],
   pending: boolean
-): Promise<{ error?: string; updated: number }> {
+): Promise<{ error?: string; updated: number; skipped: number }> {
   const adminCheck = await requireAdmin();
-  if (!adminCheck.authorized) return { error: adminCheck.error, updated: 0 };
+  if (!adminCheck.authorized) return { error: adminCheck.error, updated: 0, skipped: 0 };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated", updated: 0 };
-  if (invoiceIds.length === 0) return { updated: 0 };
-  const { error, data } = await supabase
+  if (!user) return { error: "Not authenticated", updated: 0, skipped: 0 };
+  if (invoiceIds.length === 0) return { updated: 0, skipped: 0 };
+  // Only approved (lender pays vendor) and cleared (reimbursement) invoices
+  // are draw-eligible; other statuses in the selection are skipped, not failed.
+  let query = supabase
     .from("invoices")
     .update({ pending_draw: pending })
-    .in("id", invoiceIds)
-    .select("id");
-  if (error) return { error: error.message, updated: 0 };
+    .in("id", invoiceIds);
+  if (pending) query = query.in("status", ["approved", "cleared"]);
+  const { error, data } = await query.select("id");
+  if (error) return { error: error.message, updated: 0, skipped: 0 };
   revalidateAfterInvoiceMutation();
-  return { updated: data?.length ?? 0 };
+  const updated = data?.length ?? 0;
+  return { updated, skipped: invoiceIds.length - updated };
 }

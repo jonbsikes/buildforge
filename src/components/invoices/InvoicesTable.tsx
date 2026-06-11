@@ -440,7 +440,14 @@ export default function InvoicesTable({
     startTransition(async () => {
       const r = await setPendingDrawBatch(ids, pending);
       if (r.error) setBanner({ type: "error", msg: r.error });
-      else setBanner({ type: "success", msg: `${pending ? "Added" : "Removed"} ${r.updated} invoice${r.updated !== 1 ? "s" : ""} ${pending ? "to" : "from"} draw` });
+      else if (pending && r.skipped > 0) {
+        setBanner({
+          type: r.updated > 0 ? "success" : "error",
+          msg: `Added ${r.updated} to draw, skipped ${r.skipped} — only approved or paid (cleared) invoices can be added`,
+        });
+      } else {
+        setBanner({ type: "success", msg: `${pending ? "Added" : "Removed"} ${r.updated} invoice${r.updated !== 1 ? "s" : ""} ${pending ? "to" : "from"} draw` });
+      }
       exitSelectMode();
     });
   }
@@ -894,9 +901,9 @@ export default function InvoicesTable({
                           </button>
                         )}
 
-                        {effectiveStatus === "approved" && (
+                        {(effectiveStatus === "approved" || effectiveStatus === "cleared") && (
                           <button
-                            title="Record payment"
+                            title={effectiveStatus === "approved" ? "Record payment" : "Add to a draw request for reimbursement"}
                             onClick={(e) => {
                               e.stopPropagation();
                               setPayMenuFor(payMenuFor === inv.id ? null : inv.id);
@@ -906,19 +913,19 @@ export default function InvoicesTable({
                             className="px-3 py-1 rounded-md text-xs font-semibold border disabled:opacity-40 whitespace-nowrap inline-flex items-center gap-1 transition-colors hover:bg-gray-50"
                             style={{ borderColor: "var(--border-strong)", color: "#334155" }}
                           >
-                            <CreditCard size={12} />
-                            Pay
+                            {effectiveStatus === "approved" ? <CreditCard size={12} /> : <FileText size={12} />}
+                            {effectiveStatus === "approved" ? "Pay" : "Draw"}
                             <ChevDown size={10} />
                           </button>
                         )}
 
-                        {(effectiveStatus === "released" || effectiveStatus === "cleared" || effectiveStatus === "void") && (
+                        {(effectiveStatus === "released" || effectiveStatus === "void") && (
                           <span className="text-xs text-gray-400 capitalize whitespace-nowrap">
-                            {effectiveStatus === "released" ? "Released" : effectiveStatus === "cleared" ? "Cleared" : "Void"}
+                            {effectiveStatus === "released" ? "Released" : "Void"}
                           </span>
                         )}
 
-                        {payMenuFor === inv.id && effectiveStatus === "approved" && (
+                        {payMenuFor === inv.id && (effectiveStatus === "approved" || effectiveStatus === "cleared") && (
                           <div ref={popRef} className="absolute right-0 top-full mt-1 z-20 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 text-sm">
                             <button
                               onClick={() => {
@@ -942,9 +949,14 @@ export default function InvoicesTable({
                                 <div className="font-medium text-gray-900">
                                   {(drawOverrides[inv.id] ?? (inv.pending_draw ?? false)) ? "Remove from draw" : "Add to next draw"}
                                 </div>
-                                <div className="text-[11px] text-gray-500">Pays via lender draw request</div>
+                                <div className="text-[11px] text-gray-500">
+                                  {effectiveStatus === "cleared"
+                                    ? "Already paid — reimbursed from the next lender draw"
+                                    : "Pays via lender draw request"}
+                                </div>
                               </div>
                             </button>
+                            {effectiveStatus === "approved" && (
                             <button
                               onClick={() => {
                                 setPayMenuFor(null);
@@ -958,7 +970,8 @@ export default function InvoicesTable({
                                 <div className="text-[11px] text-gray-500">Check, ACH, or wire</div>
                               </div>
                             </button>
-                            {inv.vendors?.auto_draft && (
+                            )}
+                            {effectiveStatus === "approved" && inv.vendors?.auto_draft && (
                               <ConfirmButton
                                 trigger={
                                   <>
