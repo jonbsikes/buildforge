@@ -227,7 +227,7 @@ export async function approveInvoice(
     .select(`
       status, ai_confidence, manually_reviewed, pending_draw,
       total_amount, amount, project_id, vendor, vendor_id, invoice_number,
-      direct_cash_payment, payment_date, payment_method,
+      invoice_date, direct_cash_payment, payment_date, payment_method,
       projects ( project_type )
     `)
     .eq("id", invoiceId)
@@ -270,6 +270,9 @@ export async function approveInvoice(
 
   const invoiceAmount = (invoice.total_amount ?? invoice.amount ?? 0) as number;
   const today = new Date().toISOString().split("T")[0];
+  // The payable exists as of the invoice date, not the day someone clicks
+  // approve — backdated invoices must land in the period they belong to.
+  const approvalEntryDate = (invoice.invoice_date as string | null) ?? today;
   const invLabel = [invoice.vendor, invoice.invoice_number].filter(Boolean).join(" — Inv #") || "Invoice";
 
   // Load line items with per-line project info for multi-project GL posting
@@ -494,7 +497,7 @@ export async function approveInvoice(
       const result = await postJournalEntry(
         supabase,
         {
-          entry_date: today,
+          entry_date: approvalEntryDate,
           reference: `INV-APPR-${invoiceId.slice(0, 8)}`,
           description: `Invoice approved — ${invLabel}`,
           status: "posted",
