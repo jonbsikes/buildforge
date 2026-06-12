@@ -585,6 +585,7 @@ function buildTaxExport(wb: ExcelJS.Workbook, data: TaxExportData) {
     { header: "Invoice #", width: 18 },
     { header: "Vendor", width: 32 },
     { header: "Project", width: 28 },
+    { header: "Cost Code", width: 30 },
     { header: "Paid Date", width: 12, date: true },
     { header: "Paid By", width: 24 },
     { header: "Amount", width: 14, money: true },
@@ -593,12 +594,12 @@ function buildTaxExport(wb: ExcelJS.Workbook, data: TaxExportData) {
   freezeAndFilter(inv, inv.rowCount, iCols.length);
   for (const row of data.paidInvoices) {
     addDataRow(inv, iCols, [
-      row.invoiceNumber, row.vendor, row.project, excelDate(row.date),
+      row.invoiceNumber, row.vendor, row.project, row.costCode, excelDate(row.date),
       row.ownerFunded ? "Owner (capital contribution)" : "Company",
       row.amount,
     ]);
   }
-  addTotalRow(inv, iCols, ["Total", "", "", "", "", data.paidInvoices.reduce((s, r) => s + r.amount, 0)]);
+  addTotalRow(inv, iCols, ["Total", "", "", "", "", "", data.paidInvoices.reduce((s, r) => s + r.amount, 0)]);
 
   // ── Loan schedule + capitalized interest ──
   const ls = wb.addWorksheet("Loan Schedule");

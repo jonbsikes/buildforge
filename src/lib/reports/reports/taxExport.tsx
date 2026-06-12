@@ -39,6 +39,8 @@ interface PaidInvoice {
   date: string;
   amount: number;
   project: string;
+  /** Dominant cost code for the invoice, e.g. "47 — Frame - Material" */
+  costCode: string;
   /** Paid personally by an owner (capital contribution) — no company cash; excluded from 1099 totals */
   ownerFunded: boolean;
 }
@@ -332,6 +334,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
     total_amount: number | null;
     payment_date: string | null;
     projects: { name: string } | null;
+    cost_codes: { code: number | string; name: string } | null;
   };
   let invoices: InvRow[] = [];
   {
@@ -340,7 +343,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
     while (true) {
       const { data: page } = await supabase
         .from("invoices")
-        .select("id, invoice_number, vendor, amount, total_amount, payment_date, projects(name)")
+        .select("id, invoice_number, vendor, amount, total_amount, payment_date, projects(name), cost_codes(code, name)")
         .eq("status", "cleared")
         .gte("payment_date", startDate)
         .lte("payment_date", endDate)
@@ -388,6 +391,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
       date: inv.payment_date ?? "—",
       amount: inv.total_amount ?? inv.amount ?? 0,
       project: inv.projects?.name ?? "—",
+      costCode: inv.cost_codes ? `${inv.cost_codes.code} — ${inv.cost_codes.name}` : "—",
       ownerFunded: ownerPaidInvoiceIds.has(inv.id),
     }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
