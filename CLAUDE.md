@@ -696,7 +696,7 @@ Do NOT create a separate balance sheet "Interest Payable" or "Accrued Interest" 
 - All financial reports support drill-down to individual GL entries
 - WIP Report
 - Vendor Spend
-- Tax Package Export (GL, P&L, paid invoices, vendor totals — yearly, one-click). 1099 vendor totals are cash-basis: cleared invoices by `payment_date`
+- Tax Package Export — one Excel workbook per tax year with tabs: Cover, Trial Balance (beginning/activity/ending per account; prior-year P&L rolled into a synthetic Retained Earnings row), account-level Income Statement, Balance Sheet, General Ledger detail (frozen header + autofilter), 1099 Vendors, Paid Invoices, Loan Schedule + capitalized interest by project, Project WIP. 1099 vendor totals are cash-basis: cleared invoices by `payment_date`. The PDF export is a summary; the workbook is the deliverable. All Excel money cells use the shared `MONEY_FMT` accounting format (`$#,##0.00`, negatives in parens)
 - Every report exports to PDF and Excel via `/api/reports/[slug]` (`?format=xlsx`); PDFs carry the company logo from `public/prairie-sky-logo.png` (replace that file to change it), with a brand-blue wordmark fallback
 - AP Aging ties to GL 2000: approved unpaid invoices less available vendor credits; pending-review invoices and issued-but-uncleared checks (2050) appear as separate memo sections
 - Report data comes from SQL RPCs (migrations 035/039/041 — `get_balance_sheet_data`, `get_income_statement_data`, `get_cash_flow_statement`, etc.). Screens and PDF/Excel exports must share these RPCs — never fetch raw `journal_entry_lines` into a client for aggregation

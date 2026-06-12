@@ -29,7 +29,7 @@ import type { SubdivisionOverviewData } from "./reports/subdivisionOverview";
 
 // ─── Shared formatting ────────────────────────────────────────────────────────
 
-export const MONEY_FMT = "#,##0.00;(#,##0.00)";
+export const MONEY_FMT = '"$"#,##0.00;("$"#,##0.00)';
 const DATE_FMT = "mm/dd/yyyy";
 const BRAND_ARGB = "FF4272EF";
 const INK_ARGB = "FF1E293B";
@@ -140,6 +140,15 @@ function statementSheet(wb: ExcelJS.Workbook, name: string): WS {
   ws.getColumn(1).width = 52;
   ws.getColumn(2).width = 18;
   return ws;
+}
+
+/** Freeze everything above the column-header row and add an Excel autofilter to it. */
+function freezeAndFilter(ws: WS, headerRowNumber: number, colCount: number) {
+  ws.views = [{ state: "frozen", ySplit: headerRowNumber }];
+  ws.autoFilter = {
+    from: { row: headerRowNumber, column: 1 },
+    to: { row: headerRowNumber, column: colCount },
+  };
 }
 
 // ─── Per-report builders ──────────────────────────────────────────────────────
@@ -409,44 +418,160 @@ function buildVendorSpend(wb: ExcelJS.Workbook, data: VendorSpendData, p: Report
 }
 
 function buildTaxExport(wb: ExcelJS.Workbook, data: TaxExportData) {
-  // Sheet 1 — Income statement
-  const pl = statementSheet(wb, "P&L Summary");
-  addHeader(pl, "Tax Package — Income Statement", `Tax year ${data.taxYear}`);
-  addLine(pl, "Revenue", data.incomeStatement.revenue);
-  addLine(pl, "Cost of Goods Sold", data.incomeStatement.cogs);
+  const yr = data.taxYear;
+  const totalAssets = data.balanceSheetAssets.reduce((s, a) => s + a.balance, 0);
+  const totalLiabilities = data.balanceSheetLiabilities.reduce((s, a) => s + a.balance, 0);
+  const totalEquity = data.balanceSheetEquity.reduce((s, a) => s + a.balance, 0);
+  const total1099 = data.vendors1099.reduce((s, v) => s + v.total, 0);
+
+  // ── Cover ──
+  const cover = statementSheet(wb, "Cover");
+  addHeader(cover, "Tax Package", `Tax year ${yr}`);
+  addSectionTitle(cover, "Key Figures");
+  addLine(cover, "Net Income (accrual)", data.incomeStatement.netIncome, { indent: 1 });
+  addLine(cover, `Total Assets (12/31/${yr})`, totalAssets, { indent: 1 });
+  addLine(cover, `Total Liabilities (12/31/${yr})`, totalLiabilities, { indent: 1 });
+  addLine(cover, `Total Equity (12/31/${yr})`, totalEquity, { indent: 1 });
+  addLine(cover, "1099-Reportable Payments (cash)", total1099, { indent: 1 });
+  cover.addRow([]);
+  addSectionTitle(cover, "Contents");
+  const contents: [string, string][] = [
+    ["Trial Balance", "every account: beginning balance, year debits/credits, ending balance"],
+    ["Income Statement", `account-level P&L for ${yr} (accrual)`],
+    ["Balance Sheet", `account balances as of Dec 31, ${yr}`],
+    ["General Ledger", `every posted journal entry line in ${yr}`],
+    ["1099 Vendors", `vendors paid $600+ in cleared checks during ${yr} (cash basis)`],
+    ["Paid Invoices", `invoice register — checks cleared in ${yr} (cash basis)`],
+    ["Loan Schedule", "per-loan balances, advances, paydowns + capitalized interest by project"],
+    ["Project WIP", "beginning/ending WIP-CIP and year-end loan balance per project"],
+  ];
+  for (const [tab, desc] of contents) {
+    const r = cover.addRow([`${tab} — ${desc}`]);
+    r.getCell(1).font = { size: 9, color: { argb: MUTED_ARGB } };
+  }
+  cover.addRow([]);
+  addSectionTitle(cover, "Notes for Preparer");
+  const notes = [
+    "Trial balance, income statement, balance sheet, and general ledger are accrual-basis from posted journal entries.",
+    "1099 vendor totals and the paid-invoice register are cash-basis: checks that cleared the bank during the year.",
+    'Trial balance: prior-year income statement activity is rolled into "Retained Earnings — prior years" so both balance columns foot to zero.',
+    "All project-level construction loan interest is capitalized into WIP/CIP (ASC 835-20); see the Loan Schedule tab for the year's capitalized interest by project.",
+  ];
+  for (const n of notes) {
+    const r = cover.addRow([n]);
+    r.getCell(1).font = { italic: true, size: 9, color: { argb: MUTED_ARGB } };
+    r.getCell(1).alignment = { wrapText: true };
+  }
+
+  // ── Trial Balance ──
+  const tb = wb.addWorksheet("Trial Balance");
+  addHeader(tb, "Trial Balance", `Tax year ${yr}`);
+  const tbCols: Col[] = [
+    { header: "Acct #", width: 9 },
+    { header: "Account", width: 44 },
+    { header: "Type", width: 11 },
+    { header: `Balance 1/1/${yr}`, width: 17, money: true },
+    { header: `${yr} Debits`, width: 16, money: true },
+    { header: `${yr} Credits`, width: 16, money: true },
+    { header: `Balance 12/31/${yr}`, width: 18, money: true },
+  ];
+  addColumnHeader(tb, tbCols);
+  freezeAndFilter(tb, tb.rowCount, tbCols.length);
+  for (const r of data.trialBalance) {
+    addDataRow(tb, tbCols, [
+      r.accountNumber, r.accountName, r.accountType,
+      r.beginningBalance, r.yearDebits, r.yearCredits, r.endingBalance,
+    ]);
+  }
+  addTotalRow(tb, tbCols, [
+    "", "TOTAL (foots to zero)", "",
+    data.trialBalance.reduce((s, r) => s + r.beginningBalance, 0),
+    data.trialBalance.reduce((s, r) => s + r.yearDebits, 0),
+    data.trialBalance.reduce((s, r) => s + r.yearCredits, 0),
+    data.trialBalance.reduce((s, r) => s + r.endingBalance, 0),
+  ]);
+  tb.addRow([]);
+  const tbNote = tb.addRow([
+    "Balances are debit-positive (liabilities, equity, and revenue show negative). Beginning + Debits − Credits = Ending on every row.",
+  ]);
+  tbNote.getCell(1).font = { italic: true, size: 9, color: { argb: MUTED_ARGB } };
+
+  // ── Income Statement (account level) ──
+  const pl = statementSheet(wb, "Income Statement");
+  addHeader(pl, "Income Statement", `Tax year ${yr} (accrual basis)`);
+  addSectionTitle(pl, "Revenue");
+  for (const l of data.pnlRevenue) addLine(pl, l.account, l.amount, { indent: 1 });
+  addLine(pl, "Total Revenue", data.incomeStatement.revenue, { bold: true, topBorder: true });
+  pl.addRow([]);
+  addSectionTitle(pl, "Cost of Goods Sold");
+  for (const l of data.pnlCogs) addLine(pl, l.account, l.amount, { indent: 1 });
+  addLine(pl, "Total COGS", data.incomeStatement.cogs, { bold: true, topBorder: true });
   addLine(pl, "Gross Profit", data.incomeStatement.revenue - data.incomeStatement.cogs, { bold: true });
-  addLine(pl, "Operating Expenses", data.incomeStatement.expenses);
+  pl.addRow([]);
+  addSectionTitle(pl, "Operating Expenses");
+  for (const l of data.pnlExpenses) addLine(pl, l.account, l.amount, { indent: 1 });
+  addLine(pl, "Total Operating Expenses", data.incomeStatement.expenses, { bold: true, topBorder: true });
+  pl.addRow([]);
   addLine(pl, "Net Income", data.incomeStatement.netIncome, { bold: true, topBorder: true });
 
-  // Sheet 2 — Balance sheet
+  // ── Balance Sheet ──
   const bs = statementSheet(wb, "Balance Sheet");
-  addHeader(bs, "Tax Package — Balance Sheet", `As of Dec 31, ${data.taxYear}`);
+  addHeader(bs, "Balance Sheet", `As of Dec 31, ${yr}`);
   addSectionTitle(bs, "Assets");
   for (const a of data.balanceSheetAssets) addLine(bs, a.account, a.balance, { indent: 1 });
-  addLine(bs, "Total Assets", data.balanceSheetAssets.reduce((s, a) => s + a.balance, 0), { bold: true, topBorder: true });
+  addLine(bs, "Total Assets", totalAssets, { bold: true, topBorder: true });
   bs.addRow([]);
   addSectionTitle(bs, "Liabilities");
   for (const a of data.balanceSheetLiabilities) addLine(bs, a.account, a.balance, { indent: 1 });
-  addLine(bs, "Total Liabilities", data.balanceSheetLiabilities.reduce((s, a) => s + a.balance, 0), { bold: true, topBorder: true });
+  addLine(bs, "Total Liabilities", totalLiabilities, { bold: true, topBorder: true });
   bs.addRow([]);
   addSectionTitle(bs, "Equity");
   for (const a of data.balanceSheetEquity) addLine(bs, a.account, a.balance, { indent: 1 });
-  addLine(bs, "Total Equity", data.balanceSheetEquity.reduce((s, a) => s + a.balance, 0), { bold: true, topBorder: true });
+  addLine(bs, "Total Equity", totalEquity, { bold: true, topBorder: true });
+  bs.addRow([]);
+  addLine(bs, "Total Liabilities + Equity", totalLiabilities + totalEquity, { bold: true, topBorder: true });
 
-  // Sheet 3 — 1099 vendor totals (cash basis)
+  // ── General Ledger ──
+  const gl = wb.addWorksheet("General Ledger");
+  addHeader(gl, "General Ledger", `All posted journal entry lines — ${yr}`);
+  const glCols: Col[] = [
+    { header: "Date", width: 11, date: true },
+    { header: "Reference", width: 22 },
+    { header: "Description", width: 48 },
+    { header: "Acct #", width: 9 },
+    { header: "Account", width: 30 },
+    { header: "Project", width: 26 },
+    { header: "Debit", width: 14, money: true },
+    { header: "Credit", width: 14, money: true },
+    { header: "Source", width: 18 },
+  ];
+  addColumnHeader(gl, glCols);
+  freezeAndFilter(gl, gl.rowCount, glCols.length);
+  let glDebits = 0, glCredits = 0;
+  for (const l of data.glLines) {
+    glDebits += l.debit ?? 0;
+    glCredits += l.credit ?? 0;
+    addDataRow(gl, glCols, [
+      excelDate(l.date), l.reference, l.description, l.accountNumber, l.accountName,
+      l.project, l.debit, l.credit, l.sourceType,
+    ]);
+  }
+  addTotalRow(gl, glCols, ["", "", "TOTAL", "", "", "", glDebits, glCredits, ""]);
+
+  // ── 1099 vendor totals (cash basis) ──
   const v = wb.addWorksheet("1099 Vendors");
-  addHeader(v, "Vendors — 1099 Reportable ($600+)", `Cash paid in ${data.taxYear} (cleared checks)`);
+  addHeader(v, "Vendors — 1099 Reportable ($600+)", `Cash paid in ${yr} (cleared checks)`);
   const vCols: Col[] = [
     { header: "Vendor", width: 40 },
-    { header: `Cash Paid in ${data.taxYear}`, width: 20, money: true },
+    { header: `Cash Paid in ${yr}`, width: 20, money: true },
   ];
   addColumnHeader(v, vCols);
   for (const row of data.vendors1099) addDataRow(v, vCols, [row.vendor, row.total]);
-  addTotalRow(v, vCols, ["Total 1099 Payments", data.vendors1099.reduce((s, r) => s + r.total, 0)]);
+  addTotalRow(v, vCols, ["Total 1099 Payments", total1099]);
 
-  // Sheet 4 — Paid invoice register (cash basis)
+  // ── Paid invoice register (cash basis) ──
   const inv = wb.addWorksheet("Paid Invoices");
-  addHeader(inv, "Paid Invoices Register", `Checks cleared in ${data.taxYear}`);
+  addHeader(inv, "Paid Invoices Register", `Checks cleared in ${yr}`);
   const iCols: Col[] = [
     { header: "Invoice #", width: 18 },
     { header: "Vendor", width: 32 },
@@ -455,10 +580,82 @@ function buildTaxExport(wb: ExcelJS.Workbook, data: TaxExportData) {
     { header: "Amount", width: 14, money: true },
   ];
   addColumnHeader(inv, iCols);
+  freezeAndFilter(inv, inv.rowCount, iCols.length);
   for (const row of data.paidInvoices) {
     addDataRow(inv, iCols, [row.invoiceNumber, row.vendor, row.project, excelDate(row.date), row.amount]);
   }
   addTotalRow(inv, iCols, ["Total", "", "", "", data.paidInvoices.reduce((s, r) => s + r.amount, 0)]);
+
+  // ── Loan schedule + capitalized interest ──
+  const ls = wb.addWorksheet("Loan Schedule");
+  addHeader(ls, "Loan Schedule", `Balances and activity — ${yr}`);
+  const lsCols: Col[] = [
+    { header: "Loan #", width: 12 },
+    { header: "Lender", width: 24 },
+    { header: "Project", width: 28 },
+    { header: "Rate", width: 8, align: "right" },
+    { header: "Status", width: 10 },
+    { header: `Balance 1/1/${yr}`, width: 16, money: true },
+    { header: "Advances", width: 15, money: true },
+    { header: "Paydowns", width: 15, money: true },
+    { header: `Balance 12/31/${yr}`, width: 17, money: true },
+  ];
+  addColumnHeader(ls, lsCols);
+  for (const r of data.loanSchedule) {
+    addDataRow(ls, lsCols, [
+      r.loanNumber, r.lender, r.project,
+      r.interestRate == null ? "" : `${r.interestRate}%`,
+      r.status, r.beginningBalance, r.advances, r.paydowns, r.endingBalance,
+    ]);
+  }
+  addTotalRow(ls, lsCols, [
+    "TOTAL", "", "", "", "",
+    data.loanSchedule.reduce((s, r) => s + r.beginningBalance, 0),
+    data.loanSchedule.reduce((s, r) => s + r.advances, 0),
+    data.loanSchedule.reduce((s, r) => s + r.paydowns, 0),
+    data.loanSchedule.reduce((s, r) => s + r.endingBalance, 0),
+  ]);
+  ls.addRow([]);
+  addSectionTitle(ls, `Capitalized Interest by Project — ${yr}`);
+  const ciCols: Col[] = [
+    { header: "Project", width: 36 },
+    { header: "Invoiced (codes 121/122)", width: 24, money: true },
+    { header: "Accrued (acct 1220)", width: 20, money: true },
+    { header: "Total Capitalized", width: 18, money: true },
+  ];
+  addColumnHeader(ls, ciCols);
+  for (const r of data.capInterest) addDataRow(ls, ciCols, [r.project, r.invoiced, r.accrued, r.total]);
+  addTotalRow(ls, ciCols, [
+    "TOTAL",
+    data.capInterest.reduce((s, r) => s + r.invoiced, 0),
+    data.capInterest.reduce((s, r) => s + r.accrued, 0),
+    data.capInterest.reduce((s, r) => s + r.total, 0),
+  ]);
+  ls.addRow([]);
+  const lsNote = ls.addRow([
+    "Project-level construction loan interest is capitalized into WIP/CIP (ASC 835-20) — it does not appear on the income statement.",
+  ]);
+  lsNote.getCell(1).font = { italic: true, size: 9, color: { argb: MUTED_ARGB } };
+
+  // ── Project WIP ──
+  const pw = wb.addWorksheet("Project WIP");
+  addHeader(pw, "Project WIP / CIP", `Beginning and ending balances — ${yr}`);
+  const pwCols: Col[] = [
+    { header: "Project", width: 32 },
+    { header: `WIP-CIP 1/1/${yr}`, width: 17, money: true },
+    { header: `WIP-CIP 12/31/${yr}`, width: 18, money: true },
+    { header: `Loans 12/31/${yr}`, width: 17, money: true },
+  ];
+  addColumnHeader(pw, pwCols);
+  for (const r of data.projectWip) {
+    addDataRow(pw, pwCols, [r.project, r.beginningWip, r.endingWip, r.loanBalance]);
+  }
+  addTotalRow(pw, pwCols, [
+    "TOTAL",
+    data.projectWip.reduce((s, r) => s + r.beginningWip, 0),
+    data.projectWip.reduce((s, r) => s + r.endingWip, 0),
+    data.projectWip.reduce((s, r) => s + r.loanBalance, 0),
+  ]);
 }
 
 function buildStageProgress(wb: ExcelJS.Workbook, data: StageProgressData) {

@@ -1,333 +1,88 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { Download, FileText, CheckCircle2 } from "lucide-react";
-import ReportExportButtons from "@/components/ui/ReportExportButtons";
-
-function toCSV(headers: string[], rows: (string | number | null)[][]): string {
-  const escape = (v: string | number | null) => {
-    if (v == null) return "";
-    const s = String(v);
-    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
-  };
-  return [headers, ...rows].map((r) => r.map(escape).join(",")).join("\n");
-}
-
-function downloadCSV(filename: string, csv: string) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import { useState } from "react";
+import { Download, FileSpreadsheet, FileDown } from "lucide-react";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: 5 }, (_, i) => CURRENT_YEAR - i);
 
+const TABS: { name: string; desc: string }[] = [
+  { name: "Cover", desc: "Key figures, contents, and basis notes for your CPA" },
+  { name: "Trial Balance", desc: "Every account — beginning balance, year debits/credits, ending balance" },
+  { name: "Income Statement", desc: "Account-level P&L for the year (accrual basis)" },
+  { name: "Balance Sheet", desc: "Account balances as of December 31" },
+  { name: "General Ledger", desc: "Every posted journal entry line, filterable" },
+  { name: "1099 Vendors", desc: "Vendors paid $600+ in cleared checks — cash basis" },
+  { name: "Paid Invoices", desc: "Invoice register of checks cleared during the year — cash basis" },
+  { name: "Loan Schedule", desc: "Per-loan balances, advances, paydowns + capitalized interest by project" },
+  { name: "Project WIP", desc: "Beginning/ending WIP-CIP and year-end loan balance per project" },
+];
+
 export default function TaxExportClient() {
   const [year, setYear] = useState(String(CURRENT_YEAR));
-  const [isPending, startTransition] = useTransition();
-  const [done, setDone] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
 
-  async function exportAll() {
-    setError(null);
-    setDone([]);
-    const supabase = createClient();
-    const fromDate = `${year}-01-01`;
-    const toDate = `${year}-12-31`;
-
-    startTransition(async () => {
-      try {
-        const completed: string[] = [];
-
-        // Narrow the PostgREST nested-join shape. Aliased joins aren't inferred.
-        type GlRow = {
-          debit: number | null;
-          credit: number | null;
-          description: string | null;
-          account: { account_number: string; name: string; type: string | null } | null;
-          journal_entry: {
-            entry_date: string;
-            description: string | null;
-            reference: string | null;
-            status: string;
-            source_type: string | null;
-          } | null;
-          project: { name: string } | null;
-        };
-
-        // 1. GL entries from journal_entry_lines + journal_entries + chart_of_accounts
-        //    Filtered server-side to posted entries in the tax year; paginate
-        //    past Supabase's 1000-row cap since a full year can exceed it.
-        const jelSelect = `
-          debit, credit, description,
-          account:chart_of_accounts(account_number, name, type),
-          journal_entry:journal_entries!inner(entry_date, description, reference, status, source_type),
-          project:projects(name)
-        `;
-        let jelData: GlRow[] = [];
-        {
-          let fromIdx = 0;
-          const PAGE_SIZE = 1000;
-          while (true) {
-            const { data: page } = await supabase
-              .from("journal_entry_lines")
-              .select(jelSelect)
-              .eq("journal_entry.status", "posted")
-              .gte("journal_entry.entry_date", fromDate)
-              .lte("journal_entry.entry_date", toDate)
-              .order("id")
-              .range(fromIdx, fromIdx + PAGE_SIZE - 1);
-            if (!page || page.length === 0) break;
-            jelData = jelData.concat(page as unknown as GlRow[]);
-            if (page.length < PAGE_SIZE) break;
-            fromIdx += PAGE_SIZE;
-          }
-        }
-
-        const glLines = jelData;
-
-        if (glLines.length > 0) {
-          downloadCSV(
-            `gl_entries_${year}.csv`,
-            toCSV(
-              ["Date", "Reference", "Description", "Account #", "Account Name", "Account Type", "Project", "Debit", "Credit", "Source Type"],
-              glLines.map((l) => [
-                l.journal_entry?.entry_date ?? "",
-                l.journal_entry?.reference ?? "",
-                l.description || l.journal_entry?.description || "",
-                l.account?.account_number ?? "",
-                l.account?.name ?? "",
-                l.account?.type ?? "",
-                l.project?.name ?? "",
-                Number(l.debit ?? 0) > 0 ? Number(l.debit) : "",
-                Number(l.credit ?? 0) > 0 ? Number(l.credit) : "",
-                l.journal_entry?.source_type ?? "",
-              ])
-            )
-          );
-          completed.push(`GL Entries (${glLines.length} lines)`);
-        } else {
-          completed.push("GL Entries (empty)");
-        }
-
-        // 2. Paid invoices
-        type InvoiceRow = {
-          invoice_date: string | null;
-          invoice_number: string | null;
-          vendor: string | null;
-          amount: number | null;
-          total_amount: number | null;
-          status: string;
-          payment_date: string | null;
-          payment_method: string | null;
-          projects: { name: string } | null;
-          cost_codes: { code: string; name: string } | null;
-        };
-        const { data: invoicesData } = await supabase
-          .from("invoices")
-          .select("invoice_date, invoice_number, vendor, amount, total_amount, status, payment_date, payment_method, projects(name), cost_codes(code, name)")
-          .in("status", ["approved", "released", "cleared", "pending_review"])
-          .gte("invoice_date", fromDate)
-          .lte("invoice_date", toDate)
-          .order("invoice_date");
-
-        const invoices = (invoicesData ?? []) as unknown as InvoiceRow[];
-        if (invoices.length > 0) {
-          downloadCSV(
-            `invoices_${year}.csv`,
-            toCSV(
-              ["Invoice Date", "Invoice #", "Vendor", "Project", "Cost Code", "Amount", "Status", "Payment Date", "Payment Method"],
-              invoices.map((inv) => {
-                const project = inv.projects;
-                const cc = inv.cost_codes;
-                return [
-                  inv.invoice_date,
-                  inv.invoice_number,
-                  inv.vendor,
-                  project?.name ?? "",
-                  cc ? `${cc.code} — ${cc.name}` : "",
-                  inv.total_amount ?? inv.amount,
-                  inv.status,
-                  inv.payment_date,
-                  inv.payment_method,
-                ];
-              })
-            )
-          );
-          completed.push(`Invoices (${invoices.length})`);
-        } else {
-          completed.push("Invoices (empty)");
-        }
-
-        // 3. Vendor totals — CASH BASIS for 1099 prep: only checks that
-        //    actually CLEARED during the year (status 'cleared', payment_date
-        //    in year). 1099s report what you paid, not what you were billed.
-        type PaidInvoiceRow = {
-          vendor: string | null;
-          amount: number | null;
-          total_amount: number | null;
-          payment_date: string | null;
-        };
-        const { data: paidData } = await supabase
-          .from("invoices")
-          .select("vendor, amount, total_amount, payment_date")
-          .eq("status", "cleared")
-          .gte("payment_date", fromDate)
-          .lte("payment_date", toDate);
-        const paidInvoices = (paidData ?? []) as PaidInvoiceRow[];
-
-        const vendorMap: Record<string, number> = {};
-        for (const inv of paidInvoices) {
-          const v = inv.vendor ?? "Unknown";
-          vendorMap[v] = (vendorMap[v] ?? 0) + (Number(inv.total_amount ?? inv.amount ?? 0));
-        }
-        downloadCSV(
-          `vendor_totals_${year}.csv`,
-          toCSV(
-            ["Vendor", `Cash Paid in ${year} (cleared checks)`],
-            Object.entries(vendorMap)
-              .sort((a, b) => b[1] - a[1])
-              .map(([v, amt]) => [v, amt])
-          )
-        );
-        completed.push("Vendor Totals (cash paid)");
-
-        // 4. Account balances summary (from GL)
-        const acctMap: Record<string, { number: string; name: string; type: string; debit: number; credit: number }> = {};
-        for (const l of glLines) {
-          const acc = l.account;
-          if (!acc) continue;
-          const key = acc.account_number;
-          if (!acctMap[key]) acctMap[key] = { number: acc.account_number, name: acc.name, type: acc.type ?? "", debit: 0, credit: 0 };
-          acctMap[key].debit += Number(l.debit ?? 0);
-          acctMap[key].credit += Number(l.credit ?? 0);
-        }
-
-        downloadCSV(
-          `account_balances_${year}.csv`,
-          toCSV(
-            ["Account #", "Account Name", "Type", "Total Debits", "Total Credits", "Balance"],
-            Object.values(acctMap)
-              .sort((a, b) => a.number.localeCompare(b.number))
-              .map(a => {
-                const balance = (a.type === "asset" || a.type === "expense" || a.type === "cogs")
-                  ? a.debit - a.credit
-                  : a.credit - a.debit;
-                return [a.number, a.name, a.type, a.debit, a.credit, balance];
-              })
-          )
-        );
-        completed.push("Account Balances");
-
-        // 5. Project WIP summary
-        const projectWIP: Record<string, { name: string; wip: number; loans: number }> = {};
-        for (const l of glLines) {
-          const acc = l.account;
-          const proj = l.project;
-          if (!acc || !proj) continue;
-          const pname = proj.name;
-          if (!projectWIP[pname]) projectWIP[pname] = { name: pname, wip: 0, loans: 0 };
-          if (acc.account_number === "1210" || acc.account_number === "1220" || acc.account_number === "1230") {
-            projectWIP[pname].wip += Number(l.debit ?? 0) - Number(l.credit ?? 0);
-          }
-          if (acc.account_number >= "2200" && acc.account_number < "2300") {
-            projectWIP[pname].loans += Number(l.credit ?? 0) - Number(l.debit ?? 0);
-          }
-        }
-
-        downloadCSV(
-          `project_wip_${year}.csv`,
-          toCSV(
-            ["Project", "WIP Balance", "Loan Balance", "Net Equity"],
-            Object.values(projectWIP)
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map(p => [p.name, p.wip, p.loans, p.wip - p.loans])
-          )
-        );
-        completed.push("Project WIP Summary");
-
-        setDone(completed);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Export failed");
-      }
-    });
+  function triggerDownload(format?: "xlsx") {
+    const qs = new URLSearchParams({ year, download: "1" });
+    if (format) qs.set("format", format);
+    const a = document.createElement("a");
+    a.href = `/api/reports/tax-export?${qs.toString()}`;
+    a.rel = "noopener";
+    a.target = "_blank";
+    a.click();
   }
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
-      <div className="flex justify-end print:hidden"><ReportExportButtons slug="tax-export" params={{ year }} /></div>
       <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
         <div>
           <h2 className="text-base font-semibold text-gray-900 mb-1">Tax Package Export</h2>
           <p className="text-sm text-gray-500">
-            Download a set of CSV files for your fiscal year — GL journal entries, invoices, vendor totals, account balances, and project WIP summary.
+            One Excel workbook with everything your CPA needs for the year — each schedule on its own
+            tab, with currency formatting and filterable detail.
           </p>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Fiscal Year</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Tax Year</label>
           <select
             value={year}
-            onChange={(e) => { setYear(e.target.value); setDone([]); }}
+            onChange={(e) => setYear(e.target.value)}
             className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] bg-white"
           >
             {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
 
-        {/* Files included */}
+        {/* Worksheets included */}
         <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Files Included</p>
-          {[
-            { name: `gl_entries_${year}.csv`, desc: "All posted GL journal entry lines with account details" },
-            { name: `invoices_${year}.csv`, desc: "All invoices with project and cost code" },
-            { name: `vendor_totals_${year}.csv`, desc: "Cash paid per vendor (cleared checks) — 1099 basis" },
-            { name: `account_balances_${year}.csv`, desc: "Account-level debit/credit/balance summary" },
-            { name: `project_wip_${year}.csv`, desc: "WIP and loan balance per project" },
-          ].map((f) => (
-            <div key={f.name} className="flex items-start gap-2.5 text-sm">
-              <FileText size={14} className="text-gray-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Worksheets Included</p>
+          {TABS.map((t) => (
+            <div key={t.name} className="flex items-start gap-2.5 text-sm">
+              <FileSpreadsheet size={14} className="text-gray-400 flex-shrink-0 mt-0.5" />
               <div>
-                <span className="font-mono text-xs text-gray-700">{f.name}</span>
-                <p className="text-xs text-gray-400">{f.desc}</p>
+                <span className="text-xs font-medium text-gray-700">{t.name}</span>
+                <p className="text-xs text-gray-400">{t.desc}</p>
               </div>
             </div>
           ))}
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-            {error}
-          </div>
-        )}
-
-        {done.length > 0 && (
-          <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 space-y-1">
-            {done.map((d) => (
-              <div key={d} className="flex items-center gap-2 text-sm text-green-800">
-                <CheckCircle2 size={14} />
-                {d}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <button
-          onClick={exportAll}
-          disabled={isPending}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors disabled:opacity-60"
-        >
-          <Download size={15} />
-          {isPending ? "Generating…" : `Download ${year} Tax Package`}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => triggerDownload("xlsx")}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#4272EF] text-white rounded-lg text-sm font-medium hover:bg-[#3461de] transition-colors"
+          >
+            <Download size={15} />
+            Download {year} Tax Package (Excel)
+          </button>
+          <button
+            onClick={() => triggerDownload()}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            <FileDown size={15} />
+            PDF Summary
+          </button>
+        </div>
       </div>
     </div>
   );
