@@ -568,23 +568,37 @@ function buildTaxExport(wb: ExcelJS.Workbook, data: TaxExportData) {
   addColumnHeader(v, vCols);
   for (const row of data.vendors1099) addDataRow(v, vCols, [row.vendor, row.total]);
   addTotalRow(v, vCols, ["Total 1099 Payments", total1099]);
+  if (data.ownerFundedExcludedFrom1099 > 0.005) {
+    v.addRow([]);
+    const excl = v.addRow([
+      `Excludes $${data.ownerFundedExcludedFrom1099.toLocaleString("en-US", { minimumFractionDigits: 2 })} of invoices paid personally by owners ` +
+        "(recorded as capital contributions — the company paid no cash, so they are not 1099-reportable). See the Paid Invoices tab.",
+    ]);
+    excl.getCell(1).font = { italic: true, size: 9, color: { argb: MUTED_ARGB } };
+    excl.getCell(1).alignment = { wrapText: true };
+  }
 
   // ── Paid invoice register (cash basis) ──
   const inv = wb.addWorksheet("Paid Invoices");
-  addHeader(inv, "Paid Invoices Register", `Checks cleared in ${yr}`);
+  addHeader(inv, "Paid Invoices Register", `Invoices paid (cleared) in ${yr}`);
   const iCols: Col[] = [
     { header: "Invoice #", width: 18 },
     { header: "Vendor", width: 32 },
     { header: "Project", width: 28 },
     { header: "Paid Date", width: 12, date: true },
+    { header: "Paid By", width: 24 },
     { header: "Amount", width: 14, money: true },
   ];
   addColumnHeader(inv, iCols);
   freezeAndFilter(inv, inv.rowCount, iCols.length);
   for (const row of data.paidInvoices) {
-    addDataRow(inv, iCols, [row.invoiceNumber, row.vendor, row.project, excelDate(row.date), row.amount]);
+    addDataRow(inv, iCols, [
+      row.invoiceNumber, row.vendor, row.project, excelDate(row.date),
+      row.ownerFunded ? "Owner (capital contribution)" : "Company",
+      row.amount,
+    ]);
   }
-  addTotalRow(inv, iCols, ["Total", "", "", "", data.paidInvoices.reduce((s, r) => s + r.amount, 0)]);
+  addTotalRow(inv, iCols, ["Total", "", "", "", "", data.paidInvoices.reduce((s, r) => s + r.amount, 0)]);
 
   // ── Loan schedule + capitalized interest ──
   const ls = wb.addWorksheet("Loan Schedule");

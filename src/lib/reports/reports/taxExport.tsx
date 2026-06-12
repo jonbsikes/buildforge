@@ -39,6 +39,8 @@ interface PaidInvoice {
   date: string;
   amount: number;
   project: string;
+  /** Paid personally by an owner (capital contribution) — no company cash; excluded from 1099 totals */
+  ownerFunded: boolean;
 }
 
 export interface PnlAccountLine {
@@ -105,6 +107,8 @@ export interface TaxExportData {
   balanceSheetEquity: BalanceSheetAccount[];
   glLines: GlExportLine[];
   vendors1099: Vendor1099[];
+  /** Cleared-in-year invoice dollars paid personally by owners — excluded from the 1099 totals */
+  ownerFundedExcludedFrom1099: number;
   paidInvoices: PaidInvoice[];
   loanSchedule: LoanScheduleRow[];
   capInterest: CapInterestRow[];
@@ -321,6 +325,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   //   payment_date in year). 1099s report what you actually paid, not what
   //   you were billed. Paginate past PostgREST's 1,000-row cap.
   type InvRow = {
+    id: string;
     invoice_number: string | null;
     vendor: string | null;
     amount: number | null;
@@ -335,7 +340,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
     while (true) {
       const { data: page } = await supabase
         .from("invoices")
-        .select("invoice_number, vendor, amount, total_amount, payment_date, projects(name)")
+        .select("id, invoice_number, vendor, amount, total_amount, payment_date, projects(name)")
         .eq("status", "cleared")
         .gte("payment_date", startDate)
         .lte("payment_date", endDate)
@@ -348,10 +353,25 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
     }
   }
 
+  // Invoices paid personally by an owner (funding_source = 'owner_funded') moved
+  // through Member Capital, not company cash — the company paid the vendor
+  // nothing, so they are excluded from 1099 totals.
+  const { data: ownerPaidRows } = await supabase
+    .from("payment_invoices")
+    .select("invoice_id, payment:payments!inner(funding_source, status)")
+    .eq("payment.funding_source", "owner_funded")
+    .neq("payment.status", "void");
+  const ownerPaidInvoiceIds = new Set((ownerPaidRows ?? []).map((r) => r.invoice_id as string));
+
   const vendorTotals: Record<string, number> = {};
+  let ownerFundedExcludedFrom1099 = 0;
   for (const inv of invoices) {
-    const v = inv.vendor ?? "Unknown";
     const amt = inv.total_amount ?? inv.amount ?? 0;
+    if (ownerPaidInvoiceIds.has(inv.id)) {
+      ownerFundedExcludedFrom1099 += amt;
+      continue;
+    }
+    const v = inv.vendor ?? "Unknown";
     vendorTotals[v] = (vendorTotals[v] ?? 0) + amt;
   }
 
@@ -368,6 +388,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
       date: inv.payment_date ?? "—",
       amount: inv.total_amount ?? inv.amount ?? 0,
       project: inv.projects?.name ?? "—",
+      ownerFunded: ownerPaidInvoiceIds.has(inv.id),
     }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 
@@ -490,6 +511,7 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
     balanceSheetEquity: equity,
     glLines,
     vendors1099,
+    ownerFundedExcludedFrom1099,
     paidInvoices,
     loanSchedule,
     capInterest,
@@ -657,6 +679,12 @@ export function Pdf({ data, params: _params, logo }: { data: TaxExportData; para
             color="brand"
           />
         </>
+      )}
+      {data.ownerFundedExcludedFrom1099 > 0.005 && (
+        <Text style={{ fontSize: 8, color: "#64748B", marginTop: 4 }}>
+          Excludes {fmtMoney(data.ownerFundedExcludedFrom1099)} of invoices paid personally by owners
+          (recorded as capital contributions — the company paid no cash, so they are not 1099-reportable).
+        </Text>
       )}
 
       {/* Paid Invoices Register — cash basis */}
