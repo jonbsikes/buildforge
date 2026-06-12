@@ -149,12 +149,22 @@ export default function BalanceSheetClient() {
   const [drill, setDrill] = useState<DrillItem | null>(null);
 
   const openDrill = useCallback(async (acct: AccountBalance) => {
+    // Display-only split rows (e.g. "Less: Vendor Credits Available") have no
+    // GL account behind them — nothing to drill into.
+    if (acct.account_number.endsWith("-CR")) return;
     // Load lines on demand for drill-down
     const lines = await fetchAccountLines(acct.account_number, asOf);
     const tempAcct = { ...acct, lines };
+    // The modal lists GL entries, so its balance must be the GL balance — not
+    // the displayed row amount, which for AP is the gross display split
+    // (GL balance + available vendor credits).
+    const glBalance = lines.reduce(
+      (s, l) => s + (acct.type === "asset" ? l.debit - l.credit : l.credit - l.debit),
+      0
+    );
     setDrill({
       label: acct.name,
-      amount: acct.balance,
+      amount: glBalance,
       entries: acctToGLEntries(tempAcct),
     });
   }, [asOf]);
@@ -167,11 +177,14 @@ export default function BalanceSheetClient() {
     // used to split the AP line on the balance sheet into "AP Trade (gross)"
     // and "Less: Vendor Credits Available" so the totals reconcile to what
     // the AP invoices page shows. Pure display split; GL is unchanged.
+    // Only credits dated on/before the as-of date — later credits must not
+    // appear on an earlier statement.
     const [{ data: openCredits }, { data: rpcData }] = await Promise.all([
       supabase
         .from("vendor_credits")
         .select("amount, applied_amount")
-        .eq("status", "available"),
+        .eq("status", "available")
+        .lte("credit_date", asOf),
       (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: asOf }),
     ]);
     const creditsAvailable = (openCredits ?? []).reduce(
@@ -410,7 +423,7 @@ export default function BalanceSheetClient() {
                 ...data.currentLiabilities.map(a => ({
                   label: a.name,
                   amount: a.balance,
-                  drillable: true,
+                  drillable: !a.account_number.endsWith("-CR"),
                   onDrill: () => openDrill(a),
                 })),
               ]} />

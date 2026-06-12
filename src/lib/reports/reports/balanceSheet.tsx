@@ -68,7 +68,13 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
   };
   const [{ data: rpcData }, { data: openCredits }] = await Promise.all([
     (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: asOf }),
-    supabase.from("vendor_credits").select("amount, applied_amount").eq("status", "available"),
+    // Only credits that existed on the as-of date — a credit entered later
+    // must not appear on (or inflate the gross AP line of) an earlier statement.
+    supabase
+      .from("vendor_credits")
+      .select("amount, applied_amount")
+      .eq("status", "available")
+      .lte("credit_date", asOf),
   ]);
   const rows = (rpcData ?? []) as RpcRow[];
   const creditsAvailable = (openCredits ?? []).reduce(

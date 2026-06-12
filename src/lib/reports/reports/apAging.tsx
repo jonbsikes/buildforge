@@ -81,7 +81,11 @@ export async function getData(p: ReportParams): Promise<APAgingData> {
       .from("invoices")
       .select("vendor, invoice_number, invoice_date, due_date, amount, status, project_id, projects(name)")
       .in("status", ["pending_review", "approved", "released"]),
-    supabase.from("vendor_credits").select("amount, applied_amount").eq("status", "available"),
+    supabase
+      .from("vendor_credits")
+      .select("amount, applied_amount")
+      .eq("status", "available")
+      .lte("credit_date", asOf),
   ]);
 
   const creditsAvailable = (openCredits ?? []).reduce(
