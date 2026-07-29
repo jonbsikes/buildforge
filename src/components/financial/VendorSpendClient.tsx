@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useMemo } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
 
@@ -9,7 +8,7 @@ function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-interface InvoiceRow {
+export interface VendorSpendRow {
   vendor: string;
   project: string;
   cost_code: string;
@@ -18,53 +17,21 @@ interface InvoiceRow {
   status: string;
 }
 
+type InvoiceRow = VendorSpendRow;
+
 interface VendorGroup {
   vendor: string;
   total: number;
   byProject: Record<string, { total: number; rows: InvoiceRow[] }>;
 }
 
-export default function VendorSpendClient() {
-  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+// Rows are fetched + shaped server-side in financial/vendor-spend/page.tsx
+// (Package 05 §B) — filters below are purely client-side.
+export default function VendorSpendClient({ invoices }: { invoices: VendorSpendRow[] }) {
   const [filterProject, setFilterProject] = useState("");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [expandedVendors, setExpandedVendors] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-
-      const [invoicesRes, projectsRes] = await Promise.all([
-        supabase
-          .from("invoices")
-          .select("vendor, project_id, cost_code_id, amount, total_amount, invoice_date, status, projects(name), cost_codes(code, name)")
-          .in("status", ["approved", "released", "cleared"])
-          .order("vendor"),
-        supabase.from("projects").select("id, name").order("name"),
-      ]);
-
-      const rows: InvoiceRow[] = (invoicesRes.data ?? []).map((inv) => {
-        const project = inv.projects as { name: string } | null;
-        const costCode = inv.cost_codes as { code: string; name: string } | null;
-        return {
-          vendor: inv.vendor ?? "Unknown Vendor",
-          project: project?.name ?? "No Project",
-          cost_code: costCode ? `${costCode.code} — ${costCode.name}` : "—",
-          amount: inv.total_amount ?? inv.amount ?? 0,
-          invoice_date: inv.invoice_date ?? "",
-          status: inv.status,
-        };
-      });
-
-      setInvoices(rows);
-      setProjects(projectsRes.data ?? []);
-      setLoading(false);
-    }
-    load();
-  }, []);
 
   const filtered = useMemo(() => invoices.filter((r) => {
     if (filterProject && r.project !== filterProject) return false;
@@ -135,9 +102,7 @@ export default function VendorSpendClient() {
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
-      ) : vendorGroups.length === 0 ? (
+      {vendorGroups.length === 0 ? (
         <div className="text-center py-16 text-gray-400 text-sm">No approved/paid invoices found.</div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 type SkeletonProps = {
   className?: string;
@@ -79,6 +79,37 @@ export function ListSkeleton({ rows = 6, className = "" }: ListSkeletonProps) {
           <Skeleton className="h-3.5" width={72} />
         </div>
       ))}
+    </div>
+  );
+}
+
+type RefetchOverlayProps = {
+  /** True while new data is loading — dims the stale content and shimmers skeleton rows over it. */
+  active: boolean;
+  children: ReactNode;
+};
+
+/**
+ * Wraps report content so a date-range re-fetch overlays skeleton rows on the
+ * existing (stale) data instead of blanking the screen (Package 05 §B step 3).
+ */
+export function RefetchOverlay({ active, children }: RefetchOverlayProps) {
+  return (
+    <div className="relative">
+      <div
+        className="transition-opacity"
+        style={active ? { opacity: 0.45, pointerEvents: "none" } : undefined}
+        aria-busy={active}
+      >
+        {children}
+      </div>
+      {active && (
+        <div className="absolute inset-x-0 top-0 p-3 space-y-2 pointer-events-none">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-4" width={`${80 - i * 15}%`} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

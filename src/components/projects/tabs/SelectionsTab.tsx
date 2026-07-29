@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect, useRef } from "react";
-import { Plus, Trash2, Loader2, ChevronRight, Palette } from "lucide-react";
+import { Plus, Trash2, Loader2, ChevronLeft, ChevronRight, Palette } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import {
   createSelection,
@@ -25,14 +25,6 @@ const CATEGORIES = [
 
 const STATUS_ORDER = ["pending", "selected", "ordered", "delivered", "installed"];
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; activeBg: string; border: string; dot: string }> = {
-  pending:   { bg: "bg-gray-50",    text: "text-gray-600",   activeBg: "active:bg-gray-100",   border: "border-gray-200", dot: "bg-gray-400" },
-  selected:  { bg: "bg-blue-50",    text: "text-blue-700",   activeBg: "active:bg-blue-100",   border: "border-blue-200", dot: "bg-blue-500" },
-  ordered:   { bg: "bg-purple-50",  text: "text-purple-700", activeBg: "active:bg-purple-100", border: "border-purple-200", dot: "bg-purple-500" },
-  delivered: { bg: "bg-amber-50",   text: "text-amber-700",  activeBg: "active:bg-amber-100",  border: "border-amber-200", dot: "bg-amber-500" },
-  installed: { bg: "bg-green-50",   text: "text-green-700",  activeBg: "active:bg-green-100",  border: "border-green-200", dot: "bg-green-500" },
-};
-
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   selected: "Selected",
@@ -41,38 +33,90 @@ const STATUS_LABELS: Record<string, string> = {
   installed: "Installed",
 };
 
+/**
+ * Package 01 §Step 2 + Package 03 §Step 1: badge/dot COLOR collapses to three
+ * semantic states (label + 5 step-dots keep the full precision). Purple/amber
+ * are off the system map, so we derive everything from three tokens.
+ */
+type Semantic = "planned" | "active" | "complete";
+const STATUS_SEMANTIC: Record<string, Semantic> = {
+  pending: "planned",
+  selected: "active",
+  ordered: "active",
+  delivered: "active",
+  installed: "complete",
+};
+const SEMANTIC_VAR: Record<Semantic, string> = {
+  planned: "var(--status-planned)",
+  active: "var(--status-active)",
+  complete: "var(--status-complete)",
+};
+function semanticColor(status: string): string {
+  return SEMANTIC_VAR[STATUS_SEMANTIC[status] ?? "planned"];
+}
+
+/**
+ * Package 03 §Step 1: three-part control — back / label+dots / forward.
+ * Clamps at both ends (never wraps installed → pending, which silently
+ * reset installed items). Each zone is a ≥44px tap target.
+ */
 function StatusStepper({ selectionId, status, projectId, onChange }: {
   selectionId: string; status: string; projectId: string; onChange: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
+  const idx = STATUS_ORDER.indexOf(status);
+  const currentIdx = idx < 0 ? 0 : idx;
+  const canBack = currentIdx > 0;
+  const canForward = currentIdx < STATUS_ORDER.length - 1;
+  const color = semanticColor(status);
 
-  function advance() {
-    const idx = STATUS_ORDER.indexOf(status);
-    const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length] ?? "pending";
+  function step(delta: number) {
+    const nextIdx = Math.min(Math.max(currentIdx + delta, 0), STATUS_ORDER.length - 1);
+    if (nextIdx === currentIdx) return;
+    const next = STATUS_ORDER[nextIdx];
     startTransition(async () => {
       await updateSelectionStatus(projectId, selectionId, next);
       onChange();
     });
   }
 
-  const config = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
-  const currentIdx = STATUS_ORDER.indexOf(status);
-
   return (
-    <button
-      onClick={advance}
-      disabled={isPending}
-      aria-label={`Status: ${status} — tap to advance`}
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all min-h-[40px] ${config.bg} ${config.text} ${config.border} ${config.activeBg} ${isPending ? "opacity-50" : ""}`}
+    <div
+      className={`inline-flex items-center rounded-lg border border-[color:var(--card-border)] bg-white overflow-hidden ${isPending ? "opacity-50" : ""}`}
     >
-      <div className="flex items-center gap-1">
-        {STATUS_ORDER.map((_, i) => (
-          <div key={i} className={`w-1.5 h-1.5 rounded-full ${i <= currentIdx ? config.dot : "bg-gray-200"}`} />
-        ))}
+      <button
+        type="button"
+        onClick={() => step(-1)}
+        disabled={!canBack || isPending}
+        aria-label="Move status back one step"
+        className="min-w-[40px] min-h-[44px] flex items-center justify-center text-gray-500 active:bg-gray-100 disabled:opacity-30 disabled:active:bg-transparent transition-colors"
+      >
+        <ChevronLeft size={16} />
+      </button>
+      <div className="flex flex-col items-center justify-center gap-1 px-2 min-h-[44px] border-x border-[color:var(--card-border)]">
+        <span className="text-[11px] font-semibold leading-none" style={{ color }}>
+          {STATUS_LABELS[status] ?? status}
+        </span>
+        <div className="flex items-center gap-1">
+          {STATUS_ORDER.map((_, i) => (
+            <div
+              key={i}
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: i <= currentIdx ? color : "#E5E7EB" }}
+            />
+          ))}
+        </div>
       </div>
-      <span>{STATUS_LABELS[status] ?? status}</span>
-      <ChevronRight size={12} className="opacity-50" />
-    </button>
+      <button
+        type="button"
+        onClick={() => step(1)}
+        disabled={!canForward || isPending}
+        aria-label="Advance status one step"
+        className="min-w-[40px] min-h-[44px] flex items-center justify-center text-gray-500 active:bg-gray-100 disabled:opacity-30 disabled:active:bg-transparent transition-colors"
+      >
+        <ChevronRight size={16} />
+      </button>
+    </div>
   );
 }
 
@@ -211,12 +255,12 @@ export default function SelectionsTab({ projectId }: { projectId: string }) {
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
           {STATUS_ORDER.map((st) => {
             const count = selections.filter((s) => s.status === st).length;
-            const config = STATUS_CONFIG[st] ?? STATUS_CONFIG.pending;
+            const color = semanticColor(st);
             return (
-              <div key={st} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shrink-0 ${config.bg} ${config.border}`}>
-                <div className={`w-2 h-2 rounded-full ${config.dot}`} />
-                <span className={`text-xs font-semibold tabular-nums ${config.text}`}>{count}</span>
-                <span className={`text-xs ${config.text} opacity-70`}>{STATUS_LABELS[st]}</span>
+              <div key={st} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[color:var(--card-border)] bg-white shrink-0">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                <span className="text-xs font-semibold tabular-nums text-[color:var(--text-primary)]">{count}</span>
+                <span className="text-xs text-[color:var(--text-secondary)]">{STATUS_LABELS[st]}</span>
               </div>
             );
           })}
@@ -253,7 +297,7 @@ export default function SelectionsTab({ projectId }: { projectId: string }) {
 
       {selections.length > 0 && (
         <p className="text-xs text-gray-400 text-center">
-          {"Tap a status to advance: Pending \u2192 Confirmed \u2192 Ordered \u2192 Installed"}
+          {"Use \u2039 \u203a to move a selection through Pending \u2192 Selected \u2192 Ordered \u2192 Delivered \u2192 Installed"}
         </p>
       )}
     </div>

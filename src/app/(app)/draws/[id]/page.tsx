@@ -9,6 +9,7 @@ import VendorPaymentsPanel from "@/components/draws/VendorPaymentsPanel";
 import React from "react";
 import { drawDisplayName } from "@/lib/draws";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
+import LifecycleStepper from "@/components/ui/LifecycleStepper";
 
 
 interface Props {
@@ -44,7 +45,7 @@ export default async function DrawDetailPage({ params }: Props) {
 
   const { data: draw } = await supabase
     .from("loan_draws")
-    .select(`id, draw_number, draw_date, total_amount, status, notes, lender_id, contacts ( id, name )`)
+    .select(`id, draw_number, draw_date, total_amount, status, notes, lender_id, created_at, contacts ( id, name )`)
     .eq("id", id)
     .single();
 
@@ -73,14 +74,39 @@ export default async function DrawDetailPage({ params }: Props) {
   const lender = draw.contacts as { id: string; name: string } | null;
   const canEdit = draw.status !== "paid";
 
-  // Check whether vendor payment records exist for this draw so we know
-  // whether to show the legacy bulk "Mark as Paid" button or the new
-  // per-vendor check remittance workflow.
-  const { count: vpCount } = await supabase
+  // Vendor payment rows drive both the "has payments" check (legacy bulk
+  // button vs per-vendor remittances) and the stepper's Paid-step caption
+  // ("n of m checks cut" / latest payment date).
+  const { data: vpRows } = await supabase
     .from("vendor_payments")
-    .select("id", { count: "exact", head: true })
+    .select("id, status, payment_date")
     .eq("draw_id", id);
-  const hasVendorPayments = (vpCount ?? 0) > 0;
+  const vendorPaymentRows = vpRows ?? [];
+  const hasVendorPayments = vendorPaymentRows.length > 0;
+
+  // ─── Lifecycle stepper data (Package 04 §Step 1) ───
+  // Dates come from the JEs already fetched above — no extra queries.
+  const jeDateByPrefix = (prefix: string) =>
+    (journalEntries ?? []).find((je) => je.reference?.startsWith(prefix))?.entry_date ?? null;
+  const submittedDate = jeDateByPrefix("DRAW-SUB-");
+  const fundedDate = jeDateByPrefix("DRAW-FUND-");
+  const paidVps = vendorPaymentRows.filter((vp) => vp.status === "paid");
+  const latestPaymentDate = paidVps.reduce<string | null>(
+    (latest, vp) => (vp.payment_date && (!latest || vp.payment_date > latest) ? vp.payment_date : latest),
+    null,
+  );
+  const paidCaption =
+    draw.status === "paid"
+      ? latestPaymentDate
+      : hasVendorPayments
+        ? `${paidVps.length} of ${vendorPaymentRows.length} checks cut`
+        : null;
+  const drawSteps = [
+    { id: "draft", label: "Draft", caption: draw.created_at?.split("T")[0] ?? undefined },
+    { id: "submitted", label: "Submitted", caption: submittedDate ?? undefined },
+    { id: "funded", label: "Funded", caption: fundedDate ?? undefined },
+    { id: "paid", label: "Paid", caption: paidCaption ?? undefined },
+  ];
 
   // Build typed invoice rows
   type RawInv = {
@@ -241,6 +267,14 @@ export default async function DrawDetailPage({ params }: Props) {
 
           {/* Draw header card */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
+            {/* Lifecycle stepper (Package 04 §Step 1) — dates derive from the
+                posted JEs and vendor payment rows already fetched */}
+            <LifecycleStepper
+              steps={drawSteps}
+              current={draw.status}
+              allComplete={draw.status === "paid"}
+              className="mb-5"
+            />
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">{drawName}</h2>

@@ -56,7 +56,8 @@ export default async function Header({ title, breadcrumbs }: HeaderProps) {
       className="bg-white border-b border-gray-200 px-4 lg:px-8 py-4 flex items-center justify-between gap-3"
     >
       <div className="flex items-center gap-2 min-w-0">
-        <img src="/prairie-sky-logo.png" alt="Prairie Sky Homes" className="h-6 lg:h-8 w-auto flex-shrink-0" />
+        {/* Desktop already shows the mark on the nav rail — one logo per viewport (Package 01 §Step 5) */}
+        <img src="/prairie-sky-logo.png" alt="Prairie Sky Homes" className="h-6 w-auto flex-shrink-0 lg:hidden" />
         <nav aria-label="Breadcrumb" className="min-w-0">
           <ol className="flex items-center gap-1.5 min-w-0">
             {crumbs.map((c, i) => {

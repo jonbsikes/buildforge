@@ -1,11 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/layout/Header";
 import ProjectCard from "@/components/dashboard/ProjectCard";
+import AttentionQueue, { type AttentionItem } from "@/components/dashboard/AttentionQueue";
 import type { StageStripStage } from "@/components/ui/StageStrip";
 import Link from "next/link";
 import {
   FolderOpen,
-  AlertTriangle,
   ClipboardList,
   Calendar,
   Hammer,
@@ -53,7 +53,9 @@ export default async function DashboardPage() {
     (supabase.rpc as any)("get_project_budget_totals"),
     (supabase.rpc as any)("get_project_invoice_actuals"),
     // Open-AP invoices only — these statuses are all the KPIs below need.
-    supabase.from("invoices").select("id, status, amount, total_amount, due_date").in("status", ["pending_review", "approved", "released", "disputed"]).order("created_at", { ascending: false }).limit(2000),
+    // vendor/vendor_id/ai_confidence/manually_reviewed/created_at feed the
+    // item-level attention queue (Package 02).
+    supabase.from("invoices").select("id, status, amount, total_amount, due_date, invoice_number, vendor, vendor_id, ai_confidence, manually_reviewed, created_at").in("status", ["pending_review", "approved", "released", "disputed"]).order("created_at", { ascending: false }).limit(2000),
     supabase.from("vendors").select("id, name, coi_expiry_date, license_expiry_date"),
     supabase.from("field_todos").select("id, status, priority, description, project_id, due_date").neq("status", "done"),
     supabase.from("build_stages").select("id, project_id, stage_name, stage_number, status, track, planned_start_date, planned_end_date, actual_start_date, actual_end_date").in("project_id", projectIds).order("stage_number", { ascending: true }),
@@ -161,9 +163,7 @@ export default async function DashboardPage() {
   }
 
   const pendingInvoices = (invoices ?? []).filter((i) => i.status === "pending_review");
-  const pendingReviewAmount = pendingInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const pastDueInvoices = (invoices ?? []).filter((i) => i.status !== "released" && i.status !== "cleared" && i.status !== "void" && i.due_date && i.due_date < today);
-  const pastDueAmount = pastDueInvoices.reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
   const outstandingAP = (invoices ?? []).filter((i) => i.status === "approved").reduce((s, i) => s + (i.total_amount ?? i.amount ?? 0), 0);
 
   // AP due this week
@@ -185,18 +185,158 @@ export default async function DashboardPage() {
     const b = budgetByProject[p.id] ?? 0;
     return { id: p.id, name: p.name, delta: a - b, pct: b > 0 ? Math.round((a / b) * 100) : 0 };
   });
-  const expiringVendorNames = expiringVendors.slice(0, 3).map((v) => v.name).join(", ");
 
-  // Counter only — detail list lives on /notifications
-  const delayedProjectCount = allProjects.filter((p) => getDelayedStageDays(p.id) !== null).length;
-  const attention = {
-    length:
-      overBudgetProjects.length +
-      delayedProjectCount +
-      pendingInvoices.length +
-      pastDueInvoices.length +
-      expiringVendors.length,
-  };
+  // ─── Item-level attention queue (Package 02) ───
+  // Flat scored list from data already fetched: past-due invoices (sev 3, by
+  // $ desc), over-budget projects (3, by delta), pending-review invoices (2,
+  // by age), delayed stages (2, by days late), expiring COI/license (1, by
+  // days-to-expiry). Top 5 render as AttentionCards; the rest roll up into
+  // the footer line.
+  const fmtMoney = (n: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+
+  type QueueEntry = AttentionItem & { severity: number; urgency: number; category: string };
+  const queue: QueueEntry[] = [];
+
+  const pastDueIds = new Set(pastDueInvoices.map((i) => i.id));
+  for (const inv of pastDueInvoices) {
+    const amt = inv.total_amount ?? inv.amount ?? 0;
+    const daysLate = inv.due_date
+      ? Math.floor((Date.now() - new Date(inv.due_date + "T00:00:00").getTime()) / 86400000)
+      : 0;
+    queue.push({
+      key: `pastdue-${inv.id}`,
+      kind: "over",
+      severity: 3,
+      urgency: amt,
+      category: "past due",
+      title: `Invoice ${inv.invoice_number ? `#${inv.invoice_number}` : ""} · ${inv.vendor ?? "Unknown vendor"} · ${fmtMoney(amt)}`,
+      subtitle: `${daysLate} day${daysLate !== 1 ? "s" : ""} past due`,
+      href: `/invoices/${inv.id}`,
+      // Only approved invoices can have a check cut; past-due rows still in
+      // review get the Approve action (downgraded by the guard if incomplete).
+      action:
+        inv.status === "approved"
+          ? "issue_check"
+          : inv.status === "pending_review"
+            ? "approve"
+            : undefined,
+      invoiceId: inv.id,
+    });
+  }
+
+  for (const p of overBudgetDetail) {
+    queue.push({
+      key: `overbudget-${p.id}`,
+      kind: "over",
+      severity: 3,
+      urgency: p.delta,
+      category: "over budget",
+      title: `${p.name} — over budget ${fmtMoney(p.delta)}`,
+      subtitle: `${p.pct}% of budget spent`,
+      href: `/projects/${p.id}`,
+    });
+  }
+
+  for (const inv of pendingInvoices) {
+    if (pastDueIds.has(inv.id)) continue; // already queued at severity 3
+    const amt = inv.total_amount ?? inv.amount ?? 0;
+    const ageDays = inv.created_at
+      ? Math.floor((Date.now() - new Date(inv.created_at).getTime()) / 86400000)
+      : 0;
+    queue.push({
+      key: `review-${inv.id}`,
+      kind: "warning",
+      severity: 2,
+      urgency: ageDays,
+      category: "to review",
+      title: `Invoice ${inv.invoice_number ? `#${inv.invoice_number}` : ""} · ${inv.vendor ?? "Unknown vendor"} · ${fmtMoney(amt)}`,
+      subtitle: `Pending review${ageDays > 0 ? ` · ${ageDays} day${ageDays !== 1 ? "s" : ""} old` : ""}`,
+      href: `/invoices/${inv.id}`,
+      action: "approve", // may be downgraded to "review" by the guard below
+      invoiceId: inv.id,
+    });
+  }
+
+  for (const p of allProjects) {
+    const delayed = getDelayedStageDays(p.id);
+    if (!delayed) continue;
+    queue.push({
+      key: `delayed-${p.id}`,
+      kind: "delayed",
+      severity: 2,
+      urgency: delayed.days,
+      category: "delayed",
+      title: `${p.name} · ${delayed.stage}`,
+      subtitle: `${delayed.days} day${delayed.days !== 1 ? "s" : ""} behind plan`,
+      href: `/projects/${p.id}`,
+    });
+  }
+
+  for (const v of expiringVendors) {
+    const c = daysUntil(v.coi_expiry_date);
+    const l = daysUntil(v.license_expiry_date);
+    const soonest = Math.min(c ?? 999, l ?? 999);
+    const which = (c ?? 999) <= (l ?? 999) ? "COI" : "License";
+    queue.push({
+      key: `vendor-${v.id}`,
+      kind: "warning",
+      severity: 1,
+      urgency: -soonest, // closer expiry = more urgent
+      category: "expiring",
+      title: soonest <= 0
+        ? `${v.name} — ${which} expired`
+        : `${v.name} — ${which} expires in ${soonest} day${soonest !== 1 ? "s" : ""}`,
+      subtitle: soonest <= 0 ? "Vendor is blocked until renewed" : "Renewal needed",
+      href: `/vendors/${v.id}`,
+      action: "open_vendor",
+    });
+  }
+
+  queue.sort((a, b) => b.severity - a.severity || b.urgency - a.urgency);
+  const topItems = queue.slice(0, 5);
+  const attentionTotal = queue.length;
+
+  // Needs-attention guard for the inline Approve: same rule as the AP page —
+  // missing vendor, non-positive amount, low AI confidence (unless manually
+  // reviewed), or any line item missing a cost code → Review link instead.
+  const guardIds = topItems
+    .filter((t) => t.action === "approve" && t.invoiceId)
+    .map((t) => t.invoiceId!) as string[];
+  if (guardIds.length > 0) {
+    const invById = new Map((invoices ?? []).map((i) => [i.id, i]));
+    const { data: lineRows } = await supabase
+      .from("invoice_line_items")
+      .select("invoice_id, cost_code")
+      .in("invoice_id", guardIds);
+    const missingCode = new Set<string>();
+    for (const li of (lineRows ?? []) as { invoice_id: string; cost_code: string | null }[]) {
+      if (!li.cost_code) missingCode.add(li.invoice_id);
+    }
+    for (const item of topItems) {
+      if (item.action !== "approve" || !item.invoiceId) continue;
+      const inv = invById.get(item.invoiceId);
+      if (!inv) continue;
+      const flagged =
+        !inv.vendor_id ||
+        inv.amount == null ||
+        inv.amount <= 0 ||
+        inv.ai_confidence === "low" ||
+        missingCode.has(inv.id);
+      if (flagged && !inv.manually_reviewed) item.action = "review";
+    }
+  }
+
+  // Category rollup for items beyond the top 5.
+  const shownKeys = new Set(topItems.map((t) => t.key));
+  const remainder: Record<string, number> = {};
+  for (const q of queue) {
+    if (shownKeys.has(q.key)) continue;
+    remainder[q.category] = (remainder[q.category] ?? 0) + 1;
+  }
+  const rollup = Object.entries(remainder).map(
+    ([cat, n]) => `+ ${n} more ${cat}`,
+  );
 
   // ─── Risk score for project grid ───
   function riskScore(pid: string): number {
@@ -234,120 +374,13 @@ export default async function DashboardPage() {
       <Header title="Dashboard" />
       <main className="flex-1 p-4 lg:p-8 overflow-auto">
 
-        {/* ── Needs Attention hero ── */}
-        {attention.length > 0 && (
-          <div
-            className="rounded-xl px-5 py-4 mb-6 text-white"
-            style={{ backgroundColor: "#0F172A" }}
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle size={13} style={{ color: "var(--status-warning)" }} />
-              <span
-                className="text-[10px] font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--status-warning)" }}
-              >
-                Needs Attention · {attention.length}
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-              {pastDueInvoices.length > 0 && (
-                <Link
-                  href="/invoices"
-                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
-                    style={{ backgroundColor: "var(--status-over)" }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">
-                      {pastDueInvoices.length} past-due invoice{pastDueInvoices.length !== 1 ? "s" : ""}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      <Money value={pastDueAmount} className="text-slate-400" />
-                    </p>
-                  </div>
-                </Link>
-              )}
-              {overBudgetDetail.length > 0 && (
-                <Link
-                  href={`/projects/${overBudgetDetail[0]!.id}`}
-                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
-                    style={{ backgroundColor: "var(--status-over)" }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white truncate">
-                      {overBudgetDetail.length === 1
-                        ? `${overBudgetDetail[0]!.name} over budget`
-                        : `${overBudgetDetail.length} projects over budget`}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      <Money value={overBudgetDetail[0]!.delta} showSign className="text-slate-400" /> ({overBudgetDetail[0]!.pct}%)
-                      {overBudgetDetail.length > 1 && (
-                        <span className="text-slate-500"> · +{overBudgetDetail.length - 1} more</span>
-                      )}
-                    </p>
-                  </div>
-                </Link>
-              )}
-              {expiringVendors.length > 0 && (
-                <Link
-                  href="/vendors"
-                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
-                    style={{ backgroundColor: "var(--status-warning)" }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">
-                      {expiringVendors.length} COI{expiringVendors.length !== 1 ? "s" : ""} expire &lt;30d
-                    </p>
-                    <p className="text-[11px] text-slate-400 truncate">{expiringVendorNames}</p>
-                  </div>
-                </Link>
-              )}
-              {pendingInvoices.length > 0 && (
-                <Link
-                  href="/invoices"
-                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
-                    style={{ backgroundColor: "var(--status-warning)" }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">
-                      {pendingInvoices.length} invoice{pendingInvoices.length !== 1 ? "s" : ""} to review
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      <Money value={pendingReviewAmount} className="text-slate-400" />
-                    </p>
-                  </div>
-                </Link>
-              )}
-              {delayedProjectCount > 0 && (
-                <Link
-                  href="/reports/stage-progress"
-                  className="flex items-start gap-2.5 hover:opacity-80 transition-opacity"
-                >
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
-                    style={{ backgroundColor: "var(--status-delayed)" }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">
-                      {delayedProjectCount} project{delayedProjectCount !== 1 ? "s" : ""} delayed
-                    </p>
-                    <p className="text-[11px] text-slate-400">Stage deadline missed</p>
-                  </div>
-                </Link>
-              )}
-            </div>
-          </div>
+        {/* ── Needs Attention work queue (hidden entirely at zero items) ── */}
+        {attentionTotal > 0 && (
+          <AttentionQueue
+            items={topItems.map(({ severity, urgency, category, ...item }) => item)}
+            totalCount={attentionTotal}
+            rollup={rollup}
+          />
         )}
 
         {/* ── Inline secondary metrics strip ── */}
@@ -381,6 +414,10 @@ export default async function DashboardPage() {
                 <p className="text-lg font-bold text-gray-900 leading-none mt-1">{pendingDraws}</p>
               </div>
             )}
+            <Link href="/todos">
+              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Open to-dos</p>
+              <p className="text-lg font-bold text-gray-900 leading-none mt-1">{openTodos}</p>
+            </Link>
             <div>
               <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">This week</p>
               <p className="text-sm font-semibold text-gray-700 leading-none mt-1.5">
@@ -400,7 +437,7 @@ export default async function DashboardPage() {
 
         {/* ── Main Grid ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+          <div className={`${hasWeeklyActivity ? "lg:col-span-2" : "lg:col-span-3"} space-y-6`}>
 
             {/* Active Projects */}
             {sortedProjects.length === 0 ? (
@@ -434,9 +471,12 @@ export default async function DashboardPage() {
                 </div>
               </div>
             )}
+          </div>
 
-            {/* This Week */}
-            {hasWeeklyActivity && (
+          {/* Right Column — This Week only (Counts card removed; its numbers
+              live in the hero items and the metrics strip, Package 02 §4) */}
+          {hasWeeklyActivity && (
+            <div className="space-y-4">
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
                   <Calendar size={16} style={{ color: "var(--brand-blue)" }} />
@@ -484,54 +524,8 @@ export default async function DashboardPage() {
                   ))}
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* Right Column — supporting context */}
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="font-bold text-gray-900 text-sm">Counts</h2>
-              </div>
-              <div className="divide-y divide-gray-50 text-sm">
-                <Link href="/invoices?status=pending_review" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">
-                  <span className="text-gray-700">Invoices to review</span>
-                  <span className="font-semibold tabular-nums">{pendingInvoices.length}</span>
-                </Link>
-                <Link href="/invoices" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">
-                  <span className="text-gray-700">Past-due invoices</span>
-                  <span
-                    className="font-semibold tabular-nums"
-                    style={{ color: pastDueInvoices.length > 0 ? "var(--status-over)" : undefined }}
-                  >
-                    {pastDueInvoices.length}
-                  </span>
-                </Link>
-                <Link href="/todos" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">
-                  <span className="text-gray-700">Open to-dos</span>
-                  <span
-                    className="font-semibold tabular-nums"
-                    style={{ color: openTodos > 0 ? "var(--status-over)" : undefined }}
-                  >
-                    {openTodos}
-                  </span>
-                </Link>
-                <Link href="/vendors" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">
-                  <span className="text-gray-700">Vendor COI/license expiring</span>
-                  <span
-                    className="font-semibold tabular-nums"
-                    style={{ color: expiringVendors.length > 0 ? "var(--status-warning)" : undefined }}
-                  >
-                    {expiringVendors.length}
-                  </span>
-                </Link>
-                <Link href="/banking/draws" className="flex items-center justify-between px-5 py-3 hover:bg-gray-50">
-                  <span className="text-gray-700">Draws pending</span>
-                  <span className="font-semibold tabular-nums">{pendingDraws}</span>
-                </Link>
-              </div>
             </div>
-          </div>
+          )}
         </div>
       </main>
     </>

@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { Wallet, HardHat, Building2, Landmark, Receipt, Scale, CheckCircle2, AlertCircle } from "lucide-react";
 import ReportChrome from "@/components/ui/ReportChrome";
 
@@ -9,14 +7,14 @@ function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
-interface ProjectRow {
+export interface ProjectRow {
   id: string;
   name: string;
   wip_balance: number;
   loan_balance: number;
 }
 
-interface SummaryData {
+export interface SummaryData {
   cash: number;
   totalWIP: number;
   totalAssets: number;
@@ -27,124 +25,14 @@ interface SummaryData {
   projectRows: ProjectRow[];
 }
 
-export default function FinancialSummaryClient() {
-  const [data, setData] = useState<SummaryData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-
-      // Loans + projects + server-side GL aggregation (same RPC as the
-      // Balance Sheet — per-account, per-project totals from posted entries).
-      const [loansRes, projectsRes, rpcRes] = await Promise.all([
-        supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
-        supabase.from("projects").select("id, name").order("name"),
-        (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: new Date().toISOString().split("T")[0] }),
-      ]);
-
-      type RpcRow = {
-        account_number: string;
-        account_name: string;
-        account_type: string | null;
-        account_subtype: string | null;
-        total_debit: number;
-        total_credit: number;
-        project_id: string | null;
-      };
-      const rows = (rpcRes.data ?? []) as RpcRow[];
-
-      // Aggregate by account (RPC returns per-account, per-project rows)
-      const acctTotals: Record<string, { debit: number; credit: number; type: string; subtype: string }> = {};
-      for (const row of rows) {
-        const key = row.account_number;
-        if (!acctTotals[key]) acctTotals[key] = { debit: 0, credit: 0, type: row.account_type ?? "", subtype: row.account_subtype ?? "" };
-        acctTotals[key].debit += Number(row.total_debit);
-        acctTotals[key].credit += Number(row.total_credit);
-      }
-
-      const getBalance = (acctNum: string) => {
-        const a = acctTotals[acctNum];
-        if (!a) return 0;
-        if (a.type === "asset" || a.type === "expense" || a.type === "cogs") return a.debit - a.credit;
-        return a.credit - a.debit;
-      };
-
-      const cash = getBalance("1000");
-      const wip1210 = getBalance("1210");
-      const wip1230 = getBalance("1230");
-      const capInterest = getBalance("1220");
-      const totalWIP = wip1210 + wip1230 + capInterest;
-
-      // Construction Loans — subtype 'loan' accounts only (number-range checks
-      // wrongly caught accrued interest, customer deposits, payroll, etc.)
-      let totalLoans = 0;
-      for (const a of Object.values(acctTotals)) {
-        if (a.type === "liability" && a.subtype === "loan") {
-          totalLoans += a.credit - a.debit;
-        }
-      }
-
-      // AP Outstanding from GL account 2000 (consistent with balance sheet)
-      const apOutstanding = getBalance("2000");
-
-      // Calculate total assets and equity from all accounts
-      let totalAssets = 0;
-      let totalLiabilities = 0;
-      let totalEquityAccounts = 0;
-      let retainedEarnings = 0;
-      for (const [acctNum, a] of Object.entries(acctTotals)) {
-        const balance = a.type === "asset" || a.type === "expense" || a.type === "cogs"
-          ? a.debit - a.credit
-          : a.credit - a.debit;
-        if (a.type === "asset") totalAssets += balance;
-        else if (a.type === "liability") totalLiabilities += balance;
-        else if (a.type === "equity") totalEquityAccounts += balance;
-        else if (a.type === "revenue") retainedEarnings += balance;
-        else if (a.type === "expense" || a.type === "cogs") retainedEarnings -= balance;
-      }
-      const totalEquity = totalEquityAccounts + retainedEarnings;
-
-      // WIP per project from GL (1210 + 1220 + 1230)
-      const projectWIP: Record<string, number> = {};
-      for (const row of rows) {
-        if (!row.project_id) continue;
-        if (row.account_number === "1210" || row.account_number === "1220" || row.account_number === "1230") {
-          projectWIP[row.project_id] = (projectWIP[row.project_id] ?? 0) + Number(row.total_debit) - Number(row.total_credit);
-        }
-      }
-
-      // Loan balance per project from loans table (loan JEs don't carry project_id)
-      const projectLoans: Record<string, number> = {};
-      for (const loan of loansRes.data ?? []) {
-        if (loan.project_id) {
-          projectLoans[loan.project_id] = (projectLoans[loan.project_id] ?? 0) + (loan.current_balance ?? 0);
-        }
-      }
-
-      const projects = projectsRes.data ?? [];
-      const projectRows: ProjectRow[] = projects
-        .map(p => ({
-          id: p.id,
-          name: p.name,
-          wip_balance: projectWIP[p.id] ?? 0,
-          loan_balance: projectLoans[p.id] ?? 0,
-        }))
-        .filter(p => Math.abs(p.wip_balance) > 0.01 || Math.abs(p.loan_balance) > 0.01);
-
-      setData({ cash, totalWIP, totalAssets, totalLiabilities, totalLoans, totalEquity, apOutstanding, projectRows });
-      setLoading(false);
-    }
-    load();
-  }, []);
-
-  const isBalanced = data && Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1;
+// Data is assembled server-side in financial/summary/page.tsx (Package 05 §B)
+// — first paint carries the numbers; this component is purely presentational.
+export default function FinancialSummaryClient({ data }: { data: SummaryData }) {
+  const isBalanced = Math.abs(data.totalAssets - data.totalLiabilities - data.totalEquity) < 1;
 
   return (
     <ReportChrome title="Financial Summary" subtitle="Company-wide financial overview" exportSlug="financial-summary">
-      {loading ? (
-        <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
-      ) : !data ? null : (
+      {(
         <div className="space-y-6">
           {/* KPI Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">

@@ -73,8 +73,6 @@ export default async function ManageHubPage() {
       description: expiringVendors.length > 0
         ? `${vendorCount} vendors, ${expiringVendors.length} expiring`
         : `${vendorCount} vendor${vendorCount !== 1 ? "s" : ""}`,
-      color: "text-[#4272EF]",
-      bg: "bg-blue-50",
       badge: expiredVendors.length > 0 ? `${expiredVendors.length}` : null,
     },
     {
@@ -82,8 +80,6 @@ export default async function ManageHubPage() {
       icon: Contact,
       label: "Contacts",
       description: `${contactCount} contact${contactCount !== 1 ? "s" : ""}`,
-      color: "text-emerald-600",
-      bg: "bg-emerald-50",
       badge: null,
     },
     {
@@ -91,15 +87,13 @@ export default async function ManageHubPage() {
       icon: FolderOpen,
       label: "Documents",
       description: `${docCount} recent document${docCount !== 1 ? "s" : ""}`,
-      color: "text-purple-600",
-      bg: "bg-purple-50",
       badge: null,
     },
   ];
 
   const utilityCards = [
-    { href: "/notifications", icon: Bell, label: "Notifications", description: unreadNotifications > 0 ? `${unreadNotifications} unread` : "All caught up", color: "text-amber-600", bg: "bg-amber-50" },
-    { href: "/settings", icon: Settings, label: "Settings", description: "Profile & cost codes", color: "text-gray-600", bg: "bg-gray-100" },
+    { href: "/notifications", icon: Bell, label: "Notifications", description: unreadNotifications > 0 ? `${unreadNotifications} unread` : "All caught up" },
+    { href: "/settings", icon: Settings, label: "Settings", description: "Profile & cost codes" },
   ];
 
   return (
@@ -110,8 +104,8 @@ export default async function ManageHubPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6">
           <div className="bg-white border border-gray-200 rounded-xl p-4 lg:p-5 shadow-sm">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                <Users size={18} className="text-[#4272EF]" />
+              <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl bg-[color:var(--neutral-chip-bg)] flex items-center justify-center">
+                <Users size={18} className="text-[color:var(--neutral-chip-fg)]" />
               </div>
             </div>
             <p className="text-xl lg:text-2xl font-bold text-gray-900 tabular-nums">{vendorCount}</p>
@@ -119,8 +113,8 @@ export default async function ManageHubPage() {
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4 lg:p-5 shadow-sm">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
-                <Contact size={18} className="text-emerald-600" />
+              <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-xl bg-[color:var(--neutral-chip-bg)] flex items-center justify-center">
+                <Contact size={18} className="text-[color:var(--neutral-chip-fg)]" />
               </div>
             </div>
             <p className="text-xl lg:text-2xl font-bold text-gray-900 tabular-nums">{contactCount}</p>
@@ -162,8 +156,8 @@ export default async function ManageHubPage() {
                       className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all group relative"
                     >
                       <div className="flex items-start justify-between">
-                        <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center mb-3`}>
-                          <Icon size={20} className={card.color} />
+                        <div className="w-10 h-10 rounded-xl bg-[color:var(--neutral-chip-bg)] flex items-center justify-center mb-3">
+                          <Icon size={20} className="text-[color:var(--neutral-chip-fg)]" />
                         </div>
                         {card.badge && (
                           <span
@@ -194,8 +188,8 @@ export default async function ManageHubPage() {
                       href={card.href}
                       className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all group"
                     >
-                      <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center mb-3`}>
-                        <Icon size={20} className={card.color} />
+                      <div className="w-10 h-10 rounded-xl bg-[color:var(--neutral-chip-bg)] flex items-center justify-center mb-3">
+                        <Icon size={20} className="text-[color:var(--neutral-chip-fg)]" />
                       </div>
                       <p className="font-semibold text-gray-900 mb-0.5 group-hover:text-[#4272EF] transition-colors">{card.label}</p>
                       <p className="text-xs text-gray-500">{card.description}</p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { createTodo, completeTodo, reopenTodo, deleteTodo, updateTodo } from "@/app/actions/todos";
 import { Plus, Circle, CheckCircle2, Trash2, RotateCcw, Pencil, Check, X } from "lucide-react";
@@ -8,7 +8,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import type { StatusKind } from "@/components/ui/StatusBadge";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 import DateValue from "@/components/ui/DateValue";
-import ErrorState from "@/components/ui/ErrorState";
+import { useToast } from "@/components/ui/Toast";
 
 interface Project { id: string; name: string }
 
@@ -34,47 +34,27 @@ function isOverdue(due: string | null) {
   return due < new Date().toISOString().split("T")[0]!;
 }
 
-export default function TodosClient() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+export default function TodosClient({
+  initialProjects,
+  initialTodos,
+}: {
+  initialProjects: Project[];
+  initialTodos: Todo[];
+}) {
+  // Server-fetched initial state (Package 03 §Step 3) — no client load(),
+  // no spinner. refreshTodos() below keeps the list fresh after mutations.
+  const projects = initialProjects;
+  const [todos, setTodos] = useState<Todo[]>(initialTodos);
   const [tab, setTab] = useState<"open" | "completed">("open");
+  const toast = useToast();
 
   // New todo form state
   const [desc, setDesc] = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(initialProjects[0]?.id ?? "");
   const [priority, setPriority] = useState("normal");
   const [dueDate, setDueDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [isAdding, startAdd] = useTransition();
-
-  function load() {
-    setLoading(true);
-    setLoadError(null);
-    const supabase = createClient();
-    Promise.all([
-      supabase.from("projects").select("id, name").order("name"),
-      supabase.from("field_todos").select("id, description, priority, due_date, status, project_id, resolved_date, created_at").order("created_at", { ascending: false }),
-    ]).then(([projRes, todosRes]) => {
-      const err = projRes.error ?? todosRes.error;
-      if (err) {
-        setLoadError(err.message);
-        setLoading(false);
-        return;
-      }
-      const projs = projRes.data ?? [];
-      setProjects(projs);
-      setProjectId((prev) => prev || projs[0]?.id || "");
-      setTodos(todosRes.data ?? []);
-      setLoading(false);
-    });
-  }
-
-  useEffect(() => {
-    load();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function refreshTodos() {
     const supabase = createClient();
@@ -89,7 +69,7 @@ export default function TodosClient() {
     setFormError(null);
     startAdd(async () => {
       const res = await createTodo({ project_id: projectId, description: desc.trim(), priority, due_date: dueDate || null });
-      if (res.error) { setFormError(res.error); return; }
+      if (res.error) { toast.error(res.error); return; }
       setDesc("");
       setDueDate("");
       refreshTodos();
@@ -157,20 +137,6 @@ export default function TodosClient() {
   for (const t of openTodos) {
     if (!byProject[t.project_id]) byProject[t.project_id] = [];
     byProject[t.project_id]!.push(t);
-  }
-
-  if (loading) return <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>;
-
-  if (loadError) {
-    return (
-      <div className="max-w-3xl mx-auto">
-        <ErrorState
-          title="Couldn't load your to-dos"
-          description={loadError}
-          onRetry={load}
-        />
-      </div>
-    );
   }
 
   return (

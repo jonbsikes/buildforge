@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import Link from "next/link";
 import { Trash2, XCircle } from "lucide-react";
 import ConfirmButton from "@/components/ui/ConfirmButton";
+import { useToast } from "@/components/ui/Toast";
 import { voidVendorCredit, deleteVendorCredit } from "@/app/actions/vendor-credits";
 
 function fmt(n: number) {
@@ -42,20 +43,10 @@ export type CreditRow = {
 
 export default function VendorCreditsTable({ rows }: { rows: CreditRow[] }) {
   const [, startTransition] = useTransition();
-  const [banner, setBanner] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const toast = useToast();
 
   return (
     <>
-      {banner && (
-        <div
-          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-medium ${
-            banner.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-          }`}
-        >
-          {banner.msg}
-        </div>
-      )}
-
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -110,10 +101,10 @@ export default function VendorCreditsTable({ rows }: { rows: CreditRow[] }) {
                           onConfirm={async () => {
                             const r = await voidVendorCredit(c.id);
                             if (r.error) {
-                              setBanner({ type: "error", msg: r.error });
+                              toast.error(r.error);
                               return { error: r.error };
                             }
-                            setBanner({ type: "success", msg: "Credit voided" });
+                            toast.success("Credit voided");
                           }}
                           triggerClassName="p-1 text-gray-300 hover:text-amber-600 rounded"
                           ariaLabel="Void credit"
@@ -131,9 +122,9 @@ export default function VendorCreditsTable({ rows }: { rows: CreditRow[] }) {
                               startTransition(async () => {
                                 const r = await deleteVendorCredit(c.id);
                                 if (r.error) {
-                                  setBanner({ type: "error", msg: r.error });
+                                  toast.error(r.error);
                                 } else {
-                                  setBanner({ type: "success", msg: "Credit deleted" });
+                                  toast.success("Credit deleted");
                                 }
                                 resolve();
                               });

@@ -14,6 +14,8 @@ interface Draw {
   total_amount: number | null;
   status: string;
   lenderName: string | null;
+  /** For funded rows: check-writing progress (Package 04 §Step 2). */
+  paymentProgress?: { paid: number; total: number } | null;
 }
 
 interface Props {
@@ -203,7 +205,14 @@ export default function DrawsTableClient({ draws }: Props) {
                 <td className="px-4 py-2 text-gray-600 text-xs"><DateValue value={draw.draw_date} withYear /></td>
                 <td className="px-4 py-2 text-gray-700">{draw.lenderName ?? "\u2014"}</td>
                 <td className="px-4 py-2 text-right"><Money value={draw.total_amount} decimals className="font-medium text-gray-900" /></td>
-                <td className="px-4 py-2"><StatusDot status={draw.status} /></td>
+                <td className="px-4 py-2">
+                  <StatusDot status={draw.status} />
+                  {draw.status === "funded" && draw.paymentProgress && draw.paymentProgress.total > 0 && (
+                    <span className="ml-1 text-xs text-gray-500 tabular-nums">
+                      · {draw.paymentProgress.paid}/{draw.paymentProgress.total} paid
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-2">
                   <ActionButton draw={draw} />
                 </td>

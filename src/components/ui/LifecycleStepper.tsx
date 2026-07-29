@@ -14,6 +14,8 @@ type LifecycleStepperProps = {
   current: string;
   /** Visually mark the flow as terminated (e.g. "void"); current step gets the ended treatment. */
   ended?: boolean;
+  /** Render every step as completed (e.g. a paid draw). `current` is ignored. */
+  allComplete?: boolean;
   className?: string;
 };
 
@@ -27,9 +29,12 @@ export default function LifecycleStepper({
   steps,
   current,
   ended = false,
+  allComplete = false,
   className = "",
 }: LifecycleStepperProps) {
-  const currentIndex = Math.max(0, steps.findIndex((s) => s.id === current));
+  const currentIndex = allComplete
+    ? steps.length
+    : Math.max(0, steps.findIndex((s) => s.id === current));
 
   return (
     <ol className={`flex items-stretch w-full ${className}`}>

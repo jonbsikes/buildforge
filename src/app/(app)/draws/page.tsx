@@ -25,12 +25,30 @@ export default async function DrawsPage() {
   ]);
 
   const rawDraws = drawsResult.data ?? [];
+
+  // Payment progress for funded rows (Package 04 §Step 2): one aggregated
+  // fetch across all funded draws — never per-row queries.
+  const fundedIds = rawDraws.filter((d) => d.status === "funded").map((d) => d.id);
+  const paymentProgress: Record<string, { paid: number; total: number }> = {};
+  if (fundedIds.length > 0) {
+    const { data: vpRows } = await supabase
+      .from("vendor_payments")
+      .select("draw_id, status")
+      .in("draw_id", fundedIds);
+    for (const vp of vpRows ?? []) {
+      const entry = (paymentProgress[vp.draw_id] ??= { paid: 0, total: 0 });
+      entry.total++;
+      if (vp.status === "paid") entry.paid++;
+    }
+  }
+
   const draws = rawDraws.map((d) => ({
     id: d.id,
     draw_date: d.draw_date,
     total_amount: d.total_amount,
     status: d.status,
     lenderName: (d.contacts as { name: string } | null)?.name ?? null,
+    paymentProgress: paymentProgress[d.id] ?? null,
   }));
   const eligibleInvoices = eligibleResult.invoices ?? [];
   const eligibleTotal = eligibleInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);

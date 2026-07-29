@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, ChevronDown, ChevronRight, CheckCircle2, Circle, AlertTriangle, Trash2, ClipboardList, Camera, Upload, X, Pencil, Check } from "lucide-react";
 import { createFieldLog, createFieldTodo, updateTodoStatus, deleteTodo, uploadFieldLogPhoto, deleteFieldLog, updateFieldTodo } from "@/app/actions/field-logs";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
+import { useToast } from "@/components/ui/Toast";
 import DateValue from "@/components/ui/DateValue";
+import FilterChipRail from "@/components/ui/FilterChipRail";
 import type { Database } from "@/types/database";
 
 type FieldLog = Database["public"]["Tables"]["field_logs"]["Row"];
@@ -27,14 +30,17 @@ const TODO_STATUS_ICONS = {
 
 function NewLogForm({
   projects,
+  defaultProjectId,
   onDone,
 }: {
   projects: ProjectRef[];
+  defaultProjectId?: string;
   onDone: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [photos, setPhotos] = useState<File[]>([]);
   const [error, setError] = useState("");
+  const toast = useToast();
 
   function addPhotos(files: FileList | null) {
     if (!files) return;
@@ -73,42 +79,40 @@ function NewLogForm({
             }
             onDone();
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to save log.");
+            toast.error(err instanceof Error ? err.message : "Failed to save log.");
           }
         });
       }}
       className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3"
     >
       <h3 className="font-semibold text-gray-900">New Field Log</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <select
-          name="project_id"
-          required
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-        >
-          <option value="">Select project *</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-        <input
-          name="log_date"
-          type="date"
-          required
-          defaultValue={new Date().toISOString().split("T")[0]}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-        />
-        <textarea
-          name="notes"
-          required
-          placeholder="Field observations, work performed, issues noted... *"
-          rows={4}
-          className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] resize-none"
-        />
-      </div>
 
-      {/* Photos */}
+      {/* Photo strip FIRST — job-site capture is photo-led (Package 03 §Step 2) */}
       <div className="space-y-2">
+        <div className="flex gap-2">
+          <label className="flex-1 inline-flex items-center justify-center gap-2 min-h-[48px] px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 active:bg-gray-100 cursor-pointer">
+            <Camera size={18} />
+            Take Photo
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+          <label className="flex-1 inline-flex items-center justify-center gap-2 min-h-[48px] px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 active:bg-gray-100 cursor-pointer">
+            <Upload size={18} />
+            Library
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
+            />
+          </label>
+        </div>
         {photos.length > 0 && (
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
             {photos.map((f, i) => {
@@ -133,30 +137,34 @@ function NewLogForm({
             })}
           </div>
         )}
-        <div className="flex flex-wrap gap-2">
-          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
-            <Camera size={14} />
-            Take Photo
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
-            />
-          </label>
-          <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 cursor-pointer">
-            <Upload size={14} />
-            Upload
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }}
-            />
-          </label>
-        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <select
+          name="project_id"
+          required
+          defaultValue={defaultProjectId ?? ""}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
+        >
+          <option value="">Select project *</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <input
+          name="log_date"
+          type="date"
+          required
+          defaultValue={new Date().toISOString().split("T")[0]}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] min-h-[44px]"
+        />
+        <textarea
+          name="notes"
+          required
+          placeholder="Field observations, work performed, issues noted... *"
+          rows={4}
+          className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF] resize-none"
+        />
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -180,7 +188,7 @@ function NewLogForm({
 
 function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: string; onDone: () => void }) {
   const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState("");
+  const toast = useToast();
   return (
     <form
       onSubmit={(e) => {
@@ -188,13 +196,12 @@ function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: s
         const fd = new FormData(e.currentTarget);
         fd.set("field_log_id", logId);
         fd.set("project_id", projectId);
-        setError("");
         startTransition(async () => {
           try {
             await createFieldTodo(fd);
             onDone();
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to save to-do. Check your connection and try again.");
+            toast.error(err instanceof Error ? err.message : "Failed to save to-do. Check your connection and try again.");
           }
         });
       }}
@@ -222,7 +229,6 @@ function AddTodoForm({ logId, projectId, onDone }: { logId: string; projectId: s
       <button type="button" onClick={onDone} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 min-h-[44px]">
         Cancel
       </button>
-      {error && <p className="w-full text-sm text-red-600">{error}</p>}
     </form>
   );
 }
@@ -233,11 +239,10 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
   const [desc, setDesc] = useState(todo.description);
   const [priority, setPriority] = useState(todo.priority);
   const [due, setDue] = useState(todo.due_date ?? "");
-  const [error, setError] = useState("");
+  const toast = useToast();
 
   function save() {
     if (!desc.trim()) return;
-    setError("");
     startTransition(async () => {
       try {
         await updateFieldTodo(todo.id, {
@@ -247,19 +252,18 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
         });
         setEditing(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save. Check your connection and try again.");
+        toast.error(err instanceof Error ? err.message : "Failed to save. Check your connection and try again.");
       }
     });
   }
 
   function cycleStatus() {
-    setError("");
     startTransition(async () => {
       const next = todo.status === "done" ? "open" : todo.status === "open" ? "in_progress" : "done";
       try {
         await updateTodoStatus(todo.id, next);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update status. Check your connection and try again.");
+        toast.error(err instanceof Error ? err.message : "Failed to update status. Check your connection and try again.");
       }
     });
   }
@@ -309,7 +313,6 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
         >
           <X size={16} />
         </button>
-        {error && <p className="w-full text-xs text-red-600">{error}</p>}
       </div>
     );
   }
@@ -351,7 +354,6 @@ function TodoRow({ todo }: { todo: FieldTodo }) {
         confirmLabel="Delete"
         onConfirm={() => deleteTodo(todo.id)}
       />
-      {error && <p className="w-full text-xs text-red-600">{error}</p>}
     </div>
   );
 }
@@ -446,53 +448,169 @@ export default function FieldLogsClient({
   logs,
   projects,
   todos,
+  activeProject = "",
+  hasMore = false,
 }: {
   logs: FieldLog[];
   projects: ProjectRef[];
   todos: FieldTodo[];
+  activeProject?: string;
+  hasMore?: boolean;
 }) {
   const [showAdd, setShowAdd] = useState(false);
-  const [filterProject, setFilterProject] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const filtered = filterProject ? logs.filter((l) => l.project_id === filterProject) : logs;
+  // "Load more" navigates with ?before=<oldest log_date>; the server returns
+  // the next page and we append it here (Package 03 §Step 4 — no client libs).
+  // A navigation without ?before (filter change, fresh visit, revalidation)
+  // resets the accumulated list instead.
+  const [accLogs, setAccLogs] = useState<FieldLog[]>(logs);
+  const isPaged = Boolean(searchParams.get("before"));
+  useEffect(() => {
+    if (!isPaged) {
+      setAccLogs(logs);
+      return;
+    }
+    setAccLogs((prev) => {
+      const seen = new Set(prev.map((l) => l.id));
+      const add = logs.filter((l) => !seen.has(l.id));
+      return add.length ? [...prev, ...add] : prev;
+    });
+  }, [logs, isPaged]);
+
+  function setProjectFilter(projectId: string) {
+    router.replace(projectId ? `/field-logs?project=${projectId}` : "/field-logs", { scroll: false });
+  }
+
+  function loadMore() {
+    const oldest = accLogs[accLogs.length - 1];
+    if (!oldest) return;
+    const params = new URLSearchParams();
+    if (activeProject) params.set("project", activeProject);
+    params.set("before", oldest.log_date);
+    router.replace(`/field-logs?${params.toString()}`, { scroll: false });
+  }
+
+  // Group by log_date for sticky date headers (already date-sorted).
+  const byDate: [string, FieldLog[]][] = [];
+  for (const log of accLogs) {
+    const last = byDate[byDate.length - 1];
+    if (last && last[0] === log.log_date) last[1].push(log);
+    else byDate.push([log.log_date, [log]]);
+  }
+
+  // Default the new-log form to the most recently logged project.
+  const defaultProjectId =
+    accLogs[0]?.project_id ?? activeProject ?? projects[0]?.id;
 
   // All standalone todos (not tied to a log)
   const standaloneTodos = todos.filter((t) => !t.field_log_id);
 
+  const form = (
+    <NewLogForm
+      projects={projects}
+      defaultProjectId={defaultProjectId}
+      onDone={() => setShowAdd(false)}
+    />
+  );
+
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl pb-24 lg:pb-0">
       <div className="flex flex-wrap items-center gap-3">
-        <select
-          value={filterProject}
-          onChange={(e) => setFilterProject(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4272EF]"
-        >
-          <option value="">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        <FilterChipRail
+          chips={[
+            { id: "", label: "All projects" },
+            ...projects.map((p) => ({ id: p.id, label: p.name })),
+          ]}
+          active={activeProject}
+          onChange={setProjectFilter}
+          className="flex-1 min-w-0"
+        />
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
+          className="hidden lg:flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg"
           style={{ backgroundColor: "#4272EF" }}
         >
           <Plus size={15} /> New Log
         </button>
       </div>
 
-      {showAdd && <NewLogForm projects={projects} onDone={() => setShowAdd(false)} />}
+      {/* Desktop: inline card form */}
+      {showAdd && <div className="hidden lg:block">{form}</div>}
 
-      {filtered.length === 0 ? (
+      {/* Mobile: bottom sheet (NavSheet pattern) */}
+      {showAdd && (
+        <div className="lg:hidden">
+          <div
+            className="fixed inset-0 z-[60] animate-fade-in"
+            style={{ backgroundColor: "rgba(15,23,42,.35)" }}
+            onClick={() => setShowAdd(false)}
+          />
+          <div
+            className="fixed left-0 right-0 bottom-0 z-[61] bg-white animate-slide-up overflow-y-auto"
+            style={{
+              borderRadius: "16px 16px 0 0",
+              boxShadow: "0 -4px 20px rgba(0,0,0,.12)",
+              maxHeight: "85vh",
+              paddingBottom: "env(safe-area-inset-bottom)",
+            }}
+          >
+            <div className="flex justify-center pt-2 pb-1">
+              <div className="w-9 h-1 rounded" style={{ backgroundColor: "var(--border-strong)" }} />
+            </div>
+            <div className="p-3">{form}</div>
+          </div>
+        </div>
+      )}
+
+      {accLogs.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 px-5 py-12 text-center">
           <ClipboardList size={32} className="text-gray-300 mx-auto mb-3" />
           <p className="text-sm text-gray-400">No field logs yet.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((log) => (
-            <LogCard key={log.id} log={log} todos={todos} projects={projects} />
+        <div className="space-y-5">
+          {byDate.map(([date, dateLogs]) => (
+            <div key={date}>
+              <div className="sticky top-0 z-10 -mx-1 px-1 py-1.5 bg-slate-50/95 backdrop-blur-sm">
+                <DateValue value={date} className="text-xs font-semibold text-gray-500 uppercase tracking-wide" />
+              </div>
+              <div className="space-y-3 mt-1">
+                {dateLogs.map((log) => (
+                  <LogCard key={log.id} log={log} todos={todos} projects={projects} />
+                ))}
+              </div>
+            </div>
           ))}
+          {hasMore && (
+            <button
+              onClick={loadMore}
+              className="w-full py-3 text-sm font-medium text-[#4272EF] border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 min-h-[44px]"
+            >
+              Load more
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Mobile: sticky bottom action bar above the tab bar */}
+      {!showAdd && (
+        <div
+          className="lg:hidden fixed left-0 right-0 z-[55] px-4 pt-2 pb-2"
+          style={{
+            bottom: 58,
+            paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))",
+            background: "linear-gradient(to top, rgba(248,250,252,.96), rgba(248,250,252,.7))",
+          }}
+        >
+          <button
+            onClick={() => setShowAdd(true)}
+            className="w-full flex items-center justify-center gap-2 min-h-[48px] text-sm font-semibold text-white rounded-xl shadow-md"
+            style={{ backgroundColor: "#4272EF" }}
+          >
+            <Plus size={16} /> New field log
+          </button>
         </div>
       )}
 

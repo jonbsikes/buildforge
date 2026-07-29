@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { Fragment, useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Clock } from "lucide-react";
 import { createDraw, type DrawableInvoice } from "@/app/actions/draws";
 import type { LenderOption, LoanForDraw } from "@/app/(app)/draws/new/page";
+import MetadataChip from "@/components/ui/MetadataChip";
 
 interface Props {
   invoices: DrawableInvoice[];
@@ -32,7 +33,34 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [selectedLenderId, setSelectedLenderId] = useState<string>("");
+
+  // Pre-pick the lender with the most eligible invoices so the weekly batch
+  // opens review-ready (Package 04 §Step 3): pick lender → uncheck → submit.
+  const defaultLenderId = useMemo(() => {
+    if (lenders.length === 0) return "";
+    const projectToLenders = new Map<string, Set<string>>();
+    for (const l of loans) {
+      if (!projectToLenders.has(l.project_id)) projectToLenders.set(l.project_id, new Set());
+      projectToLenders.get(l.project_id)!.add(l.lender_id);
+    }
+    const counts = new Map<string, number>();
+    for (const inv of invoices) {
+      const seen = new Set<string>();
+      for (const pid of inv.project_ids) {
+        for (const lid of projectToLenders.get(pid) ?? []) seen.add(lid);
+      }
+      for (const lid of seen) counts.set(lid, (counts.get(lid) ?? 0) + 1);
+    }
+    let best = "";
+    let bestCount = 0;
+    for (const l of lenders) {
+      const c = counts.get(l.id) ?? 0;
+      if (c > bestCount) { best = l.id; bestCount = c; }
+    }
+    return best || lenders[0]?.id || "";
+  }, [invoices, loans, lenders]);
+
+  const [selectedLenderId, setSelectedLenderId] = useState<string>(defaultLenderId);
   const [excludedInvoiceIds, setExcludedInvoiceIds] = useState<Set<string>>(new Set());
 
   const lenderLoans = useMemo(
@@ -61,6 +89,17 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
   );
 
   const total = selectedInvoices.reduce((s, inv) => s + (inv.amount ?? 0), 0);
+
+  // Group by project with per-project subtotals (Package 04 §Step 3).
+  const byProjectGroups = useMemo(() => {
+    const map = new Map<string, DrawableInvoice[]>();
+    for (const inv of filteredInvoices) {
+      const key = inv.project?.name ?? "No project";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(inv);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredInvoices]);
 
   function toggleInvoice(id: string) {
     setExcludedInvoiceIds((prev) => {
@@ -215,52 +254,80 @@ export default function NewDrawForm({ invoices, loans, lenders }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredInvoices.map((inv) => {
-                const status = dueDateStatus(inv.due_date);
-                const isPastDue = status === "past_due";
-                const isDueSoon = status === "due_soon";
-                const isExcluded = excludedInvoiceIds.has(inv.id);
+              {byProjectGroups.map(([projectName, groupInvoices]) => {
+                const groupSelected = groupInvoices.filter((inv) => !excludedInvoiceIds.has(inv.id));
+                const groupSubtotal = groupSelected.reduce((s, inv) => s + (inv.amount ?? 0), 0);
                 return (
-                  <tr
-                    key={inv.id}
-                    className={`${isExcluded ? "opacity-50" : ""} ${isPastDue ? "bg-red-50/40" : isDueSoon ? "bg-amber-50/40" : ""}`}
-                  >
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={!isExcluded}
-                        onChange={() => toggleInvoice(inv.id)}
-                        className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900 flex items-center gap-1.5">
-                        {isPastDue && <AlertTriangle size={12} className="text-red-500 flex-shrink-0" />}
-                        {isDueSoon && <Clock size={12} className="text-amber-500 flex-shrink-0" />}
-                        {inv.vendor ?? "—"}
-                        {inv.status === "cleared" && (
-                          <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-green-50 text-green-700 flex-shrink-0">
-                            Paid — reimbursement
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-gray-400">{inv.invoice_number ?? "No #"}</p>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600">{inv.project?.name ?? "—"}</td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
-                      {inv.loan_number ? `#${inv.loan_number}` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      <span className={isPastDue ? "text-red-600 font-medium" : isDueSoon ? "text-amber-600 font-medium" : "text-gray-600"}>
-                        {inv.due_date ?? "—"}
-                        {isPastDue && " (past due)"}
-                        {isDueSoon && " (due soon)"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-900">
-                      {fmt(inv.amount)}
-                    </td>
-                  </tr>
+                  <Fragment key={projectName}>
+                    {byProjectGroups.length > 1 && (
+                      <tr className="bg-gray-50">
+                        <td colSpan={5} className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                          {projectName}
+                        </td>
+                        <td className="px-4 py-2 text-right text-xs font-semibold text-gray-700 tabular-nums">
+                          {fmt(groupSubtotal)}
+                        </td>
+                      </tr>
+                    )}
+                    {groupInvoices.map((inv) => {
+                      const status = dueDateStatus(inv.due_date);
+                      const isPastDue = status === "past_due";
+                      const isDueSoon = status === "due_soon";
+                      const isExcluded = excludedInvoiceIds.has(inv.id);
+                      return (
+                        <tr
+                          key={inv.id}
+                          className={isExcluded ? "opacity-50" : ""}
+                          style={{
+                            backgroundColor: isExcluded
+                              ? undefined
+                              : isPastDue
+                                ? "var(--tint-over)"
+                                : isDueSoon
+                                  ? "var(--tint-warning)"
+                                  : undefined,
+                          }}
+                        >
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => toggleInvoice(inv.id)}
+                              className="rounded border-gray-300 text-[#4272EF] focus:ring-[#4272EF]"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-gray-900 flex items-center gap-1.5">
+                              {isPastDue && <AlertTriangle size={12} className="flex-shrink-0" style={{ color: "var(--status-over)" }} />}
+                              {isDueSoon && <Clock size={12} className="flex-shrink-0" style={{ color: "var(--status-warning)" }} />}
+                              {inv.vendor ?? "—"}
+                              {inv.status === "cleared" && (
+                                <MetadataChip className="flex-shrink-0">Reimbursement</MetadataChip>
+                              )}
+                            </p>
+                            <p className="text-xs text-gray-400">{inv.invoice_number ?? "No #"}</p>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600">{inv.project?.name ?? "—"}</td>
+                          <td className="px-4 py-3 text-xs text-gray-600">
+                            {inv.loan_number ? `#${inv.loan_number}` : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            <span
+                              className={isPastDue || isDueSoon ? "font-medium" : "text-gray-600"}
+                              style={isPastDue ? { color: "var(--status-over)" } : isDueSoon ? { color: "var(--status-warning)" } : undefined}
+                            >
+                              {inv.due_date ?? "—"}
+                              {isPastDue && " (past due)"}
+                              {isDueSoon && " (due soon)"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-900">
+                            {fmt(inv.amount)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </tbody>

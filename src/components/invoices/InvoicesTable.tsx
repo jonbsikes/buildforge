@@ -18,6 +18,7 @@ import {
 } from "@/app/actions/invoice-batch";
 import ConfirmButton from "@/components/ui/ConfirmButton";
 import Money from "@/components/ui/Money";
+import { useToast } from "@/components/ui/Toast";
 import DateValue from "@/components/ui/DateValue";
 import {
   EMPTY_FILTERS,
@@ -115,7 +116,7 @@ export default function InvoicesTable({
   const [drawOverrides, setDrawOverrides] = useState<Record<string, boolean>>({});
   const [payMenuFor, setPayMenuFor] = useState<string | null>(null);
   const [moreMenuFor, setMoreMenuFor] = useState<string | null>(null);
-  const [banner, setBanner] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const toast = useToast();
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -143,7 +144,7 @@ export default function InvoicesTable({
       needsAttention.has(invId) &&
       !row.manually_reviewed;
     if (blocked) {
-      setBanner({ type: "error", msg: "Needs attention — fix vendor, cost code, and amount before approving" });
+      toast.error("Needs attention — fix vendor, cost code, and amount before approving");
       return;
     }
     setStatusOverrides((prev) => ({ ...prev, [invId]: "approved" }));
@@ -155,17 +156,10 @@ export default function InvoicesTable({
           delete n[invId];
           return n;
         });
-        setBanner({ type: "error", msg: r.error });
+        toast.error(r.error);
       }
     });
   }
-
-  useEffect(() => {
-    if (banner) {
-      const t = setTimeout(() => setBanner(null), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [banner]);
 
   // Search & filter state
   const [search, setSearch] = useState("");
@@ -369,14 +363,11 @@ export default function InvoicesTable({
     });
     const deleted = ids.length - failedIds.length;
     if (failedIds.length > 0) {
-      setBanner({
-        type: "error",
-        msg: `Deleted ${deleted}, failed ${failedIds.length}: ${firstError}`,
-      });
+      toast.error(`Deleted ${deleted}, failed ${failedIds.length}: ${firstError}`);
       // Keep the rows that couldn't be deleted selected for retry/review.
       setSelected(new Set(failedIds));
     } else {
-      setBanner({ type: "success", msg: `Deleted ${deleted} invoice${deleted !== 1 ? "s" : ""}` });
+      toast.success(`Deleted ${deleted} invoice${deleted !== 1 ? "s" : ""}`);
       exitSelectMode();
     }
   }
@@ -424,12 +415,13 @@ export default function InvoicesTable({
     const ids = [...selected];
     startTransition(async () => {
       const r = await approveInvoicesBatch(ids);
-      if (r.error) setBanner({ type: "error", msg: r.error });
+      if (r.error) toast.error(r.error);
       else {
         const msg = r.skipped > 0
           ? `Approved ${r.approved}, skipped ${r.skipped}`
           : `Approved ${r.approved} invoice${r.approved !== 1 ? "s" : ""}`;
-        setBanner({ type: r.skipped > 0 ? "error" : "success", msg });
+        if (r.skipped > 0) toast.error(msg);
+        else toast.success(msg);
       }
       exitSelectMode();
     });
@@ -439,14 +431,13 @@ export default function InvoicesTable({
     const ids = [...selected];
     startTransition(async () => {
       const r = await setPendingDrawBatch(ids, pending);
-      if (r.error) setBanner({ type: "error", msg: r.error });
+      if (r.error) toast.error(r.error);
       else if (pending && r.skipped > 0) {
-        setBanner({
-          type: r.updated > 0 ? "success" : "error",
-          msg: `Added ${r.updated} to draw, skipped ${r.skipped} — only approved or paid (cleared) invoices can be added`,
-        });
+        const msg = `Added ${r.updated} to draw, skipped ${r.skipped} — only approved or paid (cleared) invoices can be added`;
+        if (r.updated > 0) toast.success(msg);
+        else toast.error(msg);
       } else {
-        setBanner({ type: "success", msg: `${pending ? "Added" : "Removed"} ${r.updated} invoice${r.updated !== 1 ? "s" : ""} ${pending ? "to" : "from"} draw` });
+        toast.success(`${pending ? "Added" : "Removed"} ${r.updated} invoice${r.updated !== 1 ? "s" : ""} ${pending ? "to" : "from"} draw`);
       }
       exitSelectMode();
     });
@@ -454,16 +445,6 @@ export default function InvoicesTable({
 
   return (
     <>
-      {banner && (
-        <div
-          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-medium animate-slide-in-right ${
-            banner.type === "success" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-          }`}
-        >
-          {banner.msg}
-        </div>
-      )}
-
       {/* Inline summary strip (no card chrome) */}
       <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 pb-3 mb-4 border-b border-gray-200 tabular-nums">
         <div>
@@ -936,9 +917,9 @@ export default function InvoicesTable({
                                   const r = await setPendingDraw(inv.id, next);
                                   if (r.error) {
                                     setDrawOverrides((p) => ({ ...p, [inv.id]: !next }));
-                                    setBanner({ type: "error", msg: r.error });
+                                    toast.error(r.error);
                                   } else {
-                                    setBanner({ type: "success", msg: next ? "Added to next draw" : "Removed from draw" });
+                                    toast.success(next ? "Added to next draw" : "Removed from draw");
                                   }
                                 });
                               }}
@@ -992,10 +973,10 @@ export default function InvoicesTable({
                                   const r = await payInvoiceAutoDraft(inv.id);
                                   if (r.error) {
                                     setStatusOverrides((prev) => ({ ...prev, [inv.id]: "approved" }));
-                                    setBanner({ type: "error", msg: r.error });
+                                    toast.error(r.error);
                                     return { error: r.error };
                                   }
-                                  setBanner({ type: "success", msg: "Invoice marked as auto-drafted" });
+                                  toast.success("Invoice marked as auto-drafted");
                                 }}
                                 triggerClassName="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 border-t border-gray-100"
                               />
@@ -1035,7 +1016,7 @@ export default function InvoicesTable({
                                       delete n[inv.id];
                                       return n;
                                     });
-                                    setBanner({ type: "error", msg: r.error });
+                                    toast.error(r.error);
                                     return { error: r.error };
                                   }
                                 }}
@@ -1059,7 +1040,7 @@ export default function InvoicesTable({
                                       delete n[inv.id];
                                       return n;
                                     });
-                                    setBanner({ type: "error", msg: r.error });
+                                    toast.error(r.error);
                                     return { error: r.error };
                                   }
                                 }}
@@ -1079,7 +1060,7 @@ export default function InvoicesTable({
                                         delete n[inv.id];
                                         return n;
                                       });
-                                      setBanner({ type: "error", msg: r.error });
+                                      toast.error(r.error);
                                     }
                                   });
                                 }}
@@ -1099,7 +1080,7 @@ export default function InvoicesTable({
                                   setMoreMenuFor(null);
                                   const r = await voidInvoice(inv.id);
                                   if (r.error) {
-                                    setBanner({ type: "error", msg: r.error });
+                                    toast.error(r.error);
                                     return { error: r.error };
                                   }
                                 }}

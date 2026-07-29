@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useMemo } from "react";
 import { Info, Coins } from "lucide-react";
 import Link from "next/link";
 import ReportChrome from "@/components/ui/ReportChrome";
@@ -84,146 +83,124 @@ const BUCKET_HEADER_STYLE: Record<AgingBucket, { bg: string; text: string }> = {
   "90+":     { bg: "var(--tint-over)",     text: "var(--status-over)" },
 };
 
-export default function APAgingClient() {
-  const [rows, setRows] = useState<AgingRow[]>([]);
-  const [pending, setPending] = useState<AgingRow[]>([]);
-  const [credits, setCredits] = useState<VendorCreditRow[]>([]);
-  const [outstandingChecks, setOutstandingChecks] = useState<OutstandingCheck[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [vendors, setVendors] = useState<string[]>([]);
+/** Raw query results fetched server-side in financial/ap-aging/page.tsx. */
+export interface APAgingInitialData {
+  invoices: {
+    id: string;
+    vendor: string | null;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    due_date: string | null;
+    amount: number | null;
+    status: string;
+    project_id: string | null;
+    projects: { id: string; name: string } | null;
+  }[];
+  outstandingPayments: {
+    id: string;
+    payee: string;
+    amount: number | null;
+    discount_amount: number | null;
+    credits_applied: number | null;
+    payment_number: string | null;
+    payment_date: string | null;
+    draw_id: string | null;
+    loan_draws: { id: string; draw_date: string | null } | null;
+  }[];
+  creditRows: {
+    id: string;
+    credit_date: string;
+    credit_number: string | null;
+    reason: string | null;
+    amount: number;
+    applied_amount: number | null;
+    vendors: { name: string } | null;
+    projects: { name: string } | null;
+  }[];
+  projectList: { id: string; name: string }[];
+}
+
+// Data is fetched server-side (Package 05 §B) — no spinner; shaping happens
+// synchronously here so the server HTML already carries the numbers.
+export default function APAgingClient({ initialData }: { initialData: APAgingInitialData }) {
   const [filterProject, setFilterProject] = useState("");
   const [filterVendor, setFilterVendor] = useState("");
-  const [, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const today = new Date().toISOString().split("T")[0];
+  const { rows, pending, credits, outstandingChecks, projects, vendors } = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    const list = initialData.invoices;
 
-      // Load all four independent datasets in parallel
-      const [
-        { data: invoices },
-        { data: outstandingPayments },
-        { data: creditRows },
-        { data: projectList },
-      ] = await Promise.all([
-        // AP aging = APPROVED invoices only — those are the ones sitting in
-        // GL account 2000. pending_review has no JE yet (shown separately
-        // below); released has already moved to 2050 (outstanding checks
-        // card, sourced from the payment register).
-        supabase
-          .from("invoices")
-          .select("id, vendor, invoice_number, invoice_date, due_date, amount, status, project_id, projects(id, name)")
-          .in("status", ["pending_review", "approved"])
-          .order("due_date"),
-        // Outstanding (written but not cashed) checks from the Payment Register.
-        // The `payments` table is the authoritative source: status flips from
-        // 'outstanding' → 'cleared' when a check clears the bank, matching the
-        // 2050 (Checks Issued - Outstanding) GL balance. Net amount in 2050 is
-        // amount − discount_amount − credits_applied.
-        supabase
-          .from("payments")
-          .select(`
-            id, payee, amount, discount_amount, credits_applied,
-            payment_number, payment_date, draw_id, payment_method, status,
-            loan_draws ( id, draw_date )
-          `)
-          .eq("status", "outstanding")
-          .eq("payment_method", "check")
-          .order("payment_date", { ascending: true }),
-        // Vendor credits with remaining balance > 0 — these reduce the
-        // vendor's net AP. The Balance Sheet AP account already nets these
-        // (the credit posted DR AP / CR WIP at entry), so showing them here
-        // makes the report tie out to the GL.
-        supabase
-          .from("vendor_credits")
-          .select(`
-            id, credit_date, credit_number, reason, amount, applied_amount,
-            vendors ( name ), projects ( name )
-          `)
-          .eq("status", "available")
-          .order("credit_date", { ascending: true }),
-        supabase.from("projects").select("id, name").order("name"),
-      ]);
+    const toRow = (inv: (typeof list)[number]): AgingRow => {
+      const project = inv.projects;
+      const invoiceDate = inv.invoice_date ?? today!;
+      const dueDate = inv.due_date ?? today!;
+      const daysOutstanding = Math.max(0, Math.floor((new Date().getTime() - new Date(invoiceDate).getTime()) / 86400000));
 
-      const list = invoices ?? [];
-
-      const toRow = (inv: (typeof list)[number]): AgingRow => {
-        const project = inv.projects as { id: string; name: string } | null;
-        const invoiceDate = inv.invoice_date ?? today;
-        const dueDate = inv.due_date ?? today;
-        const daysOutstanding = Math.max(0, Math.floor((new Date().getTime() - new Date(invoiceDate).getTime()) / 86400000));
-
-        return {
-          id: inv.id,
-          vendor: inv.vendor ?? "Unknown Vendor",
-          invoice_number: inv.invoice_number ?? "—",
-          project: project?.name ?? "No Project",
-          invoice_date: invoiceDate,
-          due_date: dueDate,
-          amount: inv.amount ?? 0,
-          days_outstanding: daysOutstanding,
-          bucket: getBucket(dueDate),
-          status: inv.status,
-        };
+      return {
+        id: inv.id,
+        vendor: inv.vendor ?? "Unknown Vendor",
+        invoice_number: inv.invoice_number ?? "—",
+        project: project?.name ?? "No Project",
+        invoice_date: invoiceDate,
+        due_date: dueDate,
+        amount: inv.amount ?? 0,
+        days_outstanding: daysOutstanding,
+        bucket: getBucket(dueDate),
+        status: inv.status,
       };
+    };
 
-      // Only approved invoices are in AP (account 2000)
-      const agingRows: AgingRow[] = list.filter(inv => inv.status === "approved").map(toRow);
-      // Pending review — entered but not approved; no JE posted, not in AP yet
-      const pendingRows: AgingRow[] = list.filter(inv => inv.status === "pending_review").map(toRow);
+    // Only approved invoices are in AP (account 2000)
+    const agingRows: AgingRow[] = list.filter(inv => inv.status === "approved").map(toRow);
+    // Pending review — entered but not approved; no JE posted, not in AP yet
+    const pendingRows: AgingRow[] = list.filter(inv => inv.status === "pending_review").map(toRow);
 
-      const checksMap = new Map<string, OutstandingCheck>();
+    const checks: OutstandingCheck[] = initialData.outstandingPayments.map((p) => {
+      const draw = p.loan_draws;
+      const payDate = p.payment_date;
+      const daysOut = payDate
+        ? Math.max(0, Math.floor((new Date().getTime() - new Date(payDate).getTime()) / 86400000))
+        : 0;
+      const netAmount =
+        (p.amount ?? 0) - (p.discount_amount ?? 0) - (p.credits_applied ?? 0);
+      return {
+        id: p.id,
+        vendor_name: p.payee,
+        check_number: p.payment_number,
+        amount: netAmount,
+        payment_date: p.payment_date,
+        draw_id: draw?.id ?? p.draw_id ?? "",
+        draw_date: draw?.draw_date ?? null,
+        days_outstanding: daysOut,
+      };
+    });
 
-      for (const p of outstandingPayments ?? []) {
-        const draw = p.loan_draws as { id: string; draw_date: string | null } | null;
-        const payDate = p.payment_date;
-        const daysOut = payDate
-          ? Math.max(0, Math.floor((new Date().getTime() - new Date(payDate).getTime()) / 86400000))
-          : 0;
-        const netAmount =
-          (p.amount ?? 0) - (p.discount_amount ?? 0) - (p.credits_applied ?? 0);
-        checksMap.set(p.id, {
-          id: p.id,
-          vendor_name: p.payee,
-          check_number: p.payment_number,
-          amount: netAmount,
-          payment_date: p.payment_date,
-          draw_id: draw?.id ?? p.draw_id ?? "",
-          draw_date: draw?.draw_date ?? null,
-          days_outstanding: daysOut,
-        });
-      }
+    const creditList: VendorCreditRow[] = initialData.creditRows
+      .map((c) => {
+        const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
+        return {
+          id: c.id,
+          vendor: c.vendors?.name ?? "Unknown Vendor",
+          credit_date: c.credit_date,
+          credit_number: c.credit_number,
+          reason: c.reason,
+          remaining,
+          project: c.projects?.name ?? "No Project",
+        };
+      })
+      .filter((c) => c.remaining > 0.005);
 
-      const creditList: VendorCreditRow[] = (creditRows ?? [])
-        .map((c) => {
-          const vendor = (c.vendors as { name: string } | null)?.name ?? "Unknown Vendor";
-          const project = (c.projects as { name: string } | null)?.name ?? "No Project";
-          const remaining = Number(c.amount) - Number(c.applied_amount ?? 0);
-          return {
-            id: c.id,
-            vendor,
-            credit_date: c.credit_date,
-            credit_number: c.credit_number,
-            reason: c.reason,
-            remaining,
-            project,
-          };
-        })
-        .filter((c) => c.remaining > 0.005);
+    const allVendors = [...new Set([...agingRows.map(r => r.vendor), ...pendingRows.map(r => r.vendor), ...creditList.map(c => c.vendor)])].sort();
 
-      const allVendors = [...new Set([...agingRows.map(r => r.vendor), ...pendingRows.map(r => r.vendor), ...creditList.map(c => c.vendor)])].sort();
-
-      setRows(agingRows);
-      setPending(pendingRows);
-      setCredits(creditList);
-      setOutstandingChecks(Array.from(checksMap.values()));
-      setVendors(allVendors);
-      setProjects(projectList ?? []);
-      setLoading(false);
-    }
-    load();
-  }, []);
+    return {
+      rows: agingRows,
+      pending: pendingRows,
+      credits: creditList,
+      outstandingChecks: checks,
+      projects: initialData.projectList,
+      vendors: allVendors,
+    };
+  }, [initialData]);
 
   const filtered = useMemo(() => rows.filter(r => {
     if (filterProject && r.project !== filterProject) return false;

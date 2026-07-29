@@ -3,6 +3,7 @@ import BottomTabBar from "@/components/layout/BottomTabBar";
 import PageTransition from "@/components/layout/PageTransition";
 import CommandPalette from "@/components/layout/CommandPalette";
 import { UserRoleProvider } from "@/components/layout/UserRoleContext";
+import { ToastProvider } from "@/components/ui/Toast";
 
 
 export default function AppLayout({
@@ -12,21 +13,23 @@ export default function AppLayout({
 }) {
   return (
     <UserRoleProvider>
-      <div className="flex min-h-screen bg-slate-50">
-        {/* Desktop: icon rail (+ flyout on hover) */}
-        <DesktopNavRail />
+      <ToastProvider>
+        <div className="flex min-h-screen bg-slate-50">
+          {/* Desktop: icon rail (+ flyout on hover) */}
+          <DesktopNavRail />
 
-        {/* Main content area */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0 pb-20 lg:pb-0">
-          <PageTransition>{children}</PageTransition>
+          {/* Main content area */}
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0 pb-20 lg:pb-0">
+            <PageTransition>{children}</PageTransition>
+          </div>
+
+          {/* Mobile: bottom tab bar with FAB */}
+          <BottomTabBar />
+
+          {/* Cmd+K palette (mounted globally; opens on Cmd/Ctrl+K) */}
+          <CommandPalette />
         </div>
-
-        {/* Mobile: bottom tab bar with FAB */}
-        <BottomTabBar />
-
-        {/* Cmd+K palette (mounted globally; opens on Cmd/Ctrl+K) */}
-        <CommandPalette />
-      </div>
+      </ToastProvider>
     </UserRoleProvider>
   );
 }

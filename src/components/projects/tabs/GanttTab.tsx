@@ -13,6 +13,9 @@ export interface GanttStage {
   planned_end_date: string | null;
   actual_start_date: string | null;
   actual_end_date: string | null;
+  /** Original-plan snapshot — renders as a ghost bar on slipped stages (Package 05 §A). */
+  baseline_start_date?: string | null;
+  baseline_end_date?: string | null;
 }
 
 interface Props {
@@ -116,22 +119,28 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
   const base = startDate ? parseDate(startDate) : today;
 
   // Total days span.
-  // Home construction is ALWAYS exactly 152 days (days 1–152, offsets 0–151).
-  // Any stage date beyond this range is a data error — the Gantt must not expand.
+  // Home construction defaults to 152 days (days 1–152, offsets 0–151), but
+  // never silently clips: when any bar (or baseline ghost) extends past the
+  // span, extend to maxOffset + 7 and surface a "+N days over plan" chip in
+  // the toolbar (Package 05 §A overflow honesty).
   // Land development uses the actual stage span so it can grow with the schedule.
+  let maxOffset = 0;
+  for (const s of stages) {
+    if (s.status === "skipped") continue;
+    const dates = getBarDates(s);
+    if (dates) maxOffset = Math.max(maxOffset, dayOffset(base, dates.barEnd));
+    if (s.baseline_end_date) maxOffset = Math.max(maxOffset, dayOffset(base, s.baseline_end_date));
+  }
   let totalDays: number;
+  let overflowDays = 0;
   if (isHome) {
     totalDays = 152;
-  } else {
-    totalDays = 24 * 7;
-    for (const s of stages) {
-      const dates = getBarDates(s);
-      if (dates) {
-        const end = dayOffset(base, dates.barEnd);
-        if (end + 1 > totalDays) totalDays = end + 1;
-      }
+    if (maxOffset + 1 > totalDays) {
+      overflowDays = maxOffset + 1 - totalDays;
+      totalDays = maxOffset + 1 + 7;
     }
-    totalDays = Math.max(totalDays, 30);
+  } else {
+    totalDays = Math.max(24 * 7, maxOffset + 1, 30);
   }
 
   // Measure the timeline area width (card width minus sticky label column)
@@ -211,6 +220,15 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
           >
             <ZoomIn size={14} />
           </button>
+          {overflowDays > 0 && (
+            <span
+              className="ml-2 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap"
+              style={{ backgroundColor: "var(--tint-delayed)", color: "var(--status-delayed)" }}
+              title={`Schedule extends ${overflowDays} day${overflowDays !== 1 ? "s" : ""} past the 152-day plan`}
+            >
+              +{overflowDays} day{overflowDays !== 1 ? "s" : ""} over plan
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -229,6 +247,13 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
           <span className="flex items-center gap-1">
             <span className="w-3 h-3 rounded bg-amber-400 inline-block" />
             Delayed
+          </span>
+          <span className="flex items-center gap-1">
+            <span
+              className="w-3 h-1 rounded-sm inline-block"
+              style={{ backgroundColor: "#94A3B8", opacity: 0.4 }}
+            />
+            Baseline
           </span>
           <button
             onClick={() => window.print()}
@@ -285,6 +310,15 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
                     style={{ left: m.xPx }}
                   />
                 ))}
+                {/* "Today" label in the header gutter (Package 05 §A) */}
+                {todayOffset >= 0 && todayOffset <= totalDays && (
+                  <div
+                    className="absolute top-0.5 text-[9px] font-semibold uppercase tracking-wide whitespace-nowrap"
+                    style={{ left: todayOffset * dayWidth + 3, color: "var(--status-over)" }}
+                  >
+                    Today
+                  </div>
+                )}
               </div>
             </div>
 
@@ -334,27 +368,71 @@ export default function GanttTab({ stages, startDate, isHome }: Props) {
                         className="flex-1 relative border-b border-gray-100"
                         style={{ height: ROW_HEIGHT }}
                       >
-                        {/* Today marker */}
+                        {/* Today line — 1px, status-over at 60% (Package 05 §A) */}
                         {todayOffset >= 0 && todayOffset <= totalDays && (
                           <div
-                            className="absolute top-0 bottom-0 border-l-2 border-[#4272EF] opacity-40 z-10 pointer-events-none"
-                            style={{ left: todayOffset * dayWidth }}
+                            className="absolute top-0 bottom-0 z-10 pointer-events-none"
+                            style={{
+                              left: todayOffset * dayWidth,
+                              width: 1,
+                              backgroundColor: "var(--status-over)",
+                              opacity: 0.6,
+                            }}
                           />
                         )}
 
-                        {/* Bar */}
+                        {/* Bar + baseline ghost */}
                         {dates && (() => {
                           const startOff = dayOffset(base, dates.barStart);
                           const endOff   = dayOffset(base, dates.barEnd);
                           const left  = startOff * dayWidth;
                           const width = Math.max((endOff - startOff + 1) * dayWidth, 4);
                           const color = barColor(stage.status, Boolean(isDelayed));
+
+                          // Ghost bar from the baseline snapshot — only when the
+                          // stage has slipped from its original plan (no noise on
+                          // unslipped stages).
+                          const hasBaseline =
+                            stage.baseline_start_date && stage.baseline_end_date;
+                          const slipped =
+                            hasBaseline &&
+                            (stage.baseline_start_date !== dates.barStart ||
+                              stage.baseline_end_date !== dates.barEnd);
+                          const ghost = slipped
+                            ? {
+                                left: dayOffset(base, stage.baseline_start_date!) * dayWidth,
+                                width: Math.max(
+                                  (dayOffset(base, stage.baseline_end_date!) -
+                                    dayOffset(base, stage.baseline_start_date!) +
+                                    1) * dayWidth,
+                                  4,
+                                ),
+                              }
+                            : null;
+
                           return (
-                            <div
-                              className={`absolute top-1/2 -translate-y-1/2 rounded ${color} opacity-90`}
-                              style={{ left, width, height: 16 }}
-                              title={`${stage.stage_name}: ${dates.barStart} → ${dates.barEnd}`}
-                            />
+                            <>
+                              <div
+                                className={`absolute rounded ${color} opacity-90`}
+                                style={{ left, width, height: 16, top: ghost ? 2 : "50%", transform: ghost ? undefined : "translateY(-50%)" }}
+                                title={`${stage.stage_name}: ${dates.barStart} → ${dates.barEnd}`}
+                              />
+                              {ghost && (
+                                <div
+                                  className="absolute"
+                                  style={{
+                                    left: ghost.left,
+                                    width: ghost.width,
+                                    height: 4,
+                                    top: 20,
+                                    borderRadius: 2,
+                                    backgroundColor: "#94A3B8",
+                                    opacity: 0.4,
+                                  }}
+                                  title={`Baseline: ${stage.baseline_start_date} → ${stage.baseline_end_date}`}
+                                />
+                              )}
+                            </>
                           );
                         })()}
                       </div>

@@ -150,23 +150,52 @@ export default async function VendorPaymentsPanel({ drawId }: Props) {
 
   const paidCount = vendorPayments.filter((vp) => vp.status === "paid").length;
   const total = vendorPayments.length;
+  const remaining = vendorPayments
+    .filter((vp) => vp.status !== "paid")
+    .reduce((s, vp) => s + (vp.amount ?? 0), 0);
   const today = new Date().toISOString().split("T")[0];
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      {/* Panel header */}
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-700">Check Remittances</h3>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Enter a check number and date for each vendor, then click&nbsp;
-            <span className="font-medium text-gray-600">Mark Paid</span>.
-            GL entries post automatically.
-          </p>
+      {/* Panel header — payment progress rollup (Package 04 §Step 2) */}
+      <div className="px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">
+              {paidCount} of {total} vendor{total !== 1 ? "s" : ""} paid
+              {remaining > 0 && (
+                <span className="text-gray-500 font-normal"> · {fmt(remaining)} remaining</span>
+              )}
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Enter a check number and date for each vendor, then click&nbsp;
+              <span className="font-medium text-gray-600">Mark Paid</span>.
+              GL entries post automatically.
+            </p>
+          </div>
+          <StatusBadge status={paidCount === total ? "complete" : "warning"} size="sm">
+            {paidCount} / {total} paid
+          </StatusBadge>
         </div>
-        <StatusBadge status={paidCount === total ? "complete" : "warning"} size="sm">
-          {paidCount} / {total} paid
-        </StatusBadge>
+        <div
+          className="mt-3"
+          style={{
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: "var(--border-weak)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              width: `${total > 0 ? Math.round((paidCount / total) * 100) : 0}%`,
+              borderRadius: 3,
+              backgroundColor: "var(--status-complete)",
+              transition: "width 200ms ease",
+            }}
+          />
+        </div>
       </div>
 
       {/* Vendor rows */}

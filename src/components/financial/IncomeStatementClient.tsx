@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback, ReactNode } from "react";
+import { useEffect, useRef, useState, useCallback, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { X, ChevronDown } from "lucide-react";
 import ReportChrome from "@/components/ui/ReportChrome";
+import { RefetchOverlay } from "@/components/ui/Skeleton";
 
 function fmt(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -39,6 +40,44 @@ interface StatementData {
   grossProfit: number;
   totalExpenses: number;
   netIncome: number;
+}
+
+/** Shape returned by the get_income_statement_data RPC. */
+export type IncomeStatementRpcRow = {
+  account_number: string;
+  account_name: string;
+  account_type: string;
+  total_debit: number;
+  total_credit: number;
+};
+
+/** Pure transform from RPC rows to the statement shape (shared by the
+ *  server-fed first render and client date-range refetches). */
+function buildStatementData(rows: IncomeStatementRpcRow[]): StatementData {
+  const toLines = (type: string): AccountLine[] =>
+    rows
+      .filter((a) => a.account_type === type)
+      .map((a) => ({
+        account_number: a.account_number,
+        account: `${a.account_number} · ${a.account_name}`,
+        type: a.account_type,
+        total: type === "revenue"
+          ? Number(a.total_credit) - Number(a.total_debit)
+          : Number(a.total_debit) - Number(a.total_credit),
+        entries: [],
+      }))
+      .filter((a) => Math.abs(a.total) > 0.01)
+      .sort((a, b) => a.account_number.localeCompare(b.account_number));
+
+  const revenue = toLines("revenue");
+  const cogs = toLines("cogs");
+  const expenses = toLines("expense");
+  const totalRevenue = revenue.reduce((s, l) => s + l.total, 0);
+  const totalCOGS = cogs.reduce((s, l) => s + l.total, 0);
+  const totalExpenses = expenses.reduce((s, l) => s + l.total, 0);
+  const grossProfit = totalRevenue - totalCOGS;
+
+  return { revenue, cogs, expenses, totalRevenue, totalCOGS, grossProfit, totalExpenses, netIncome: grossProfit - totalExpenses };
 }
 
 function getPresetRange(preset: DatePreset): { start: string; end: string } {
@@ -96,12 +135,14 @@ async function fetchAccountEntries(accountNumber: string, accountType: string, s
     .sort((x, y) => y.date.localeCompare(x.date));
 }
 
-export default function IncomeStatementClient() {
+export default function IncomeStatementClient({ initialRows }: { initialRows: IncomeStatementRpcRow[] }) {
   const [preset, setPreset] = useState<DatePreset>("this_year");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [data, setData] = useState<StatementData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // First render is server-fed (Package 05 §B) — the page runs the same RPC
+  // for the default "this_year" range and passes the rows down.
+  const [data, setData] = useState<StatementData>(() => buildStatementData(initialRows));
+  const [loading, setLoading] = useState(false);
   const [drillEntry, setDrillEntry] = useState<AccountLine | null>(null);
 
   const load = useCallback(async () => {
@@ -113,44 +154,19 @@ export default function IncomeStatementClient() {
 
     // Server-side aggregation — per-account P&L totals for the range.
     // Drill-down lines are fetched on demand when an account is clicked.
-    type RpcRow = {
-      account_number: string;
-      account_name: string;
-      account_type: string;
-      total_debit: number;
-      total_credit: number;
-    };
     const { data: rpcData } = await (supabase.rpc as any)("get_income_statement_data", { p_start: start, p_end: end });
-    const rows = (rpcData ?? []) as RpcRow[];
-
-    const toLines = (type: string): AccountLine[] =>
-      rows
-        .filter((a) => a.account_type === type)
-        .map((a) => ({
-          account_number: a.account_number,
-          account: `${a.account_number} · ${a.account_name}`,
-          type: a.account_type,
-          total: type === "revenue"
-            ? Number(a.total_credit) - Number(a.total_debit)
-            : Number(a.total_debit) - Number(a.total_credit),
-          entries: [],
-        }))
-        .filter((a) => Math.abs(a.total) > 0.01)
-        .sort((a, b) => a.account_number.localeCompare(b.account_number));
-
-    const revenue = toLines("revenue");
-    const cogs = toLines("cogs");
-    const expenses = toLines("expense");
-    const totalRevenue = revenue.reduce((s, l) => s + l.total, 0);
-    const totalCOGS = cogs.reduce((s, l) => s + l.total, 0);
-    const totalExpenses = expenses.reduce((s, l) => s + l.total, 0);
-    const grossProfit = totalRevenue - totalCOGS;
-
-    setData({ revenue, cogs, expenses, totalRevenue, totalCOGS, grossProfit, totalExpenses, netIncome: grossProfit - totalExpenses });
+    setData(buildStatementData((rpcData ?? []) as IncomeStatementRpcRow[]));
     setLoading(false);
   }, [preset, customStart, customEnd]);
 
-  useEffect(() => { load(); }, [load]);
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return; // initial data came from the server
+    }
+    load();
+  }, [load]);
 
   const openDrill = useCallback(async (line: AccountLine) => {
     // Load JE lines on demand for drill-down
@@ -173,7 +189,7 @@ export default function IncomeStatementClient() {
       loading={loading}
       exportSlug="income-statement"
     >
-      {!data ? null : (
+      <RefetchOverlay active={loading}>
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="p-6 space-y-6">
             <ISSection title="Revenue" lines={data.revenue} total={data.totalRevenue} totalLabel="Total Revenue" onDrill={openDrill} colorClass="text-green-700" />
@@ -191,7 +207,7 @@ export default function IncomeStatementClient() {
             </div>
           </div>
         </div>
-      )}
+      </RefetchOverlay>
 
       {drillEntry && <DrillPanel line={drillEntry} onClose={() => setDrillEntry(null)} />}
     </ReportChrome>

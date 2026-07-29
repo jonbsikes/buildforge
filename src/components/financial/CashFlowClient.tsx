@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { X, ChevronDown } from "lucide-react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
+import { RefetchOverlay } from "@/components/ui/Skeleton";
 import {
   parseCashFlowBuckets,
   buildCashFlowStatementSections,
@@ -46,15 +47,26 @@ function getPresetRange(preset: DatePreset): { start: string; end: string } {
   return { start: `${y}-01-01`, end: today };
 }
 
-export default function CashFlowClient() {
+export default function CashFlowClient({
+  initialBucket,
+}: {
+  /** First row of get_cash_flow_statement for the default (since-inception)
+   *  range, fetched server-side (Package 05 §B). */
+  initialBucket?: Record<string, number | string>;
+}) {
   const [preset, setPreset] = useState<DatePreset>("since_inception");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [sections, setSections] = useState<CashFlowStatementSection[]>([]);
-  const [netChange, setNetChange] = useState(0);
-  const [beginningCash, setBeginningCash] = useState(0);
-  const [endingCash, setEndingCash] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const initial = (() => {
+    const b = parseCashFlowBuckets(initialBucket);
+    const built = buildCashFlowStatementSections(b);
+    return { sections: [built.operating, built.investing, built.financing], netChange: built.netChange, beginningCash: b.beginning_cash, endingCash: b.ending_cash };
+  })();
+  const [sections, setSections] = useState<CashFlowStatementSection[]>(initial.sections);
+  const [netChange, setNetChange] = useState(initial.netChange);
+  const [beginningCash, setBeginningCash] = useState(initial.beginningCash);
+  const [endingCash, setEndingCash] = useState(initial.endingCash);
+  const [loading, setLoading] = useState(false);
   const [drill, setDrill] = useState<DrillState | null>(null);
 
   const load = useCallback(async () => {
@@ -84,7 +96,14 @@ export default function CashFlowClient() {
     setLoading(false);
   }, [preset, customStart, customEnd]);
 
-  useEffect(() => { load(); }, [load]);
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return; // initial data came from the server
+    }
+    load();
+  }, [load]);
 
   const openDrill = useCallback(async (line: CashFlowStatementLine) => {
     // Drill-down: cash JE lines for this bucket, classified server-side with
@@ -145,9 +164,7 @@ export default function CashFlowClient() {
           )}
         </div>
 
-        {loading ? (
-          <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
-        ) : (
+        <RefetchOverlay active={loading}>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 text-center" style={{ backgroundColor: "#4272EF" }}>
               <h2 className="text-base font-bold text-white">Cash Flow Statement</h2>
@@ -183,7 +200,7 @@ export default function CashFlowClient() {
               </div>
             </div>
           </div>
-        )}
+        </RefetchOverlay>
       </div>
 
       {drill && <CFDrillModal drill={drill} onClose={() => setDrill(null)} />}

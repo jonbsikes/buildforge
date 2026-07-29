@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState } from "react";
 import ReportExportButtons from "@/components/ui/ReportExportButtons";
 import StatusBadge, { type StatusKind } from "@/components/ui/StatusBadge";
 
@@ -14,7 +13,7 @@ function pct(num: number, den: number) {
   return Math.min(100, Math.max(0, (num / den) * 100));
 }
 
-interface WIPRow {
+export interface WIPRow {
   id: string;
   name: string;
   type: string;
@@ -30,95 +29,10 @@ interface WIPRow {
   capitalizedInterest: number; // balance of 1220 specifically
 }
 
-export default function WIPClient() {
-  const [rows, setRows] = useState<WIPRow[]>([]);
-  const [loading, setLoading] = useState(true);
+// Rows are assembled server-side in financial/wip/page.tsx (Package 05 §B) —
+// first paint carries data; the status filter below is purely client-side.
+export default function WIPClient({ rows }: { rows: WIPRow[] }) {
   const [filterStatus, setFilterStatus] = useState("active");
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-
-      const [projectsRes, budgetsRes, contractsRes, actualsRes, loansRes] = await Promise.all([
-        supabase.from("projects").select("id, name, project_type, status").order("name"),
-        (supabase.rpc as any)("get_project_budget_totals"),
-        supabase.from("contracts").select("project_id, amount"),
-        (supabase.rpc as any)("get_invoice_line_actuals_by_project"),
-        supabase.from("loans").select("project_id, loan_amount"),
-      ]);
-
-      const projects = projectsRes.data ?? [];
-
-      // Server-side aggregates, keyed by project_id
-      const budgetMap: Record<string, number> = {};
-      for (const b of (budgetsRes.data ?? []) as { project_id: string; total_budget: number }[]) {
-        budgetMap[b.project_id] = Number(b.total_budget);
-      }
-
-      const committedMap: Record<string, number> = {};
-      for (const c of contractsRes.data ?? []) {
-        committedMap[c.project_id] = (committedMap[c.project_id] ?? 0) + (c.amount ?? 0);
-      }
-
-      const actualMap: Record<string, number> = {};
-      for (const li of (actualsRes.data ?? []) as { project_id: string; total_amount: number }[]) {
-        actualMap[li.project_id] = Number(li.total_amount);
-      }
-
-      const loanMap: Record<string, number> = {};
-      for (const l of loansRes.data ?? []) {
-        loanMap[l.project_id] = (loanMap[l.project_id] ?? 0) + (l.loan_amount ?? 0);
-      }
-
-      // Pull ledger WIP balances (1210, 1220, 1230) by project via server-side aggregation
-      const { data: wipBalances } = await (supabase.rpc as any)("get_wip_balances");
-
-      const ledgerWipMap: Record<string, number> = {};
-      const capIntMap: Record<string, number> = {};
-
-      for (const row of (wipBalances ?? []) as { project_id: string; account_number: string; total_debit: number; total_credit: number }[]) {
-        const pid = row.project_id;
-        const net = Number(row.total_debit) - Number(row.total_credit);
-        if (row.account_number === "1210" || row.account_number === "1230") {
-          ledgerWipMap[pid] = (ledgerWipMap[pid] ?? 0) + net;
-        }
-        if (row.account_number === "1220") {
-          capIntMap[pid] = (capIntMap[pid] ?? 0) + net;
-        }
-      }
-
-      const wipRows: WIPRow[] = projects.map((p) => {
-        const budget = budgetMap[p.id] ?? 0;
-        const committed = committedMap[p.id] ?? 0;
-        const actual = actualMap[p.id] ?? 0;
-        const loanAmount = loanMap[p.id] ?? 0;
-        const completePct = pct(actual, budget);
-        const remaining = budget - actual;
-        // Over/under = committed + actual vs budget
-        const underOver = budget - (committed + actual);
-
-        return {
-          id: p.id,
-          name: p.name,
-          type: p.project_type,
-          status: p.status,
-          budget,
-          committed,
-          actual,
-          pctComplete: completePct,
-          remaining,
-          loanAmount,
-          underOver,
-          ledgerWip: (ledgerWipMap[p.id] ?? 0) + (capIntMap[p.id] ?? 0),
-          capitalizedInterest: capIntMap[p.id] ?? 0,
-        };
-      });
-
-      setRows(wipRows);
-      setLoading(false);
-    }
-    load();
-  }, []);
 
   const filtered = filterStatus ? rows.filter((r) => r.status === filterStatus) : rows;
 
@@ -171,9 +85,7 @@ export default function WIPClient() {
         </select>
       </div>
 
-      {loading ? (
-        <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400 text-sm">No projects found.</div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
