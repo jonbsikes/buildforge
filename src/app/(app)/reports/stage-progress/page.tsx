@@ -1,3 +1,4 @@
+import ReportSwitcher from "@/components/reports/ReportSwitcher";
 import Header from "@/components/layout/Header";
 import StageProgressReportClient from "@/components/reports/StageProgressReportClient";
 
@@ -7,6 +8,7 @@ export default function StageProgressPage() {
     <>
       <Header title="Stage Progress" />
       <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        <ReportSwitcher />
         <StageProgressReportClient />
       </main>
     </>

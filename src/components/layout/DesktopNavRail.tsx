@@ -212,7 +212,10 @@ export default function DesktopNavRail() {
           <nav className="flex-1 overflow-y-auto py-2">
             {openSection.subNav.map((item) => {
               const isItemActive =
-                pathname === item.href || pathname.startsWith(item.href + "/");
+                pathname === item.href ||
+                pathname.startsWith(item.href + "/") ||
+                (item.activePrefix != null &&
+                  (pathname === item.activePrefix || pathname.startsWith(item.activePrefix + "/")));
               return (
                 <Link
                   key={item.href}

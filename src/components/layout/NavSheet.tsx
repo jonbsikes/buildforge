@@ -151,7 +151,10 @@ export default function NavSheet({ section, onClose, fullNav }: NavSheetProps) {
 
           {section.subNav.map((item) => {
             const isItemActive =
-              pathname === item.href || pathname.startsWith(item.href + "/");
+              pathname === item.href ||
+                pathname.startsWith(item.href + "/") ||
+                (item.activePrefix != null &&
+                  (pathname === item.activePrefix || pathname.startsWith(item.activePrefix + "/")));
             return (
               <Link
                 key={item.href}

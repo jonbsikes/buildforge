@@ -3,6 +3,8 @@ import { Home, Building2, DollarSign, Layers } from "lucide-react";
 export interface SubNavItem {
   label: string;
   href: string;
+  /** Optional path prefix that also counts as "active" (e.g. /reports for all report pages). */
+  activePrefix?: string;
 }
 
 export interface NavSection {
@@ -36,7 +38,7 @@ export const navSections: NavSection[] = [
     subNav: [
       { label: "Projects hub", href: "/projects" },
       { label: "All projects", href: "/projects/tree" },
-      { label: "Reports", href: "/reports" },
+      { label: "Reports", href: "/reports/job-cost", activePrefix: "/reports" },
       { label: "Field logs", href: "/field-logs" },
       { label: "To-dos", href: "/todos" },
     ],
