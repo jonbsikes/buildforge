@@ -15,6 +15,18 @@ interface Project {
   project_type: string;
   subdivision: string | null;
   status: string;
+  home_size_sf: number | null;
+}
+
+// Home-construction cost-code buckets used for the $/SF rows.
+// Everything not listed here counts as direct construction.
+const LOT_CODES = new Set(["34"]);
+const FINANCING_CODES = new Set(["35", "36", "122"]); // closing cost, origination fee, loan interest
+const OPERATING_CODES = new Set(["96", "97", "98", "99"]);
+
+function fmtPerSf(n: number | null) {
+  if (n == null || !isFinite(n)) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(n);
 }
 
 interface CostCode {
@@ -59,7 +71,7 @@ export default function JobCostReportClient() {
     Promise.all([
       supabase
         .from("projects")
-        .select("id, name, project_type, subdivision, status")
+        .select("id, name, project_type, subdivision, status, home_size_sf")
         .in("project_type", ["home_construction", "land_development"])
         .order("name"),
       supabase
@@ -209,6 +221,39 @@ export default function JobCostReportClient() {
 
   const grandTotal = Object.values(projectTotals).reduce((s, v) => s + v, 0);
 
+  // $/SF metrics (home construction only). Mirrors the manual cost summary:
+  //  - Direct construction: excludes lot, financing and operating codes
+  //  - Direct + financing + operating: everything except the lot
+  //  - All-in: everything including the lot
+  const perSf = useMemo(() => {
+    if (projectType !== "home_construction") return null;
+    const sumWhere = (pid: string | null, pred: (code: string) => boolean) =>
+      visibleRows.reduce((s, r) => {
+        if (!pred(r.code)) return s;
+        return s + (pid ? (r.projectActuals[pid] ?? 0) : r.total);
+      }, 0);
+    const calc = (pid: string | null, sf: number | null) => {
+      const lot = sumWhere(pid, (c) => LOT_CODES.has(c));
+      const fin = sumWhere(pid, (c) => FINANCING_CODES.has(c));
+      const ops = sumWhere(pid, (c) => OPERATING_CODES.has(c));
+      const all = pid ? (projectTotals[pid] ?? 0) : grandTotal;
+      const direct = all - lot - fin - ops;
+      const div = (n: number) => (sf && sf > 0 ? n / sf : null);
+      return { sf, direct: div(direct), exLot: div(all - lot), allIn: div(all) };
+    };
+    const byProject: Record<string, ReturnType<typeof calc>> = {};
+    let totalSf = 0;
+    let anySf = false;
+    for (const p of filteredProjects) {
+      byProject[p.id] = calc(p.id, p.home_size_sf);
+      if (p.home_size_sf && p.home_size_sf > 0) {
+        totalSf += p.home_size_sf;
+        anySf = true;
+      }
+    }
+    return { byProject, total: calc(null, anySf ? totalSf : null) };
+  }, [projectType, visibleRows, filteredProjects, projectTotals, grandTotal]);
+
   function exportCSV() {
     const headers = [
       "Code",
@@ -232,6 +277,25 @@ export default function JobCostReportClient() {
         ...filteredProjects.map((p) => (projectTotals[p.id] ?? 0).toFixed(2)),
         grandTotal.toFixed(2),
       ].join(","),
+      ...(perSf
+        ? [
+            ["", "Heated SF", ...filteredProjects.map((p) => p.home_size_sf ?? ""), perSf.total.sf ?? ""].join(","),
+            ...(
+              [
+                ["direct", "Direct construction $/SF (excl. lot, financing, operating)"],
+                ["exLot", "Direct + financing + operating $/SF (excl. lot)"],
+                ["allIn", "All-in $/SF (incl. lot)"],
+              ] as const
+            ).map(([k, label]) =>
+              [
+                "",
+                `"${label}"`,
+                ...filteredProjects.map((p) => perSf.byProject[p.id]?.[k]?.toFixed(2) ?? ""),
+                perSf.total[k]?.toFixed(2) ?? "",
+              ].join(",")
+            ),
+          ]
+        : []),
     ];
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -307,31 +371,46 @@ export default function JobCostReportClient() {
       </p>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200">
         {dataLoading ? (
           <div className="text-center py-16 text-gray-400 text-sm">Loading…</div>
         ) : filteredProjects.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">No projects match the selected filters.</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
+              {/* Sticky header: <main> is the scroll container, so the project
+                  names stay pinned at the top while the filters scroll away. */}
+              <thead className="sticky top-0 z-20 shadow-[0_1px_0_0_#e5e7eb]">
+                <tr className="bg-gray-50">
                   <th className="px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide text-left sticky left-0 bg-gray-50 z-10 min-w-[200px]">
                     Description
                   </th>
                   {filteredProjects.map((p) => (
                     <th
                       key={p.id}
-                      className="px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide text-right whitespace-nowrap min-w-[120px]"
+                      className="px-4 py-2.5 text-xs font-semibold text-gray-700 uppercase tracking-wide text-right whitespace-nowrap min-w-[120px] bg-gray-50"
                     >
                       {p.name}
                     </th>
                   ))}
-                  <th className="px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide text-right min-w-[120px]">
+                  <th className="px-4 py-2.5 text-xs font-semibold text-gray-700 uppercase tracking-wide text-right min-w-[120px] bg-gray-50">
                     Total
                   </th>
                 </tr>
+                {perSf && (
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <td className="px-4 pb-2 text-xs text-gray-500 sticky left-0 bg-gray-50 z-10">Heated SF</td>
+                    {filteredProjects.map((p) => (
+                      <td key={p.id} className="px-4 pb-2 text-right text-xs text-gray-600 tabular-nums bg-gray-50">
+                        {p.home_size_sf ? p.home_size_sf.toLocaleString("en-US") : "—"}
+                      </td>
+                    ))}
+                    <td className="px-4 pb-2 text-right text-xs font-medium text-gray-700 tabular-nums bg-gray-50">
+                      {perSf.total.sf ? perSf.total.sf.toLocaleString("en-US") : "—"}
+                    </td>
+                  </tr>
+                )}
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {visibleRows.map((r) => (
@@ -368,6 +447,29 @@ export default function JobCostReportClient() {
                     {fmt(grandTotal)}
                   </td>
                 </tr>
+                {perSf &&
+                  (
+                    [
+                      { key: "direct", label: "Direct construction $/SF", note: "excl. lot, financing, operating" },
+                      { key: "exLot", label: "Direct + financing + operating $/SF", note: "excl. lot" },
+                      { key: "allIn", label: "All-in $/SF", note: "incl. lot" },
+                    ] as const
+                  ).map((m) => (
+                    <tr key={m.key} className="bg-blue-50/40 border-t border-gray-100 text-sm">
+                      <td className="px-4 py-2 text-gray-700 sticky left-0 bg-blue-50/40 z-10">
+                        {m.label}
+                        <span className="ml-2 text-xs text-gray-400">{m.note}</span>
+                      </td>
+                      {filteredProjects.map((p) => (
+                        <td key={p.id} className="px-4 py-2 text-right text-gray-800 tabular-nums">
+                          {fmtPerSf(perSf.byProject[p.id]?.[m.key] ?? null)}
+                        </td>
+                      ))}
+                      <td className="px-4 py-2 text-right font-medium text-gray-900 tabular-nums">
+                        {fmtPerSf(perSf.total[m.key])}
+                      </td>
+                    </tr>
+                  ))}
               </tfoot>
             </table>
           </div>
