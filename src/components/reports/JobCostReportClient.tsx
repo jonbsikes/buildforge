@@ -377,7 +377,7 @@ export default function JobCostReportClient() {
         ) : filteredProjects.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">No projects match the selected filters.</div>
         ) : (
-          <div>
+          <div className="overflow-x-auto lg:overflow-visible">
             <table className="w-full text-sm">
               {/* Sticky header: <main> is the scroll container, so the project
                   names stay pinned at the top while the filters scroll away. */}
