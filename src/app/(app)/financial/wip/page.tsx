@@ -14,11 +14,11 @@ export default async function WIPReportPage() {
 
   const [projectsRes, budgetsRes, contractsRes, actualsRes, loansRes, wipBalancesRes] = await Promise.all([
     supabase.from("projects").select("id, name, project_type, status").order("name"),
-    (supabase.rpc as any)("get_project_budget_totals"),
+    supabase.rpc("get_project_budget_totals"),
     supabase.from("contracts").select("project_id, amount"),
-    (supabase.rpc as any)("get_invoice_line_actuals_by_project"),
+    supabase.rpc("get_invoice_line_actuals_by_project"),
     supabase.from("loans").select("project_id, loan_amount"),
-    (supabase.rpc as any)("get_wip_balances"),
+    supabase.rpc("get_wip_balances"),
   ]);
 
   const projects = projectsRes.data ?? [];

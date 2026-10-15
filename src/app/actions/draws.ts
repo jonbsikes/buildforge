@@ -1467,7 +1467,7 @@ export async function markVendorPaymentPaid(
       return { error: `Failed to record credit applications: ${appErr.message}` };
     }
 
-    const { error: creditErr } = await (supabase.rpc as any)("apply_vendor_credits", {
+    const { error: creditErr } = await supabase.rpc("apply_vendor_credits", {
       p_applications: validCredits.map((c) => ({ credit_id: c.credit_id, amount: c.amount })),
     });
     if (creditErr) {

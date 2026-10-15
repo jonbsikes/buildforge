@@ -21,7 +21,7 @@ export default async function VendorsPage() {
       .select("id, name, email, phone, trade, coi_expiry_date, license_expiry_date, is_active, notes")
       .eq("is_active", true)
       .order("name"),
-    (supabase.rpc as any)("get_vendor_invoice_stats", { p_year_start: yearStart }),
+    supabase.rpc("get_vendor_invoice_stats", { p_year_start: yearStart }),
     supabase
       .from("contracts")
       .select("id, vendor_id, status"),

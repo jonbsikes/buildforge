@@ -47,9 +47,9 @@ export async function getData(p: ReportParams): Promise<WIPReportData> {
   // the GL WIP/CIP accounts even when budgets haven't been entered yet.
   const [projectsRes, budgetsRes, actualsRes, wipRes] = await Promise.all([
     supabase.from("projects").select("id, name, project_type, status").eq("status", "active").order("name"),
-    (supabase.rpc as any)("get_project_budget_totals"),
-    (supabase.rpc as any)("get_invoice_line_actuals_by_project"),
-    (supabase.rpc as any)("get_wip_balances_asof", { p_as_of: asOf }),
+    supabase.rpc("get_project_budget_totals"),
+    supabase.rpc("get_invoice_line_actuals_by_project"),
+    supabase.rpc("get_wip_balances_asof", { p_as_of: asOf }),
   ]);
 
   const projects = projectsRes.data ?? [];

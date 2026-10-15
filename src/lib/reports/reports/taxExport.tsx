@@ -150,9 +150,9 @@ export async function getData(p: ReportParams): Promise<TaxExportData> {
   type BsRow = PnlRow & { project_id: string | null };
   const [{ data: pnlData }, { data: bsEndData }, { data: bsBeginData }, { data: projectsData }] =
     await Promise.all([
-      (supabase.rpc as any)("get_income_statement_data", { p_start: startDate, p_end: endDate }),
-      (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: endDate }),
-      (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: priorEndDate }),
+      supabase.rpc("get_income_statement_data", { p_start: startDate, p_end: endDate }),
+      supabase.rpc("get_balance_sheet_data", { p_as_of_date: endDate }),
+      supabase.rpc("get_balance_sheet_data", { p_as_of_date: priorEndDate }),
       supabase.from("projects").select("id, name"),
     ]);
 

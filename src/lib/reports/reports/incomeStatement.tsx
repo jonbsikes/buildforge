@@ -44,7 +44,7 @@ export async function getData(p: ReportParams): Promise<IncomeStatementData> {
     total_debit: number;
     total_credit: number;
   };
-  const { data: rpcData } = await (supabase.rpc as any)("get_income_statement_data", { p_start: start, p_end: end });
+  const { data: rpcData } = await supabase.rpc("get_income_statement_data", { p_start: start, p_end: end });
   const rows = (rpcData ?? []) as RpcRow[];
 
   const toLines = (type: string): AccountLine[] =>

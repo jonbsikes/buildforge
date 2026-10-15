@@ -13,7 +13,7 @@ export default async function FinancialSummaryPage() {
   const [loansRes, projectsRes, rpcRes] = await Promise.all([
     supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
     supabase.from("projects").select("id, name").order("name"),
-    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: new Date().toISOString().split("T")[0] }),
+    supabase.rpc("get_balance_sheet_data", { p_as_of_date: new Date().toISOString().split("T")[0] }),
   ]);
 
   type RpcRow = {

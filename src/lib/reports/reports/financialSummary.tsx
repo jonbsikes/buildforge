@@ -63,8 +63,8 @@ export async function getData(p: ReportParams): Promise<FinancialSummaryData> {
   const periodStart = p.start ?? `${new Date().getFullYear()}-01-01`;
   const periodEnd = p.end ?? today;
   const [rpcRes, pnlRes, loansRes, projectsRes] = await Promise.all([
-    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: today }),
-    (supabase.rpc as any)("get_income_statement_data", { p_start: periodStart, p_end: periodEnd }),
+    supabase.rpc("get_balance_sheet_data", { p_as_of_date: today }),
+    supabase.rpc("get_income_statement_data", { p_start: periodStart, p_end: periodEnd }),
     supabase.from("loans").select("project_id, current_balance, status").eq("status", "active"),
     supabase.from("projects").select("id, name").order("name"),
   ]);

@@ -17,7 +17,7 @@ export default async function BalanceSheetPage() {
       .select("amount, applied_amount")
       .eq("status", "available")
       .lte("credit_date", today),
-    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: today }),
+    supabase.rpc("get_balance_sheet_data", { p_as_of_date: today }),
   ]);
   const creditsAvailable = (openCredits ?? []).reduce(
     (s: number, c: { amount: number; applied_amount: number | null }) =>

@@ -12,7 +12,7 @@ export default async function IncomeStatementPage() {
   const start = `${now.getFullYear()}-01-01`;
   const end = now.toISOString().split("T")[0]!;
 
-  const { data: rpcData } = await (supabase.rpc as any)("get_income_statement_data", {
+  const { data: rpcData } = await supabase.rpc("get_income_statement_data", {
     p_start: start,
     p_end: end,
   });

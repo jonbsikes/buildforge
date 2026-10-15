@@ -67,7 +67,7 @@ export async function getData(p: ReportParams): Promise<BalanceSheetData> {
     project_name: string | null;
   };
   const [{ data: rpcData }, { data: openCredits }] = await Promise.all([
-    (supabase.rpc as any)("get_balance_sheet_data", { p_as_of_date: asOf }),
+    supabase.rpc("get_balance_sheet_data", { p_as_of_date: asOf }),
     // Only credits that existed on the as-of date — a credit entered later
     // must not appear on (or inflate the gross AP line of) an earlier statement.
     supabase

@@ -50,8 +50,8 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     // Per-project budget + invoice-actual totals aggregated in SQL — the raw
     // rows grow forever and would silently cap at 1,000.
-    (supabase.rpc as any)("get_project_budget_totals"),
-    (supabase.rpc as any)("get_project_invoice_actuals"),
+    supabase.rpc("get_project_budget_totals"),
+    supabase.rpc("get_project_invoice_actuals"),
     // Open-AP invoices only — these statuses are all the KPIs below need.
     // vendor/vendor_id/ai_confidence/manually_reviewed/created_at feed the
     // item-level attention queue (Package 02).

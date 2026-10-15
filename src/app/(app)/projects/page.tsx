@@ -40,8 +40,8 @@ export default async function ProjectsHubPage() {
       .order("created_at", { ascending: false }),
     // Per-project budget + invoice-actual totals aggregated in SQL — the raw
     // rows grow forever and would silently cap at 1,000.
-    (supabase.rpc as any)("get_project_budget_totals"),
-    (supabase.rpc as any)("get_project_invoice_actuals"),
+    supabase.rpc("get_project_budget_totals"),
+    supabase.rpc("get_project_invoice_actuals"),
     supabase
       .from("field_todos")
       .select("id, status, priority, project_id, due_date")

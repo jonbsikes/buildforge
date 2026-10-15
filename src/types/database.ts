@@ -1901,6 +1901,148 @@ export type Database = {
       get_my_role: { Args: never; Returns: Json }
       get_user_role: { Args: never; Returns: string }
       is_admin: { Args: never; Returns: boolean }
+      is_viewer: { Args: never; Returns: boolean }
+      // ── Report / accounting RPCs (migrations 032, 035, 039, 041, 044) ──
+      // Postgres `numeric` arrives as a JSON string over PostgREST, so money
+      // columns are typed `number | string`; always wrap reads in Number().
+      apply_vendor_credits: { Args: { p_applications: Json }; Returns: undefined }
+      post_journal_entry: {
+        Args: {
+          p_entry_date: string
+          p_reference: string | null
+          p_description: string
+          p_status: string
+          p_source_type: string
+          p_source_id?: string | null
+          p_loan_id?: string | null
+          p_user_id?: string | null
+          p_lines?: Json
+        }
+        Returns: string
+      }
+      get_balance_sheet_data: {
+        Args: { p_as_of_date?: string; p_project_id?: string | null }
+        Returns: {
+          account_number: string
+          account_name: string
+          account_type: string
+          account_subtype: string | null
+          total_debit: number | string
+          total_credit: number | string
+          project_id: string | null
+          project_name: string | null
+        }[]
+      }
+      get_income_statement_data: {
+        Args: { p_start: string; p_end: string }
+        Returns: {
+          account_number: string
+          account_name: string
+          account_type: string
+          total_debit: number | string
+          total_credit: number | string
+        }[]
+      }
+      get_cash_flow_data: {
+        Args: { p_start: string; p_end: string }
+        Returns: {
+          account_number: string
+          account_name: string
+          account_type: string
+          total_debit: number | string
+          total_credit: number | string
+        }[]
+      }
+      get_cash_flow_categorized: {
+        Args: { p_start: string; p_end: string }
+        Returns: {
+          cash_from_customers: number | string
+          cash_to_vendors: number | string
+          cash_from_draws: number | string
+          capital_contributions: number | string
+          loan_payments: number | string
+          owner_draws: number | string
+        }[]
+      }
+      get_cash_flow_statement: {
+        Args: { p_start: string; p_end: string }
+        Returns: {
+          operating_receipts: number | string
+          check_float_adjustments: number | string
+          vendor_payments: number | string
+          draws_received: number | string
+          lender_funded_checks: number | string
+          owner_contributions: number | string
+          loan_principal_payments: number | string
+          owner_distributions: number | string
+          transfers_in: number | string
+          transfers_out: number | string
+          beginning_cash: number | string
+          ending_cash: number | string
+        }[]
+      }
+      get_cash_flow_lines: {
+        Args: { p_start: string; p_end: string }
+        Returns: {
+          line_id: string
+          entry_date: string
+          reference: string | null
+          description: string | null
+          bucket: string
+          amount: number | string
+        }[]
+      }
+      get_cash_flow_noncash: {
+        Args: { p_start: string; p_end: string }
+        Returns: {
+          bucket: string
+          journal_entry_id: string
+          entry_date: string
+          reference: string | null
+          description: string | null
+          amount: number | string
+        }[]
+      }
+      get_project_budget_totals: {
+        Args: never
+        Returns: { project_id: string; total_budget: number | string }[]
+      }
+      get_project_invoice_actuals: {
+        Args: never
+        Returns: { project_id: string; actual_amount: number | string }[]
+      }
+      get_invoice_line_actuals_by_project: {
+        Args: never
+        Returns: { project_id: string; total_amount: number | string }[]
+      }
+      get_vendor_invoice_stats: {
+        Args: { p_year_start: string }
+        Returns: {
+          vendor_id: string
+          ytd_spend: number | string
+          open_invoices: number
+          open_amount: number | string
+          last_invoice_date: string | null
+        }[]
+      }
+      get_wip_balances: {
+        Args: { p_project_id?: string | null }
+        Returns: {
+          project_id: string | null
+          account_number: string
+          total_debit: number | string
+          total_credit: number | string
+        }[]
+      }
+      get_wip_balances_asof: {
+        Args: { p_as_of?: string; p_project_id?: string | null }
+        Returns: {
+          project_id: string | null
+          account_number: string
+          total_debit: number | string
+          total_credit: number | string
+        }[]
+      }
     }
     Enums: {
       cost_category:

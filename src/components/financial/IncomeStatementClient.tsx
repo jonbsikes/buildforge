@@ -154,7 +154,7 @@ export default function IncomeStatementClient({ initialRows }: { initialRows: In
 
     // Server-side aggregation — per-account P&L totals for the range.
     // Drill-down lines are fetched on demand when an account is clicked.
-    const { data: rpcData } = await (supabase.rpc as any)("get_income_statement_data", { p_start: start, p_end: end });
+    const { data: rpcData } = await supabase.rpc("get_income_statement_data", { p_start: start, p_end: end });
     setData(buildStatementData((rpcData ?? []) as IncomeStatementRpcRow[]));
     setLoading(false);
   }, [preset, customStart, customEnd]);
