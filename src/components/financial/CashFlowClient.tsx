@@ -9,8 +9,11 @@ import { RefetchOverlay } from "@/components/ui/Skeleton";
 import {
   parseCashFlowBuckets,
   buildCashFlowStatementSections,
+  buildNoncashSection,
+  CASH_FLOW_NONCASH_LABELS,
   type CashFlowStatementSection,
   type CashFlowStatementLine,
+  type CashFlowNoncashRow,
 } from "@/lib/reports/cashflow-shared";
 
 function fmt(n: number) {
@@ -49,10 +52,13 @@ function getPresetRange(preset: DatePreset): { start: string; end: string } {
 
 export default function CashFlowClient({
   initialBucket,
+  initialNoncash,
 }: {
   /** First row of get_cash_flow_statement for the default (since-inception)
    *  range, fetched server-side (Package 05 §B). */
   initialBucket?: Record<string, number | string>;
+  /** Rows of get_cash_flow_noncash for the same default range. */
+  initialNoncash?: CashFlowNoncashRow[];
 }) {
   const [preset, setPreset] = useState<DatePreset>("since_inception");
   const [customStart, setCustomStart] = useState("");
@@ -60,9 +66,10 @@ export default function CashFlowClient({
   const initial = (() => {
     const b = parseCashFlowBuckets(initialBucket);
     const built = buildCashFlowStatementSections(b);
-    return { sections: [built.operating, built.investing, built.financing], netChange: built.netChange, beginningCash: b.beginning_cash, endingCash: b.ending_cash };
+    return { sections: [built.operating, built.investing, built.financing], noncash: buildNoncashSection(initialNoncash), netChange: built.netChange, beginningCash: b.beginning_cash, endingCash: b.ending_cash };
   })();
   const [sections, setSections] = useState<CashFlowStatementSection[]>(initial.sections);
+  const [noncash, setNoncash] = useState<CashFlowStatementSection>(initial.noncash);
   const [netChange, setNetChange] = useState(initial.netChange);
   const [beginningCash, setBeginningCash] = useState(initial.beginningCash);
   const [endingCash, setEndingCash] = useState(initial.endingCash);
@@ -82,14 +89,15 @@ export default function CashFlowClient({
     // so beginning cash + net change = ending cash = GL cash balance.
     // The same RPC + shaping powers the PDF and Excel exports.
     // ─────────────────────────────────────────────────────────────────
-    const { data: bucketData } = await (supabase.rpc as any)("get_cash_flow_statement", {
-      p_start: start,
-      p_end: end,
-    });
+    const [{ data: bucketData }, { data: noncashData }] = await Promise.all([
+      supabase.rpc("get_cash_flow_statement", { p_start: start, p_end: end }),
+      supabase.rpc("get_cash_flow_noncash", { p_start: start, p_end: end }),
+    ]);
     const b = parseCashFlowBuckets(((bucketData ?? []) as Record<string, number | string>[])[0]);
     const built = buildCashFlowStatementSections(b);
 
     setSections([built.operating, built.investing, built.financing]);
+    setNoncash(buildNoncashSection((noncashData ?? []) as CashFlowNoncashRow[]));
     setNetChange(built.netChange);
     setBeginningCash(b.beginning_cash);
     setEndingCash(b.ending_cash);
@@ -111,6 +119,22 @@ export default function CashFlowClient({
     const { start, end } = preset === "custom" ? { start: customStart, end: customEnd } : getPresetRange(preset);
     if (!start || !end) return;
     const supabase = createClient();
+    const isNoncash = line.bucket in CASH_FLOW_NONCASH_LABELS;
+    if (isNoncash) {
+      // One row per JE from get_cash_flow_noncash — same classification as the totals.
+      const { data } = await supabase.rpc("get_cash_flow_noncash", { p_start: start, p_end: end });
+      const entries: DrillEntry[] = ((data ?? []) as CashFlowNoncashRow[])
+        .filter((r) => r.bucket === line.bucket)
+        .map((r) => ({
+          id: r.journal_entry_id,
+          entry_date: r.entry_date,
+          reference: r.reference,
+          description: r.description ?? "",
+          amount: Number(r.amount),
+        }));
+      setDrill({ line, entries });
+      return;
+    }
     type LineRow = {
       line_id: string;
       entry_date: string;
@@ -119,7 +143,7 @@ export default function CashFlowClient({
       bucket: string;
       amount: number;
     };
-    const { data } = await (supabase.rpc as any)("get_cash_flow_lines", { p_start: start, p_end: end });
+    const { data } = await supabase.rpc("get_cash_flow_lines", { p_start: start, p_end: end });
     const entries: DrillEntry[] = ((data ?? []) as LineRow[])
       .filter((r) => r.bucket === line.bucket)
       .map((r) => ({
@@ -198,6 +222,33 @@ export default function CashFlowClient({
                   <span className="text-gray-900 tabular-nums">{fmtFull(endingCash)}</span>
                 </div>
               </div>
+
+              {/* ASC 230-10-50-3 supplemental disclosure — not part of net change */}
+              {noncash.lines.length > 0 && (
+                <div className="border-t border-dashed border-gray-200 pt-5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">{noncash.title}</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm mb-2">
+                      <tbody>
+                        {noncash.lines.map(line => (
+                          <tr key={line.bucket} className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors group" onClick={() => openDrill(line)}>
+                            <td className="py-2 pl-4 text-gray-700">
+                              <span className="flex items-center gap-1">
+                                {line.label}
+                                <ChevronDown size={12} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </span>
+                            </td>
+                            <td className="py-2 pr-2 text-right font-medium text-gray-800 tabular-nums">
+                              {line.amount < 0 ? `(${fmt(Math.abs(line.amount))})` : fmt(line.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {noncash.note && <p className="text-[11px] text-gray-400 pl-4">{noncash.note}</p>}
+                </div>
+              )}
             </div>
           </div>
         </RefetchOverlay>

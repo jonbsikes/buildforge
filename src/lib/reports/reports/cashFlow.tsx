@@ -11,7 +11,9 @@ import type { ReportParams } from "../types";
 import {
   parseCashFlowBuckets,
   buildCashFlowStatementSections,
+  buildNoncashSection,
   type CashFlowStatementSection,
+  type CashFlowNoncashRow,
 } from "../cashflow-shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -20,6 +22,8 @@ export interface CashFlowData {
   operating: CashFlowStatementSection;
   investing: CashFlowStatementSection;
   financing: CashFlowStatementSection;
+  /** Supplemental non-cash investing & financing disclosures (not part of netChange). */
+  noncash: CashFlowStatementSection;
   netChange: number;
   beginningCash: number;
   endingCash: number;
@@ -35,18 +39,20 @@ export async function getData(p: ReportParams): Promise<CashFlowData> {
   // Direct-method statement from actual cash-account movement
   // (get_cash_flow_statement, migration 041). Buckets partition every cash
   // line exactly, so beginning + net change = ending = GL cash balance.
-  const { data: bucketData } = await (supabase.rpc as any)("get_cash_flow_statement", {
-    p_start: start,
-    p_end: end,
-  });
+  const [{ data: bucketData }, { data: noncashData }] = await Promise.all([
+    supabase.rpc("get_cash_flow_statement", { p_start: start, p_end: end }),
+    supabase.rpc("get_cash_flow_noncash", { p_start: start, p_end: end }),
+  ]);
   const b = parseCashFlowBuckets(((bucketData ?? []) as Record<string, number | string>[])[0]);
 
   const { operating, investing, financing, netChange } = buildCashFlowStatementSections(b);
+  const noncash = buildNoncashSection((noncashData ?? []) as CashFlowNoncashRow[]);
 
   return {
     operating,
     investing,
     financing,
+    noncash,
     netChange,
     beginningCash: b.beginning_cash,
     endingCash: b.ending_cash,
@@ -157,6 +163,28 @@ export function Pdf({ data, params, logo }: { data: CashFlowData; params: Report
           </View>
         </View>
       </View>
+
+      {/* ASC 230-10-50-3 supplemental disclosure — informational, not part of net change */}
+      {data.noncash.lines.length > 0 && (
+        <View style={{ marginTop: 14 }} wrap={false}>
+          <Text style={styles.sectionHeading}>{data.noncash.title}</Text>
+          {data.noncash.lines.map((line, i) => (
+            <View key={line.bucket} style={[styles.tr, i % 2 === 1 ? styles.trZebra : {}]} wrap={false}>
+              <View style={{ width: "70%" }}>
+                <Text style={styles.td}>{line.label}</Text>
+              </View>
+              <View style={{ width: "30%" }}>
+                <Text style={styles.tdNum}>
+                  {line.amount < 0 ? `(${fmtMoney(Math.abs(line.amount))})` : fmtMoney(line.amount)}
+                </Text>
+              </View>
+            </View>
+          ))}
+          {data.noncash.note && (
+            <Text style={[styles.small, { color: colors.muted, marginTop: 2 }]}>{data.noncash.note}</Text>
+          )}
+        </View>
+      )}
     </ReportDocument>
   );
 }

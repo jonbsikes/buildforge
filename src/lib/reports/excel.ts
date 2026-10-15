@@ -250,6 +250,18 @@ function buildCashFlow(wb: ExcelJS.Workbook, data: CashFlowData, p: ReportParams
   addLine(ws, "Cash at beginning of period", data.beginningCash, { indent: 1 });
   addLine(ws, "Net change in cash", data.netChange, { indent: 1 });
   addLine(ws, "Cash at end of period (ties to GL cash accounts)", data.endingCash, { bold: true, topBorder: true });
+
+  if (data.noncash.lines.length > 0) {
+    ws.addRow([]);
+    addSectionTitle(ws, data.noncash.title);
+    for (const l of data.noncash.lines) {
+      addLine(ws, l.label, l.amount, { indent: 1 });
+    }
+    if (data.noncash.note) {
+      const r = ws.addRow([data.noncash.note]);
+      r.getCell(1).font = { italic: true, size: 9, color: { argb: MUTED_ARGB } };
+    }
+  }
 }
 
 function buildFinancialSummary(wb: ExcelJS.Workbook, data: FinancialSummaryData, p: ReportParams) {

@@ -17,6 +17,7 @@ export interface CashFlowBuckets {
   check_float_adjustments: number;
   vendor_payments: number;
   draws_received: number;
+  lender_funded_checks: number;
   owner_contributions: number;
   loan_principal_payments: number;
   owner_distributions: number;
@@ -41,11 +42,60 @@ export interface CashFlowStatementSection {
   total: number;
 }
 
+/** Supplemental non-cash activity (ASC 230-10-50-3) from get_cash_flow_noncash. */
+export const CASH_FLOW_NONCASH_LABELS: Record<string, string> = {
+  lender_funded_costs: "Construction & land costs funded directly by lenders",
+  owner_funded_costs: "Construction & land costs paid personally by owners (capital contributions)",
+  loan_refinanced: "Loan balances refinanced (lot-release paydowns funded by construction loans)",
+  lot_transfers: "Lot cost transferred from land development (CIP) to homes (WIP)",
+};
+
+export const CASH_FLOW_NONCASH_ORDER = [
+  "lender_funded_costs",
+  "owner_funded_costs",
+  "loan_refinanced",
+  "lot_transfers",
+] as const;
+
+export interface CashFlowNoncashRow {
+  bucket: string;
+  journal_entry_id: string;
+  entry_date: string;
+  reference: string | null;
+  description: string | null;
+  amount: number | string;
+}
+
+/**
+ * Collapse get_cash_flow_noncash rows into one line per bucket. These are
+ * disclosures, not cash movement — they never enter netChange.
+ */
+export function buildNoncashSection(rows: CashFlowNoncashRow[] | null | undefined): CashFlowStatementSection {
+  const totals = new Map<string, number>();
+  for (const r of rows ?? []) {
+    totals.set(r.bucket, (totals.get(r.bucket) ?? 0) + Number(r.amount));
+  }
+  const lines: CashFlowStatementLine[] = [];
+  for (const bucket of CASH_FLOW_NONCASH_ORDER) {
+    const amt = totals.get(bucket) ?? 0;
+    if (Math.abs(amt) > 0.004) {
+      lines.push({ bucket, label: CASH_FLOW_NONCASH_LABELS[bucket] ?? bucket, amount: amt });
+    }
+  }
+  return {
+    title: "Supplemental Non-Cash Investing & Financing Activity",
+    note: "Costs funded directly by lenders or owners never pass through the company's bank account, so they do not appear above. Listed here for a complete picture of total project funding.",
+    lines,
+    total: lines.reduce((s, l) => s + l.amount, 0),
+  };
+}
+
 export const CASH_FLOW_BUCKET_LABELS: Record<string, string> = {
   operating_receipts: "Cash receipts (deposits, refunds & other)",
-  check_float_adjustments: "Checks issued, not yet cleared (timing adjustments)",
+  check_float_adjustments: "Bank clearing reversed (voided cleared check)",
   vendor_payments: "Payments to vendors & subcontractors",
   draws_received: "Construction loan draws received",
+  lender_funded_checks: "Loan draws received to cover outstanding checks",
   owner_contributions: "Owner capital contributions",
   loan_principal_payments: "Loan principal payments",
   owner_distributions: "Owner draws & return of capital",
@@ -60,6 +110,7 @@ export function parseCashFlowBuckets(raw: Record<string, number | string> | unde
     check_float_adjustments: n("check_float_adjustments"),
     vendor_payments: n("vendor_payments"),
     draws_received: n("draws_received"),
+    lender_funded_checks: n("lender_funded_checks"),
     owner_contributions: n("owner_contributions"),
     loan_principal_payments: n("loan_principal_payments"),
     owner_distributions: n("owner_distributions"),
@@ -104,6 +155,9 @@ export function buildCashFlowStatementSections(b: CashFlowBuckets): {
     ...(b.draws_received !== 0
       ? [{ bucket: "draws_received", label: L.draws_received, amount: b.draws_received }]
       : []),
+    ...(b.lender_funded_checks !== 0
+      ? [{ bucket: "lender_funded_checks", label: L.lender_funded_checks, amount: b.lender_funded_checks }]
+      : []),
     ...(b.owner_contributions !== 0
       ? [{ bucket: "owner_contributions", label: L.owner_contributions, amount: b.owner_contributions }]
       : []),
@@ -115,7 +169,7 @@ export function buildCashFlowStatementSections(b: CashFlowBuckets): {
       : []),
   ];
   const financingTotal =
-    b.draws_received + b.owner_contributions - b.loan_principal_payments - b.owner_distributions;
+    b.draws_received + b.lender_funded_checks + b.owner_contributions - b.loan_principal_payments - b.owner_distributions;
 
   // transferNet is included exactly once whether or not it is surfaced, so the
   // partition stays exact: beginning + netChange = ending.
