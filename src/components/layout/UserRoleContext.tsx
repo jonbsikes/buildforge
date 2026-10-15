@@ -3,7 +3,10 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export type UserRole = "admin" | "project_lead" | "project_manager";
+export type UserRole = "admin" | "project_lead" | "project_manager" | "viewer";
+// "viewer" is a fully read-only login (e.g. outside CPA). The database enforces
+// no-write for this role via RESTRICTIVE RLS policies (migration 043); canEdit
+// and isAdmin are both false so the UI hides every edit control.
 
 interface UserRoleContextValue {
   role: UserRole;

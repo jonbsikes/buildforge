@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-export type UserRole = "admin" | "project_lead" | "project_manager";
+export type UserRole = "admin" | "project_lead" | "project_manager" | "viewer";
 
 export interface UserProfile {
   id: string;

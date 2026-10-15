@@ -21,7 +21,7 @@ interface Props {
  * Renders nothing for users who can edit it.
  */
 export default function ReadOnlyBanner({ audience = "admin" }: Props = {}) {
-  const { isAdmin, canEdit, loading } = useUserRole();
+  const { role, isAdmin, canEdit, loading } = useUserRole();
 
   if (loading) return null;
   if (audience === "admin" && isAdmin) return null;
@@ -30,7 +30,7 @@ export default function ReadOnlyBanner({ audience = "admin" }: Props = {}) {
   return (
     <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-2 rounded-lg flex items-center gap-2 text-sm mb-4">
       <Eye size={16} />
-      <span>You have view-only access to financial data.</span>
+      <span>{role === "viewer" ? "Read-only access — you can view but not change anything." : "You have view-only access to financial data."}</span>
     </div>
   );
 }
