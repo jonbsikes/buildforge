@@ -107,7 +107,7 @@ export default async function ContractsPage() {
                         </td>
                         <td className="px-5 py-3 text-gray-500">{c.signed_date ?? "—"}</td>
                         <td className="px-5 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center justify-end gap-2 reveal-on-hover">
                             <Link href={`/contracts/${c.id}/edit`} className="p-1.5 text-gray-400 hover:text-[#4272EF] transition-colors rounded-lg hover:bg-blue-50">
                               <Pencil size={14} />
                             </Link>

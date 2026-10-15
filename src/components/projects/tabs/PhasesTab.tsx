@@ -309,7 +309,7 @@ export default function PhasesTab({ projectId, initialPhases }: { projectId: str
                       </StatusBadge>
                     </td>
                     <td className="px-3 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-end gap-1 reveal-on-hover">
                         <button
                           onClick={() => setEditingId(phase.id)}
                           className="p-1 text-gray-400 hover:text-[#4272EF] rounded transition-colors"

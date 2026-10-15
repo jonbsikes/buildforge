@@ -199,7 +199,7 @@ function FolderDropZone({
                   <p className="text-sm text-gray-800 truncate">{doc.file_name}</p>
                   <p className="text-xs text-gray-400">{fmtSize(doc.file_size_kb)}</p>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1 reveal-on-hover">
                   <button
                     onClick={() => handlePreview(doc)}
                     className="p-1.5 rounded text-gray-400 hover:text-[#4272EF] hover:bg-blue-50 transition-colors"

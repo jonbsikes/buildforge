@@ -265,7 +265,7 @@ export default function TreeRow({ node, expanded, onToggle }: TreeRowProps) {
           <Link
             href={node.href}
             onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-0.5 text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+            className="inline-flex items-center gap-0.5 text-[11px] font-medium reveal-on-hover"
             style={{ color: isOrg ? "#94A3B8" : "var(--brand-blue)" }}
           >
             Open <ArrowRight size={11} />

@@ -90,7 +90,7 @@ export default function VendorCreditsTable({ rows }: { rows: CreditRow[] }) {
                   </td>
                   <td className="px-4 py-2 text-right text-xs text-gray-500 capitalize">{STATUS_LABEL[c.status] ?? c.status}</td>
                   <td className="px-4 py-2 text-center">
-                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-end gap-1 reveal-on-hover">
                       {c.status === "available" && c.applied_amount === 0 && (
                         <ConfirmButton
                           trigger={<XCircle size={14} />}

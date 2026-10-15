@@ -199,7 +199,7 @@ export default function ContactsClient({ contacts }: { contacts: Contact[] }) {
                   <p className="font-semibold text-gray-900 truncate">{c.name}</p>
                   <p className="text-xs text-gray-500 capitalize">{c.type}</p>
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100">
+                <div className="flex items-center gap-1 flex-shrink-0 reveal-on-hover">
                   <button
                     onClick={() => openEdit(c)}
                     aria-label={`Edit ${c.name}`}

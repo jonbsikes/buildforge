@@ -607,7 +607,7 @@ export default function CostItemsTab({
                             ? <Money value={actualValue} decimals className="font-medium" style={isExpanded ? { color: "#4272EF" } : undefined} />
                             : <span className="text-gray-300">—</span>}
                         </td>
-                        <td className="px-2 py-2.5 text-right opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        <td className="px-2 py-2.5 text-right reveal-on-hover" onClick={(e) => e.stopPropagation()}>
                           {cc.pccId && (
                             <RemoveCodeButton
                               pccId={cc.pccId}
