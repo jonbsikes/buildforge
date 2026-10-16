@@ -5,7 +5,8 @@
 -- and the dropped SELECT policies were strict subsets of an existing ALL policy.
 -- All conditions keep the 045 InitPlan style: (select auth.uid()), (select is_admin()).
 -- RESTRICTIVE viewer_no_* policies are untouched.
--- NOT YET APPLIED — run this file from the dashboard SQL editor.
+-- APPLIED 2026-10-15 via the dashboard SQL editor (verified: advisor shows zero
+-- multiple_permissive_policies warnings; one permissive policy per action remains).
 
 BEGIN;
 
