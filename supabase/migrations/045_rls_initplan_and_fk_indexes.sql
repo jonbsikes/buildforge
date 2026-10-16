@@ -90,7 +90,7 @@ ALTER TABLE public.rate_limit_entries ADD PRIMARY KEY (id);
 -- enforcement for viewers comes from the RESTRICTIVE viewer_no_* policies,
 -- which stay. Dropping it clears 30 of the advisor's
 -- multiple_permissive_policies warnings.
--- NOT YET APPLIED (MCP destructive-statement guard) — run from the SQL editor:
+-- APPLIED 2026-10-15 via the dashboard SQL editor (verified: 0 viewer_read policies remain):
 DO $$
 DECLARE r record;
 BEGIN
